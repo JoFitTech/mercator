@@ -13,13 +13,15 @@ import { toast } from 'sonner';
 import { BrainCircuit, Check, Copy, Database, FileJson, Info } from 'lucide-react';
 import {
   buildAutoDataNote,
+  buildResearchPrompt,
   deriveAutoGates,
   deriveAutoScores,
+  getResearchJsonSchema,
   mergeBaseDataIntoForm,
   normalizeBaseData,
-  normalizeIdentifierInput
-} from '@/lib/analysisAutoFill';
-import { buildResearchPrompt, getResearchJsonSchema, parseAndMapResearchJson } from '@/lib/analysisPrompting';
+  normalizeIdentifierInput,
+  parseAndMapResearchJson
+} from '@/lib/utils';
 
 const ASSET_TYPES = ['Aktie', 'ETF', 'Pennystock'];
 const ANALYSIS_TYPES = ['Satellite Checkliste', 'Breites Aktien-Framework', 'ETF-Framework'];
