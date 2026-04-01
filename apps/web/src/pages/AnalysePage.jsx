@@ -14,12 +14,12 @@ import AnalysisFormModal from '@/components/analyse/AnalysisFormModal.jsx';
 import AnalysisDetailModal from '@/components/analyse/AnalysisDetailModal.jsx';
 
 const normalizeDecision = (value) => {
-  const raw = (value || '').toLowerCase();
+  const raw = (value || '').toLowerCase().trim();
   if (['strong buy', 'buy', 'kaufkandidat'].includes(raw)) return 'Kaufkandidat';
   if (['booster-kandidat', 'booster candidate'].includes(raw)) return 'Booster-Kandidat';
   if (['hold', 'watch', 'watchlist'].includes(raw)) return 'Watchlist';
   if (['sell', 'exclude', 'ausschluss'].includes(raw)) return 'Ausschluss';
-  if (!value) return 'kein Kandidat';
+  if (['kein kandidat', 'no candidate', 'none'].includes(raw) || !raw) return 'kein Kandidat';
   return value;
 };
 
@@ -68,10 +68,12 @@ export default function AnalysePage() {
     setSelectedAnalysis(null);
     setIsFormOpen(true);
   };
+
   const openDetail = (item) => {
     setSelectedAnalysis(item);
     setIsDetailOpen(true);
   };
+
   const openEdit = (item) => {
     setSelectedAnalysis(item);
     setIsDetailOpen(false);
@@ -100,7 +102,7 @@ export default function AnalysePage() {
         <div className="bg-card border rounded-2xl p-6 shadow-sm flex flex-col md:flex-row justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2"><BrainCircuit className="h-8 w-8 text-primary" />Hybrid-Analyse</h1>
-            <p className="text-muted-foreground mt-2">6 Hard Gates + 4 Score-Blöcke: Quantitative Teile werden direkt vorbefüllt, qualitative Teile per Agent-Prompt + JSON-Import ergänzt.</p>
+            <p className="text-muted-foreground mt-2">6 Hard Gates + 4 Score-Blöcke. Quantitative Teile kommen aus Basisdaten-Import, qualitative Teile aus Agent-Prompt + Research-JSON-Import.</p>
           </div>
           <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />Neue Analyse</Button>
         </div>
