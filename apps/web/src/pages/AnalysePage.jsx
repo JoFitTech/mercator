@@ -16,7 +16,7 @@ import AnalysisDetailModal from '@/components/analyse/AnalysisDetailModal.jsx';
 const normalizeDecision = (value) => {
   const raw = (value || '').toLowerCase().trim();
   if (['strong buy', 'buy', 'kaufkandidat'].includes(raw)) return 'Kaufkandidat';
-  if (['booster-kandidat', 'booster candidate'].includes(raw)) return 'Booster-Kandidat';
+  if (['booster-kandidat', 'booster candidate', 'booster'].includes(raw)) return 'Booster';
   if (['hold', 'watch', 'watchlist'].includes(raw)) return 'Watchlist';
   if (['sell', 'exclude', 'ausschluss'].includes(raw)) return 'Ausschluss';
   if (['kein kandidat', 'no candidate', 'none'].includes(raw) || !raw) return 'kein Kandidat';
@@ -114,7 +114,7 @@ export default function AnalysePage() {
               <div className="flex flex-wrap gap-2">
                 <div className="relative min-w-[220px]"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-8" placeholder="Ticker oder Name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
                 <Select value={assetFilter} onValueChange={setAssetFilter}><SelectTrigger className="w-[130px]"><SelectValue placeholder="Asset" /></SelectTrigger><SelectContent><SelectItem value="all">Alle Typen</SelectItem><SelectItem value="Aktie">Aktie</SelectItem><SelectItem value="ETF">ETF</SelectItem><SelectItem value="Pennystock">Pennystock</SelectItem></SelectContent></Select>
-                <Select value={decisionFilter} onValueChange={setDecisionFilter}><SelectTrigger className="w-[170px]"><SelectValue placeholder="Entscheidung" /></SelectTrigger><SelectContent><SelectItem value="all">Alle</SelectItem><SelectItem value="Booster-Kandidat">Booster-Kandidat</SelectItem><SelectItem value="Kaufkandidat">Kaufkandidat</SelectItem><SelectItem value="Watchlist">Watchlist</SelectItem><SelectItem value="Ausschluss">Ausschluss</SelectItem><SelectItem value="kein Kandidat">kein Kandidat</SelectItem></SelectContent></Select>
+                <Select value={decisionFilter} onValueChange={setDecisionFilter}><SelectTrigger className="w-[170px]"><SelectValue placeholder="Entscheidung" /></SelectTrigger><SelectContent><SelectItem value="all">Alle</SelectItem><SelectItem value="Booster">Booster</SelectItem><SelectItem value="Kaufkandidat">Kaufkandidat</SelectItem><SelectItem value="Watchlist">Watchlist</SelectItem><SelectItem value="Ausschluss">Ausschluss</SelectItem><SelectItem value="kein Kandidat">kein Kandidat</SelectItem></SelectContent></Select>
                 <Button variant="outline" size="icon" title={sortBy === 'updatedAt' ? 'Sortierung: updatedAt' : 'Sortierung: finalScore'} onClick={() => setSortBy((prev) => (prev === 'updatedAt' ? 'finalScore' : 'updatedAt'))}><ArrowUpDown className="h-4 w-4" /></Button>
               </div>
             </div>

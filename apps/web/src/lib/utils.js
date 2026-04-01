@@ -66,6 +66,10 @@ export function splitMetaNotes(rawText) {
   };
 }
 
+export function parseMetaBlock(rawText) {
+  return splitMetaNotes(rawText);
+}
+
 export function mergeVisibleNotesWithMeta(visibleText, metaObj) {
   const visible = asText(visibleText);
   const metaPayload = metaObj && typeof metaObj === 'object' ? metaObj : {};
@@ -75,6 +79,10 @@ export function mergeVisibleNotesWithMeta(visibleText, metaObj) {
 
   const metaJson = JSON.stringify(metaPayload, null, 2);
   return [visible, FP_META_START, metaJson, FP_META_END].filter(Boolean).join('\n\n');
+}
+
+export function buildMetaBlock(visibleText, metaObj) {
+  return mergeVisibleNotesWithMeta(visibleText, metaObj);
 }
 
 export function normalizeIdentifierInput({ isin, wkn, ticker }) {
@@ -128,14 +136,10 @@ export function deriveAutoGates(data) {
   const exchangeKnown = Boolean(data.exchange);
   const exchangeAllowed = exchangeKnown ? ALLOWED_EXCHANGES.has(data.exchange) : null;
 
-  let hardViolations = 0;
-  if (exchangeKnown && exchangeAllowed === false) hardViolations += 1;
-  if (mcap !== null && mcap < 1e9) hardViolations += 1;
-  if (vol !== null && vol < 1e7) hardViolations += 1;
-  if (spread !== null && spread > 0.3) hardViolations += 1;
-
   if (exchangeAllowed && mcap >= 1e9 && vol >= 1e7 && spread <= 0.3) gates.gateUniverseLiquidityStatus = 'PASS';
-  else if (hardViolations >= 2) gates.gateUniverseLiquidityStatus = 'FAIL';
+  else if ((exchangeKnown && exchangeAllowed === false) || (mcap !== null && mcap < 1e9) || (vol !== null && vol < 1e7) || (spread !== null && spread > 0.3)) {
+    gates.gateUniverseLiquidityStatus = 'FAIL';
+  }
   else gates.gateUniverseLiquidityStatus = 'OFFEN';
 
   if (data.netCashFlag === true || (data.ttmFcf !== null && data.ttmFcf > 0) || (data.runwayMonths !== null && data.runwayMonths >= 18)) {
