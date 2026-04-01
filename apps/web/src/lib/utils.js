@@ -9,6 +9,9 @@ const ALLOWED_EXCHANGES = new Set(['NYSE', 'NASDAQ', 'XETRA', 'EURONEXT', 'LSE',
 const EXCHANGE_ALIASES = { XETR: 'XETRA', XETRA: 'XETRA', NASDAQGS: 'NASDAQ', NASDAQGM: 'NASDAQ', NYSEARCA: 'NYSE', ENX: 'EURONEXT' };
 const VALID_GATE_STATUS = new Set(['PASS', 'FAIL', 'OFFEN']);
 
+const FP_META_START = '[[FP_META]]';
+const FP_META_END = '[[/FP_META]]';
+
 const asText = (v) => (v === null || v === undefined ? '' : String(v).trim());
 const asNum = (v) => {
   if (v === null || v === undefined || v === '') return null;
@@ -26,12 +29,53 @@ const asBool = (v) => {
   return null;
 };
 
-const appendSection = (existing, title, content) => {
-  const normalizedContent = asText(content);
-  if (!normalizedContent) return existing || '';
-  const section = `[${title}]\n${normalizedContent}`;
-  return [existing, section].filter(Boolean).join('\n\n');
+const normalizeStatus = (v) => (typeof v === 'string' && VALID_GATE_STATUS.has(v.toUpperCase()) ? v.toUpperCase() : null);
+const normalizeBoundedNumber = (v, min, max) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < min || n > max) return null;
+  return n;
 };
+
+export function safeJsonParse(value, fallback = null) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+export function splitMetaNotes(rawText) {
+  const text = asText(rawText);
+  if (!text) return { visibleText: '', meta: {}, rawMeta: '' };
+
+  const start = text.indexOf(FP_META_START);
+  const end = text.indexOf(FP_META_END);
+
+  if (start === -1 || end === -1 || end < start) {
+    return { visibleText: text, meta: {}, rawMeta: '' };
+  }
+
+  const before = text.slice(0, start).trimEnd();
+  const jsonText = text.slice(start + FP_META_START.length, end).trim();
+  const meta = safeJsonParse(jsonText, {});
+
+  return {
+    visibleText: before,
+    meta: meta && typeof meta === 'object' ? meta : {},
+    rawMeta: jsonText
+  };
+}
+
+export function mergeVisibleNotesWithMeta(visibleText, metaObj) {
+  const visible = asText(visibleText);
+  const metaPayload = metaObj && typeof metaObj === 'object' ? metaObj : {};
+
+  const hasMeta = Object.values(metaPayload).some((v) => v !== '' && v !== null && v !== undefined);
+  if (!hasMeta) return visible;
+
+  const metaJson = JSON.stringify(metaPayload, null, 2);
+  return [visible, FP_META_START, metaJson, FP_META_END].filter(Boolean).join('\n\n');
+}
 
 export function normalizeIdentifierInput({ isin, wkn, ticker }) {
   const normalized = {
@@ -100,17 +144,13 @@ export function deriveAutoGates(data) {
     gates.gateRunwayStatus = 'OFFEN';
   }
 
-  gates.gateEdgeProofStatus = 'OFFEN';
-
   if (data.revenueCagr3y !== null && data.revenueCagr3y >= 10 && ['stabil', 'verbessernd', 'improving'].includes(data.marginTrend)) {
     gates.gateGrowthConvexityStatus = 'PASS';
-  } else if (data.revenueCagr3y !== null && data.revenueCagr3y < 0 && ['verschlechternd', 'deteriorating'].includes(data.marginTrend)) {
+  } else if (data.revenueCagr3y !== null && data.revenueCagr3y < -10 && ['verschlechternd', 'deteriorating'].includes(data.marginTrend)) {
     gates.gateGrowthConvexityStatus = 'FAIL';
   } else {
     gates.gateGrowthConvexityStatus = 'OFFEN';
   }
-
-  gates.gateGovernanceStatus = 'OFFEN';
 
   if ((dte !== null && dte < 7) || (vol !== null && vol < 1e7) || (spread !== null && spread > 0.3)) {
     gates.gateTradingFeasibilityStatus = 'FAIL';
@@ -124,25 +164,20 @@ export function deriveAutoGates(data) {
 }
 
 export function deriveAutoScores(data) {
-  const scores = { scoreEdgeStrength: 0, scoreQuality: 0, scoreGrowthLeverage: 0, scoreSatelliteFit: 0 };
+  const scores = { scoreQuality: 0, scoreGrowthLeverage: 0, scoreSatelliteFit: 0 };
   const notes = [];
 
-  notes.push('Edge-Stärke bleibt automatisch auf 0 (qualitatives Research erforderlich).');
+  if (data.ttmFcf !== null) scores.scoreQuality += data.ttmFcf > 0 ? 10 : 2;
+  else notes.push('ttmFcf fehlt -> Qualität konservativ.');
 
-  if (data.ttmFcf !== null) {
-    if (data.ttmFcf > 0) scores.scoreQuality += 10;
-    else scores.scoreQuality += 2;
-  } else {
-    notes.push('ttmFcf fehlt -> Qualitäts-Score nur teilweise ableitbar.');
-  }
   if (data.netCashFlag === true) scores.scoreQuality += 10;
   else if (data.netCashFlag === false) scores.scoreQuality += 2;
-  else notes.push('netCashFlag fehlt -> Qualitäts-Score konservativ.');
+  else notes.push('netCashFlag fehlt -> Qualität konservativ.');
 
-  if (data.dilutionTrend === 'niedrig' || data.dilutionTrend === 'fallend') scores.scoreQuality += 5;
+  if (['niedrig', 'fallend'].includes(data.dilutionTrend)) scores.scoreQuality += 5;
   else if (data.dilutionTrend === 'stabil') scores.scoreQuality += 3;
   else if (data.dilutionTrend) scores.scoreQuality += 1;
-  else notes.push('dilutionTrend fehlt -> Qualitäts-Score konservativ.');
+  else notes.push('dilutionTrend fehlt -> Qualität konservativ.');
   scores.scoreQuality = Math.min(scores.scoreQuality, 25);
 
   if (data.revenueCagr3y !== null) {
@@ -151,12 +186,13 @@ export function deriveAutoScores(data) {
     else if (data.revenueCagr3y >= 5) scores.scoreGrowthLeverage += 6;
     else if (data.revenueCagr3y >= 0) scores.scoreGrowthLeverage += 3;
   } else {
-    notes.push('revenueCagr3y fehlt -> Growth-Score konservativ.');
+    notes.push('revenueCagr3y fehlt -> Wachstum konservativ.');
   }
-  if (data.marginTrend === 'verbessernd' || data.marginTrend === 'improving') scores.scoreGrowthLeverage += 10;
+
+  if (['verbessernd', 'improving'].includes(data.marginTrend)) scores.scoreGrowthLeverage += 10;
   else if (data.marginTrend === 'stabil') scores.scoreGrowthLeverage += 6;
-  else if (data.marginTrend === 'verschlechternd' || data.marginTrend === 'deteriorating') scores.scoreGrowthLeverage += 1;
-  else notes.push('marginTrend fehlt -> Growth-Score konservativ.');
+  else if (['verschlechternd', 'deteriorating'].includes(data.marginTrend)) scores.scoreGrowthLeverage += 1;
+  else notes.push('marginTrend fehlt -> Wachstum konservativ.');
   scores.scoreGrowthLeverage = Math.min(scores.scoreGrowthLeverage, 25);
 
   if (data.avgDollarVolume !== null) {
@@ -164,7 +200,7 @@ export function deriveAutoScores(data) {
     else if (data.avgDollarVolume >= 1e7) scores.scoreSatelliteFit += 5;
     else scores.scoreSatelliteFit += 1;
   } else {
-    notes.push('avgDollarVolume fehlt -> Satellite-Fit nur teilweise ableitbar.');
+    notes.push('avgDollarVolume fehlt -> Satellite-Fit konservativ.');
   }
 
   if (data.spreadPct !== null) {
@@ -200,39 +236,6 @@ export function buildAutoDataNote({ normalizedData, gates, scores, notes = [] })
     .join('\n');
 }
 
-export function mergeBaseDataIntoForm(currentFormData, normalizedData, autoGates, autoScores, autoNote) {
-  const updates = {
-    ...autoGates,
-    ...autoScores,
-    autoDataStatus: 'Fallback-Import genutzt (kein Live-Provider)',
-    autoDataNote: autoNote
-  };
-
-  if (normalizedData.ticker) updates.ticker = normalizedData.ticker;
-  if (normalizedData.companyName) updates.companyName = normalizedData.companyName;
-  if (['Aktie', 'ETF', 'Pennystock'].includes(normalizedData.assetType)) updates.assetType = normalizedData.assetType;
-
-  updates.gateNotes = appendSection(currentFormData.gateNotes, 'AUTO_GATE_IMPORT', [
-    `exchange=${normalizedData.exchange || 'n/a'}`,
-    `marketCap=${normalizedData.marketCap ?? 'n/a'}`,
-    `avgDollarVolume=${normalizedData.avgDollarVolume ?? 'n/a'}`,
-    `spreadPct=${normalizedData.spreadPct ?? 'n/a'}`,
-    `daysToEarnings=${normalizedData.daysToEarnings ?? 'n/a'}`,
-    `runwayMonths=${normalizedData.runwayMonths ?? 'n/a'}`,
-    `ttmFcf=${normalizedData.ttmFcf ?? 'n/a'}`
-  ].join('; '));
-
-  updates.scoreNotes = appendSection(currentFormData.scoreNotes, 'AUTO_SCORE_IMPORT', [
-    `scoreEdgeStrength=${autoScores.scoreEdgeStrength}`,
-    `scoreQuality=${autoScores.scoreQuality}`,
-    `scoreGrowthLeverage=${autoScores.scoreGrowthLeverage}`,
-    `scoreSatelliteFit=${autoScores.scoreSatelliteFit}`,
-    'Edge-Stärke bleibt ohne qualitative Evidenz offen.'
-  ].join('; '));
-
-  return { ...currentFormData, ...updates };
-}
-
 export function getResearchJsonSchema() {
   return {
     asset: { ticker: '', isin: '', wkn: '', name: '', assetType: '' },
@@ -264,38 +267,33 @@ Asset-Kontext:
 - assetType: ${formData.assetType || ''}
 - analysisType: ${analysisType || 'nicht gesetzt'}
 
-Bereits vorhandene quantitative Vorbefüllung:
+Bereits gesetzte quantitative Gates:
 - gateUniverseLiquidityStatus=${formData.gateUniverseLiquidityStatus}
 - gateRunwayStatus=${formData.gateRunwayStatus}
-- gateEdgeProofStatus=${formData.gateEdgeProofStatus}
 - gateGrowthConvexityStatus=${formData.gateGrowthConvexityStatus}
-- gateGovernanceStatus=${formData.gateGovernanceStatus}
 - gateTradingFeasibilityStatus=${formData.gateTradingFeasibilityStatus}
-- scoreEdgeStrength=${formData.scoreEdgeStrength}
+
+Bereits gesetzte quantitative Scores:
 - scoreQuality=${formData.scoreQuality}
 - scoreGrowthLeverage=${formData.scoreGrowthLeverage}
 - scoreSatelliteFit=${formData.scoreSatelliteFit}
 
-Anweisungen:
-1) Keine quantitativen Daten raten oder erfinden.
-2) Nur qualitative Lücken recherchieren und bewerten.
-3) Fokus auf Edge-Proof, Governance, Management-Qualität, Regulatorik, Bottleneck/Switching Costs/Netzwerk, These, Katalysator, Risiko.
-4) Gib ausschließlich valides JSON gemäß Schema aus.
+Wichtige Regeln:
+1) Quantitative Daten nicht raten oder erfinden.
+2) Nur qualitative Lücken ergänzen.
+3) Fokus: Edge-Proof, Governance, Management-Qualität, Regulatorik, Bottleneck/Switching Costs/Netzwerk, These, Katalysator, Risiko.
+4) Edge-Stärke darf nur qualitativ begründet als Override geliefert werden.
+5) Gib ausschließlich valides JSON gemäß Schema aus.
 
 Schema:
 ${schema}`;
 }
 
-const normalizeStatus = (v) => (typeof v === 'string' && VALID_GATE_STATUS.has(v.toUpperCase()) ? v.toUpperCase() : null);
-const normalizeBoundedNumber = (v, min, max) => {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < min || n > max) return null;
-  return n;
-};
-
-export function parseAndMapResearchJson(jsonText, currentFormData) {
+export function parseResearchJson(jsonText) {
   const parsed = JSON.parse(jsonText);
   const updates = {};
+  const gateNotes = [];
+  const scoreNotes = [];
 
   const edge = parsed?.qualitative_gates?.edge_proof;
   const gov = parsed?.qualitative_gates?.governance;
@@ -304,12 +302,23 @@ export function parseAndMapResearchJson(jsonText, currentFormData) {
   if (edgeStatus) updates.gateEdgeProofStatus = edgeStatus;
   if (govStatus) updates.gateGovernanceStatus = govStatus;
 
+  if (edge?.reason) gateNotes.push(`Edge-Proof: ${edge.reason}`);
+  if (Array.isArray(edge?.evidence) && edge.evidence.length) gateNotes.push(`Edge-Evidence: ${edge.evidence.join(' | ')}`);
+  if (gov?.reason) gateNotes.push(`Governance: ${gov.reason}`);
+  if (Array.isArray(gov?.evidence) && gov.evidence.length) gateNotes.push(`Governance-Evidence: ${gov.evidence.join(' | ')}`);
+
   const edgeValue = normalizeBoundedNumber(parsed?.qualitative_scores?.edge_strength_override?.value, 0, 30);
   if (edgeValue !== null) updates.scoreEdgeStrength = edgeValue;
+  if (parsed?.qualitative_scores?.edge_strength_override?.reason) {
+    scoreNotes.push(`Edge-Override: ${parsed.qualitative_scores.edge_strength_override.reason}`);
+  }
 
   if (parsed?.summary?.thesis) updates.thesis = parsed.summary.thesis;
   if (parsed?.summary?.catalyst) updates.catalyst = parsed.summary.catalyst;
   if (parsed?.summary?.risks) updates.risk = parsed.summary.risks;
+
+  if (parsed?.summary?.management_quality) gateNotes.push(`Management-Qualität: ${parsed.summary.management_quality}`);
+  if (parsed?.summary?.regulatory_context) gateNotes.push(`Regulatorik: ${parsed.summary.regulatory_context}`);
 
   const runway = normalizeStatus(parsed?.optional_overrides?.gateRunwayStatus);
   const growth = normalizeStatus(parsed?.optional_overrides?.gateGrowthConvexityStatus);
@@ -323,25 +332,5 @@ export function parseAndMapResearchJson(jsonText, currentFormData) {
   if (sg !== null) updates.scoreGrowthLeverage = sg;
   if (ss !== null) updates.scoreSatelliteFit = ss;
 
-  const edgeEvidence = Array.isArray(edge?.evidence) ? edge.evidence.join(' | ') : '';
-  const govEvidence = Array.isArray(gov?.evidence) ? gov.evidence.join(' | ') : '';
-  const gateNotePayload = [
-    edge?.reason ? `Edge-Proof Reason: ${edge.reason}` : '',
-    edgeEvidence ? `Edge-Proof Evidence: ${edgeEvidence}` : '',
-    gov?.reason ? `Governance Reason: ${gov.reason}` : '',
-    govEvidence ? `Governance Evidence: ${govEvidence}` : '',
-    parsed?.summary?.management_quality ? `Management-Qualität: ${parsed.summary.management_quality}` : '',
-    parsed?.summary?.regulatory_context ? `Regulatorik: ${parsed.summary.regulatory_context}` : ''
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  if (gateNotePayload) updates.gateNotes = appendSection(currentFormData.gateNotes, 'AI_RESEARCH_GATE_UPDATE', gateNotePayload);
-
-  const edgeReason = parsed?.qualitative_scores?.edge_strength_override?.reason;
-  if (edgeReason) {
-    updates.scoreNotes = appendSection(currentFormData.scoreNotes, 'AI_RESEARCH_SCORE_UPDATE', `Edge-Stärke Override: ${edgeReason}`);
-  }
-
-  return updates;
+  return { parsed, updates, gateNotes, scoreNotes };
 }

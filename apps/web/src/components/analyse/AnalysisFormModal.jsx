@@ -16,10 +16,11 @@ import {
   buildResearchPrompt,
   deriveAutoGates,
   deriveAutoScores,
-  mergeBaseDataIntoForm,
+  mergeVisibleNotesWithMeta,
   normalizeBaseData,
   normalizeIdentifierInput,
-  parseAndMapResearchJson
+  parseResearchJson,
+  splitMetaNotes
 } from '@/lib/utils';
 
 const ASSET_TYPES = ['Aktie', 'ETF', 'Pennystock'];
@@ -72,12 +73,14 @@ const DEFAULT_LOCAL_UI = {
   wkn: '',
   analysisType: '',
   baseDataInput: '',
+  researchInput: '',
+  autoDataStatus: '',
+  autoDataNote: '',
   baseDataJsonLocal: '',
   researchPromptLocal: '',
-  researchInput: '',
   researchJsonLocal: '',
-  autoDataStatus: '',
-  autoDataNote: ''
+  visibleGateNotes: '',
+  visibleScoreNotes: ''
 };
 
 const PERSISTED_FIELDS = [
@@ -108,7 +111,6 @@ const PERSISTED_FIELDS = [
 
 const deriveDecision = (data) => {
   const finalScore = ['scoreEdgeStrength', 'scoreQuality', 'scoreGrowthLeverage', 'scoreSatelliteFit'].reduce((sum, key) => sum + (Number(data[key]) || 0), 0);
-
   let decisionBucket = 'kein Kandidat';
   if (finalScore >= 90) decisionBucket = 'Booster-Kandidat';
   else if (finalScore >= 85) decisionBucket = 'Kaufkandidat';
@@ -116,15 +118,15 @@ const deriveDecision = (data) => {
 
   const hasFail = GATES.some((gate) => data[gate.key] === 'FAIL');
   const finalDecision = hasFail ? 'Ausschluss' : decisionBucket;
-
   return { ...data, finalScore, decisionBucket, finalDecision };
 };
 
-const buildPersistedPayload = (formData) =>
-  PERSISTED_FIELDS.reduce((acc, key) => {
-    if (formData[key] !== undefined) acc[key] = formData[key];
-    return acc;
-  }, {});
+const buildPersistedPayload = (formData) => PERSISTED_FIELDS.reduce((acc, key) => {
+  if (formData[key] !== undefined) acc[key] = formData[key];
+  return acc;
+}, {});
+
+const appendText = (base, lines = []) => [base, ...lines.filter(Boolean)].filter(Boolean).join('\n');
 
 export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess, initialTab = 'stammdaten' }) {
   const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
@@ -140,9 +142,28 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
 
   useEffect(() => {
     if (!isOpen) return;
+
     const base = analysis ? { ...DEFAULT_FORM_DATA, ...analysis } : { ...DEFAULT_FORM_DATA };
-    setFormData(deriveDecision(base));
-    setLocalUi(DEFAULT_LOCAL_UI);
+    const gateParts = splitMetaNotes(base.gateNotes);
+    const scoreParts = splitMetaNotes(base.scoreNotes);
+
+    setFormData(deriveDecision({ ...base, gateNotes: base.gateNotes || '', scoreNotes: base.scoreNotes || '' }));
+    setLocalUi({
+      ...DEFAULT_LOCAL_UI,
+      isin: gateParts.meta?.isin || '',
+      wkn: gateParts.meta?.wkn || '',
+      analysisType: gateParts.meta?.analysisType || '',
+      autoDataStatus: gateParts.meta?.autoDataStatus || '',
+      autoDataNote: gateParts.meta?.autoDataNote || '',
+      baseDataJsonLocal: gateParts.meta?.baseDataJson || '',
+      baseDataInput: gateParts.meta?.baseDataJson || '',
+      researchPromptLocal: scoreParts.meta?.researchPrompt || '',
+      researchJsonLocal: scoreParts.meta?.researchJson || '',
+      researchInput: scoreParts.meta?.researchJson || '',
+      visibleGateNotes: gateParts.visibleText || '',
+      visibleScoreNotes: scoreParts.visibleText || ''
+    });
+
     setErrors({});
     setActiveTab(initialTab);
   }, [isOpen, analysis, initialTab]);
@@ -168,7 +189,7 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
   const handleAutoLookup = () => {
     const normalizedIds = normalizeIdentifierInput({ isin: localUi.isin, wkn: localUi.wkn, ticker: formData.ticker });
     if (!normalizedIds.lookup) {
-      toast.error('Bitte ISIN, WKN oder Ticker für den Lookup angeben.');
+      toast.error('Bitte ISIN, WKN oder Ticker angeben.');
       return;
     }
 
@@ -177,12 +198,12 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
       isin: normalizedIds.isin,
       wkn: normalizedIds.wkn,
       autoDataStatus: 'Kein Live-Provider konfiguriert',
-      autoDataNote: 'Kein echter Live-Provider konfiguriert. Für die quantitative Vorbefüllung bitte Basisdaten als JSON einfügen.'
+      autoDataNote: 'Bitte Basisdaten als JSON importieren. Der echte Identifier-Lookup ist in diesem Stand nicht aktiv.'
     }));
 
     updateForm({ ticker: normalizedIds.ticker || formData.ticker });
     setActiveTab('basisdaten');
-    toast.info('Kein Live-Lookup verfügbar. Bitte nutzen Sie den JSON-Fallback.');
+    toast.info('Kein Live-Lookup aktiv. Bitte Basisdaten-JSON importieren.');
   };
 
   const handleBaseDataImport = () => {
@@ -192,25 +213,55 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
       const { gates } = deriveAutoGates(normalized);
       const { scores, notes } = deriveAutoScores(normalized);
       const autoNote = buildAutoDataNote({ normalizedData: normalized, gates, scores, notes });
-      const merged = mergeBaseDataIntoForm(formData, normalized, gates, scores, autoNote);
-      updateForm(merged);
+
+      updateForm((prev) => ({
+        ...prev,
+        ticker: normalized.ticker || prev.ticker,
+        companyName: normalized.companyName || prev.companyName,
+        assetType: ['Aktie', 'ETF', 'Pennystock'].includes(normalized.assetType) ? normalized.assetType : prev.assetType,
+        gateUniverseLiquidityStatus: gates.gateUniverseLiquidityStatus,
+        gateRunwayStatus: gates.gateRunwayStatus,
+        gateGrowthConvexityStatus: gates.gateGrowthConvexityStatus,
+        gateTradingFeasibilityStatus: gates.gateTradingFeasibilityStatus,
+        gateEdgeProofStatus: prev.gateEdgeProofStatus || 'OFFEN',
+        gateGovernanceStatus: prev.gateGovernanceStatus || 'OFFEN',
+        scoreQuality: scores.scoreQuality,
+        scoreGrowthLeverage: scores.scoreGrowthLeverage,
+        scoreSatelliteFit: scores.scoreSatelliteFit,
+        scoreEdgeStrength: Number(prev.scoreEdgeStrength) || 0
+      }));
+
+      const gateSupplement = [
+        'Automatische quantitative Vorbefüllung aus Basisdaten durchgeführt.',
+        autoNote
+      ].join('\n');
+
+      const scoreSupplement = [
+        `Qualitative Edge-Stärke bleibt unverändert (${formData.scoreEdgeStrength || 0}/30).`,
+        ...notes
+      ].join('\n');
+
       setLocalUi((prev) => ({
         ...prev,
         baseDataJsonLocal: JSON.stringify(parsed, null, 2),
         baseDataInput: JSON.stringify(parsed, null, 2),
         autoDataStatus: 'Basisdaten importiert',
-        autoDataNote: autoNote
+        autoDataNote: autoNote,
+        visibleGateNotes: appendText(prev.visibleGateNotes, [gateSupplement]),
+        visibleScoreNotes: appendText(prev.visibleScoreNotes, [scoreSupplement])
       }));
-      toast.success('Basisdaten importiert und quantitative Vorbefüllung durchgeführt.');
+
       setActiveTab('gates_scores');
+      toast.success('Basisdaten importiert. Quantitative Gates/Scores wurden konservativ vorbefüllt.');
     } catch {
-      toast.error('Basisdaten-JSON ist ungültig. Bitte gültiges JSON einfügen.');
+      toast.error('Basisdaten-JSON ist ungültig. Bitte ein valides JSON einfügen.');
     }
   };
 
   const handleGeneratePrompt = async () => {
     const prompt = buildResearchPrompt({ identifiers: { isin: localUi.isin, wkn: localUi.wkn, ticker: formData.ticker }, analysisType: localUi.analysisType, formData });
     setLocalUi((prev) => ({ ...prev, researchPromptLocal: prompt }));
+
     try {
       await navigator.clipboard.writeText(prompt);
       setCopiedPrompt(true);
@@ -223,11 +274,17 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
 
   const handleResearchImport = () => {
     try {
-      const mapped = parseAndMapResearchJson(localUi.researchInput, formData);
-      updateForm(mapped);
-      setLocalUi((prev) => ({ ...prev, researchJsonLocal: JSON.stringify(JSON.parse(localUi.researchInput), null, 2) }));
-      toast.success('Research-JSON importiert und qualitative Felder gemappt.');
+      const { parsed, updates, gateNotes, scoreNotes } = parseResearchJson(localUi.researchInput);
+      updateForm((prev) => ({ ...prev, ...updates }));
+      setLocalUi((prev) => ({
+        ...prev,
+        researchJsonLocal: JSON.stringify(parsed, null, 2),
+        researchInput: JSON.stringify(parsed, null, 2),
+        visibleGateNotes: appendText(prev.visibleGateNotes, gateNotes),
+        visibleScoreNotes: appendText(prev.visibleScoreNotes, scoreNotes)
+      }));
       setActiveTab('qualitativ');
+      toast.success('Research-JSON importiert und qualitative Felder übernommen.');
     } catch {
       toast.error('Research-JSON ist ungültig oder entspricht nicht dem erwarteten Schema.');
     }
@@ -243,7 +300,29 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
 
     setIsSubmitting(true);
     try {
-      const dataToSave = buildPersistedPayload({ ...formData, userId: pb.authStore.model.id });
+      const gateMeta = {
+        isin: localUi.isin,
+        wkn: localUi.wkn,
+        analysisType: localUi.analysisType,
+        autoDataStatus: localUi.autoDataStatus,
+        autoDataNote: localUi.autoDataNote,
+        baseDataJson: localUi.baseDataJsonLocal
+      };
+
+      const scoreMeta = {
+        researchPrompt: localUi.researchPromptLocal,
+        researchJson: localUi.researchJsonLocal
+      };
+
+      const payload = {
+        ...formData,
+        gateNotes: mergeVisibleNotesWithMeta(localUi.visibleGateNotes, gateMeta),
+        scoreNotes: mergeVisibleNotesWithMeta(localUi.visibleScoreNotes, scoreMeta),
+        userId: pb.authStore.model.id
+      };
+
+      const dataToSave = buildPersistedPayload(deriveDecision(payload));
+
       if (analysis?.id) {
         await pb.collection('analyses').update(analysis.id, dataToSave, { $autoCancel: false });
         toast.success('Analyse aktualisiert.');
@@ -251,6 +330,7 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
         await pb.collection('analyses').create(dataToSave, { $autoCancel: false });
         toast.success('Analyse erstellt.');
       }
+
       onSuccess();
       onClose();
     } catch (error) {
@@ -265,6 +345,9 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
       <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-hidden flex flex-col">
         <DialogHeader className="px-6 py-4 border-b bg-muted/10 shrink-0">
           <DialogTitle>{analysis ? 'Analyse bearbeiten' : 'Neue Analyse'}</DialogTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            1) Stammdaten eingeben · 2) Basisdaten JSON importieren · 3) quantitative Gates/Scores prüfen · 4) Research-Prompt generieren · 5) Research-JSON importieren · 6) final prüfen und speichern
+          </p>
         </DialogHeader>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
           <div className="px-6 pt-2 border-b shrink-0">
@@ -280,33 +363,40 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
             <form id="analysis-form" onSubmit={handleSubmit} className="space-y-6">
               <TabsContent value="stammdaten" className="m-0 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2"><Label>Ticker *</Label><Input value={formData.ticker} onChange={(e) => handleChange('ticker', e.target.value.toUpperCase())} /></div>
-                  <div className="space-y-2"><Label>Unternehmen *</Label><Input value={formData.companyName} onChange={(e) => handleChange('companyName', e.target.value)} /></div>
-                  <div className="space-y-2"><Label>Asset-Typ *</Label><Select value={formData.assetType} onValueChange={(v) => handleChange('assetType', v)}><SelectTrigger><SelectValue placeholder="Wählen" /></SelectTrigger><SelectContent>{ASSET_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-2"><Label>ISIN (lokal)</Label><Input value={localUi.isin} onChange={(e) => handleLocalChange('isin', e.target.value.toUpperCase())} /></div>
-                  <div className="space-y-2"><Label>WKN (lokal)</Label><Input value={localUi.wkn} onChange={(e) => handleLocalChange('wkn', e.target.value.toUpperCase())} /></div>
-                  <div className="space-y-2"><Label>Analyse-Typ (lokal)</Label><Select value={localUi.analysisType} onValueChange={(v) => handleLocalChange('analysisType', v)}><SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger><SelectContent>{ANALYSIS_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="space-y-2"><Label>Ticker *</Label><Input value={formData.ticker} onChange={(e) => handleChange('ticker', e.target.value.toUpperCase())} />{errors.ticker && <p className="text-xs text-destructive">{errors.ticker}</p>}</div>
+                  <div className="space-y-2"><Label>Unternehmensname *</Label><Input value={formData.companyName} onChange={(e) => handleChange('companyName', e.target.value)} />{errors.companyName && <p className="text-xs text-destructive">{errors.companyName}</p>}</div>
+                  <div className="space-y-2"><Label>Asset-Typ *</Label><Select value={formData.assetType} onValueChange={(v) => handleChange('assetType', v)}><SelectTrigger><SelectValue placeholder="Wählen" /></SelectTrigger><SelectContent>{ASSET_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select>{errors.assetType && <p className="text-xs text-destructive">{errors.assetType}</p>}</div>
+                  <div className="space-y-2"><Label>ISIN</Label><Input value={localUi.isin} onChange={(e) => handleLocalChange('isin', e.target.value.toUpperCase())} /></div>
+                  <div className="space-y-2"><Label>WKN</Label><Input value={localUi.wkn} onChange={(e) => handleLocalChange('wkn', e.target.value.toUpperCase())} /></div>
+                  <div className="space-y-2"><Label>Analyse-Typ</Label><Select value={localUi.analysisType} onValueChange={(v) => handleLocalChange('analysisType', v)}><SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger><SelectContent>{ANALYSIS_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
                 </div>
-                <Button type="button" variant="outline" onClick={handleAutoLookup}><Database className="mr-2 h-4 w-4" />Identifier prüfen & Hinweis anzeigen</Button>
+                <Button type="button" variant="outline" onClick={handleAutoLookup}><Database className="mr-2 h-4 w-4" />Identifier prüfen</Button>
               </TabsContent>
 
               <TabsContent value="basisdaten" className="m-0 space-y-4">
                 <div className="p-4 rounded-lg border bg-muted/20 space-y-2">
-                  <div className="flex items-center justify-between"><Label>Auto-Fill Status</Label><Badge variant="outline">{localUi.autoDataStatus || 'Noch keine Daten'}</Badge></div>
+                  <div className="flex items-center justify-between"><Label>AutoData-Status</Label><Badge variant="outline">{localUi.autoDataStatus || 'Noch keine Daten'}</Badge></div>
                   <p className="text-xs text-muted-foreground whitespace-pre-wrap">{localUi.autoDataNote || 'Kein echter Live-Provider konfiguriert. Für die quantitative Vorbefüllung bitte Basisdaten als JSON einfügen.'}</p>
                 </div>
                 <div className="p-4 rounded-lg border border-dashed space-y-3">
+                  <p className="text-sm text-muted-foreground">Kein echter Live-Provider konfiguriert. Für die quantitative Vorbefüllung bitte Basisdaten als JSON einfügen.</p>
                   <Label>Basisdaten JSON</Label>
-                  <Textarea className="font-mono text-xs min-h-[220px]" value={localUi.baseDataInput} onChange={(e) => handleLocalChange('baseDataInput', e.target.value)} placeholder='{"ticker":"AAPL","marketCap":3000000000000}' />
+                  <Textarea className="font-mono text-xs min-h-[220px]" value={localUi.baseDataInput} onChange={(e) => handleLocalChange('baseDataInput', e.target.value)} placeholder='{"ticker":"AAPL","avgDollarVolume":12000000}' />
                   <Button type="button" onClick={handleBaseDataImport}><FileJson className="mr-2 h-4 w-4" />Basisdaten-JSON importieren</Button>
                 </div>
               </TabsContent>
 
               <TabsContent value="gates_scores" className="m-0 space-y-6">
                 <div className="grid md:grid-cols-2 gap-3">{GATES.map((g) => <div key={g.key} className="flex justify-between items-center border rounded p-3"><Label>{g.label}</Label><Select value={formData[g.key]} onValueChange={(v) => handleChange(g.key, v)}><SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger><SelectContent>{GATE_STATUS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>)}</div>
-                <Textarea value={formData.gateNotes} onChange={(e) => handleChange('gateNotes', e.target.value)} placeholder="Gate Notes" />
+                <div>
+                  <Label>Gate Notes (sichtbar)</Label>
+                  <Textarea value={localUi.visibleGateNotes} onChange={(e) => handleLocalChange('visibleGateNotes', e.target.value)} placeholder="Sichtbare Gate-Notizen" />
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{SCORES.map((s) => <div key={s.key} className="border rounded p-3"><Label>{s.label}</Label><Input type="number" min="0" max={s.max} value={formData[s.key]} onChange={(e) => handleChange(s.key, Math.min(s.max, Math.max(0, Number(e.target.value) || 0)))} /></div>)}</div>
-                <Textarea value={formData.scoreNotes} onChange={(e) => handleChange('scoreNotes', e.target.value)} placeholder="Score Notes" />
+                <div>
+                  <Label>Score Notes (sichtbar)</Label>
+                  <Textarea value={localUi.visibleScoreNotes} onChange={(e) => handleLocalChange('visibleScoreNotes', e.target.value)} placeholder="Sichtbare Score-Notizen" />
+                </div>
               </TabsContent>
 
               <TabsContent value="qualitativ" className="m-0 grid md:grid-cols-2 gap-4">
@@ -320,9 +410,21 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
                 <div className="p-4 rounded-lg border space-y-3">
                   <div className="flex items-center justify-between">
                     <Label>Promptgenerator</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={handleGeneratePrompt}>{copiedPrompt ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}Research-Prompt generieren</Button>
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={handleGeneratePrompt}><FileJson className="h-4 w-4 mr-2" />Research-Prompt generieren</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={async () => {
+                        if (!localUi.researchPromptLocal) return;
+                        try {
+                          await navigator.clipboard.writeText(localUi.researchPromptLocal);
+                          setCopiedPrompt(true);
+                          setTimeout(() => setCopiedPrompt(false), 1500);
+                        } catch {
+                          toast.error('Kopieren fehlgeschlagen.');
+                        }
+                      }}>{copiedPrompt ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}Copy</Button>
+                    </div>
                   </div>
-                  <Textarea className="font-mono text-xs min-h-[220px]" readOnly value={localUi.researchPromptLocal} placeholder="Prompt wird hier angezeigt..." />
+                  <Textarea className="font-mono text-xs min-h-[220px]" value={localUi.researchPromptLocal} onChange={(e) => handleLocalChange('researchPromptLocal', e.target.value)} placeholder="Prompt erscheint hier..." />
                 </div>
                 <div className="p-4 rounded-lg border border-dashed space-y-3">
                   <Label>Research JSON Import</Label>
