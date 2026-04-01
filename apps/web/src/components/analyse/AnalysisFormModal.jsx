@@ -13,14 +13,14 @@ import { toast } from 'sonner';
 import { Check, Copy, Database, FileJson } from 'lucide-react';
 import {
   buildAutoDataNote,
+  buildMetaBlock,
   buildResearchPrompt,
   deriveAutoGates,
   deriveAutoScores,
-  mergeVisibleNotesWithMeta,
   normalizeBaseData,
   normalizeIdentifierInput,
+  parseMetaBlock,
   parseResearchJson,
-  splitMetaNotes
 } from '@/lib/utils';
 
 const ASSET_TYPES = ['Aktie', 'ETF', 'Pennystock'];
@@ -112,7 +112,7 @@ const PERSISTED_FIELDS = [
 const deriveDecision = (data) => {
   const finalScore = ['scoreEdgeStrength', 'scoreQuality', 'scoreGrowthLeverage', 'scoreSatelliteFit'].reduce((sum, key) => sum + (Number(data[key]) || 0), 0);
   let decisionBucket = 'kein Kandidat';
-  if (finalScore >= 90) decisionBucket = 'Booster-Kandidat';
+  if (finalScore >= 90) decisionBucket = 'Booster';
   else if (finalScore >= 85) decisionBucket = 'Kaufkandidat';
   else if (finalScore >= 75) decisionBucket = 'Watchlist';
 
@@ -144,8 +144,8 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
     if (!isOpen) return;
 
     const base = analysis ? { ...DEFAULT_FORM_DATA, ...analysis } : { ...DEFAULT_FORM_DATA };
-    const gateParts = splitMetaNotes(base.gateNotes);
-    const scoreParts = splitMetaNotes(base.scoreNotes);
+    const gateParts = parseMetaBlock(base.gateNotes);
+    const scoreParts = parseMetaBlock(base.scoreNotes);
 
     setFormData(deriveDecision({ ...base, gateNotes: base.gateNotes || '', scoreNotes: base.scoreNotes || '' }));
     setLocalUi({
@@ -245,7 +245,7 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
         ...prev,
         baseDataJsonLocal: JSON.stringify(parsed, null, 2),
         baseDataInput: JSON.stringify(parsed, null, 2),
-        autoDataStatus: 'Basisdaten importiert',
+        autoDataStatus: 'imported',
         autoDataNote: autoNote,
         visibleGateNotes: appendText(prev.visibleGateNotes, [gateSupplement]),
         visibleScoreNotes: appendText(prev.visibleScoreNotes, [scoreSupplement])
@@ -259,6 +259,10 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
   };
 
   const handleGeneratePrompt = async () => {
+    if (!formData.ticker?.trim() || !localUi.analysisType?.trim()) {
+      toast.error('Für den Prompt sind mindestens Ticker und Analyse-Typ erforderlich.');
+      return;
+    }
     const prompt = buildResearchPrompt({ identifiers: { isin: localUi.isin, wkn: localUi.wkn, ticker: formData.ticker }, analysisType: localUi.analysisType, formData });
     setLocalUi((prev) => ({ ...prev, researchPromptLocal: prompt }));
 
@@ -316,8 +320,8 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
 
       const payload = {
         ...formData,
-        gateNotes: mergeVisibleNotesWithMeta(localUi.visibleGateNotes, gateMeta),
-        scoreNotes: mergeVisibleNotesWithMeta(localUi.visibleScoreNotes, scoreMeta),
+        gateNotes: buildMetaBlock(localUi.visibleGateNotes, gateMeta),
+        scoreNotes: buildMetaBlock(localUi.visibleScoreNotes, scoreMeta),
         userId: pb.authStore.model.id
       };
 
@@ -411,7 +415,7 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
                   <div className="flex items-center justify-between">
                     <Label>Promptgenerator</Label>
                     <div className="flex gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={handleGeneratePrompt}><FileJson className="h-4 w-4 mr-2" />Research-Prompt generieren</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={!formData.ticker?.trim() || !localUi.analysisType?.trim()} onClick={handleGeneratePrompt}><FileJson className="h-4 w-4 mr-2" />Research-Prompt generieren</Button>
                       <Button type="button" variant="outline" size="sm" onClick={async () => {
                         if (!localUi.researchPromptLocal) return;
                         try {

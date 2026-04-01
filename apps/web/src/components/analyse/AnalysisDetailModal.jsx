@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AlertTriangle, CheckCircle2, Edit2, HelpCircle, Info, Trash2, XCircle } from 'lucide-react';
-import { splitMetaNotes } from '@/lib/utils';
+import { parseMetaBlock } from '@/lib/utils';
 
 const GATES = [
   { key: 'gateUniverseLiquidityStatus', label: 'Universum & Liquidität' },
@@ -21,8 +21,8 @@ const StatusIcon = ({ status }) => (status === 'PASS' ? <CheckCircle2 className=
 export default function AnalysisDetailModal({ isOpen, onClose, analysis, onEdit, onDelete }) {
   if (!analysis) return null;
 
-  const gateParts = splitMetaNotes(analysis.gateNotes);
-  const scoreParts = splitMetaNotes(analysis.scoreNotes);
+  const gateParts = parseMetaBlock(analysis.gateNotes);
+  const scoreParts = parseMetaBlock(analysis.scoreNotes);
   const gateMeta = gateParts.meta || {};
   const scoreMeta = scoreParts.meta || {};
 
@@ -50,13 +50,18 @@ export default function AnalysisDetailModal({ isOpen, onClose, analysis, onEdit,
               <div className="border rounded p-4 text-center"><p className="text-xs text-muted-foreground">Final Decision</p><Badge variant={analysis.finalDecision === 'Ausschluss' ? 'destructive' : 'secondary'}>{analysis.finalDecision || '-'}</Badge>{analysis.finalDecision === 'Ausschluss' && <p className="text-xs text-destructive mt-2 inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Gate-Ausschluss</p>}</div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="border rounded p-3"><p className="text-xs text-muted-foreground">ISIN</p><p className="text-sm">{gateMeta.isin || '-'}</p></div>
-              <div className="border rounded p-3"><p className="text-xs text-muted-foreground">WKN</p><p className="text-sm">{gateMeta.wkn || '-'}</p></div>
-              <div className="border rounded p-3"><p className="text-xs text-muted-foreground">Analyse-Typ</p><p className="text-sm">{gateMeta.analysisType || '-'}</p></div>
-              <div className="border rounded p-3"><p className="text-xs text-muted-foreground">AutoData-Status</p><p className="text-sm">{gateMeta.autoDataStatus || '-'}</p></div>
-              <div className="border rounded p-3 md:col-span-2"><p className="text-xs text-muted-foreground">AutoData-Note</p><p className="text-sm whitespace-pre-wrap">{gateMeta.autoDataNote || '-'}</p></div>
-            </div>
+            <details className="border rounded p-3">
+              <summary className="cursor-pointer text-sm font-medium">Metadaten</summary>
+              <div className="grid md:grid-cols-2 gap-4 mt-3">
+                <div className="border rounded p-3"><p className="text-xs text-muted-foreground">ISIN</p><p className="text-sm">{gateMeta.isin || '-'}</p></div>
+                <div className="border rounded p-3"><p className="text-xs text-muted-foreground">WKN</p><p className="text-sm">{gateMeta.wkn || '-'}</p></div>
+                <div className="border rounded p-3"><p className="text-xs text-muted-foreground">Analyse-Typ</p><p className="text-sm">{gateMeta.analysisType || '-'}</p></div>
+                <div className="border rounded p-3"><p className="text-xs text-muted-foreground">AutoData-Status</p><p className="text-sm">{gateMeta.autoDataStatus || '-'}</p></div>
+                <div className="border rounded p-3 md:col-span-2"><p className="text-xs text-muted-foreground">AutoData-Note</p><p className="text-sm whitespace-pre-wrap">{gateMeta.autoDataNote || '-'}</p></div>
+                <div className="border rounded p-3 md:col-span-2"><p className="text-xs text-muted-foreground">Research-Prompt</p><p className="text-sm whitespace-pre-wrap break-all">{scoreMeta.researchPrompt || '-'}</p></div>
+                <div className="border rounded p-3 md:col-span-2"><p className="text-xs text-muted-foreground">Research-JSON</p><p className="text-sm whitespace-pre-wrap break-all">{scoreMeta.researchJson || '-'}</p></div>
+              </div>
+            </details>
 
             <div className="grid lg:grid-cols-2 gap-6">
               <div className="border rounded p-4">
@@ -86,14 +91,6 @@ export default function AnalysisDetailModal({ isOpen, onClose, analysis, onEdit,
             <details className="border rounded p-3">
               <summary className="cursor-pointer text-sm font-medium">Basisdaten JSON vorhanden</summary>
               <pre className="text-xs mt-2 whitespace-pre-wrap break-all">{gateMeta.baseDataJson || 'Nicht vorhanden'}</pre>
-            </details>
-            <details className="border rounded p-3">
-              <summary className="cursor-pointer text-sm font-medium">Research-Prompt vorhanden</summary>
-              <pre className="text-xs mt-2 whitespace-pre-wrap break-all">{scoreMeta.researchPrompt || 'Nicht vorhanden'}</pre>
-            </details>
-            <details className="border rounded p-3">
-              <summary className="cursor-pointer text-sm font-medium">Research-JSON vorhanden</summary>
-              <pre className="text-xs mt-2 whitespace-pre-wrap break-all">{scoreMeta.researchJson || 'Nicht vorhanden'}</pre>
             </details>
           </div>
         </ScrollArea>
