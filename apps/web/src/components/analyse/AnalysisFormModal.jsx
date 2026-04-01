@@ -10,13 +10,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import pb from '@/lib/pocketbaseClient';
 import { toast } from 'sonner';
-import { BrainCircuit, Check, Copy, Database, FileJson, Info } from 'lucide-react';
+import { Check, Copy, Database, FileJson } from 'lucide-react';
 import {
   buildAutoDataNote,
   buildResearchPrompt,
   deriveAutoGates,
   deriveAutoScores,
-  getResearchJsonSchema,
   mergeBaseDataIntoForm,
   normalizeBaseData,
   normalizeIdentifierInput,
@@ -28,12 +27,12 @@ const ANALYSIS_TYPES = ['Satellite Checkliste', 'Breites Aktien-Framework', 'ETF
 const GATE_STATUS = ['PASS', 'FAIL', 'OFFEN'];
 
 const GATES = [
-  { key: 'gateUniverseLiquidity', label: 'Universum & Liquidität' },
-  { key: 'gateRunway', label: 'Runway 18-24M' },
-  { key: 'gateEdgeProof', label: 'Edge-Proof' },
-  { key: 'gateGrowthConvexity', label: 'Wachstum/Konvexität' },
-  { key: 'gateGovernance', label: 'Governance' },
-  { key: 'gateTradingFeasibility', label: 'Trading-Feasibility' }
+  { key: 'gateUniverseLiquidityStatus', label: 'Universum & Liquidität' },
+  { key: 'gateRunwayStatus', label: 'Runway 18-24M' },
+  { key: 'gateEdgeProofStatus', label: 'Edge-Proof' },
+  { key: 'gateGrowthConvexityStatus', label: 'Wachstum/Konvexität' },
+  { key: 'gateGovernanceStatus', label: 'Governance' },
+  { key: 'gateTradingFeasibilityStatus', label: 'Trading-Feasibility' }
 ];
 
 const SCORES = [
@@ -44,24 +43,71 @@ const SCORES = [
 ];
 
 const DEFAULT_FORM_DATA = {
-  ticker: '', companyName: '', assetType: '', isin: '', wkn: '', analysisType: '',
-  exchange: '', country: '', region: '', sector: '', currency: '',
-  price: '', marketCap: '', avgDollarVolume: '', spreadPct: '', earningsDate: '',
-  daysToEarnings: '', ttmFcf: '', netCashFlag: false, runwayMonths: '',
-  revenueCagr3y: '', marginTrend: '', dilutionTrend: '', volatilityBucket: '',
-  terPct: '', domicile: '', replicationMethod: '', trackingDifferencePct: '',
-  autoDataStatus: '', autoDataNote: '', baseDataJson: '',
-  gateUniverseLiquidity: 'OFFEN', gateRunway: 'OFFEN', gateEdgeProof: 'OFFEN',
-  gateGrowthConvexity: 'OFFEN', gateGovernance: 'OFFEN', gateTradingFeasibility: 'OFFEN', gateNotes: '',
-  scoreEdgeStrength: 0, scoreQuality: 0, scoreGrowthLeverage: 0, scoreSatelliteFit: 0, scoreNotes: '',
-  thesis: '', summary: '', risk: '', catalyst: '',
-  researchPrompt: '', researchJson: '',
-  finalScore: 0, decisionBucket: 'kein Kandidat', finalDecision: 'kein Kandidat'
+  ticker: '',
+  companyName: '',
+  assetType: '',
+  thesis: '',
+  summary: '',
+  risk: '',
+  catalyst: '',
+  gateUniverseLiquidityStatus: 'OFFEN',
+  gateRunwayStatus: 'OFFEN',
+  gateEdgeProofStatus: 'OFFEN',
+  gateGrowthConvexityStatus: 'OFFEN',
+  gateGovernanceStatus: 'OFFEN',
+  gateTradingFeasibilityStatus: 'OFFEN',
+  gateNotes: '',
+  scoreEdgeStrength: 0,
+  scoreQuality: 0,
+  scoreGrowthLeverage: 0,
+  scoreSatelliteFit: 0,
+  scoreNotes: '',
+  finalScore: 0,
+  decisionBucket: 'kein Kandidat',
+  finalDecision: 'kein Kandidat'
 };
 
+const DEFAULT_LOCAL_UI = {
+  isin: '',
+  wkn: '',
+  analysisType: '',
+  baseDataInput: '',
+  baseDataJsonLocal: '',
+  researchPromptLocal: '',
+  researchInput: '',
+  researchJsonLocal: '',
+  autoDataStatus: '',
+  autoDataNote: ''
+};
+
+const PERSISTED_FIELDS = [
+  'ticker',
+  'companyName',
+  'assetType',
+  'thesis',
+  'summary',
+  'risk',
+  'catalyst',
+  'gateUniverseLiquidityStatus',
+  'gateRunwayStatus',
+  'gateEdgeProofStatus',
+  'gateGrowthConvexityStatus',
+  'gateGovernanceStatus',
+  'gateTradingFeasibilityStatus',
+  'gateNotes',
+  'scoreEdgeStrength',
+  'scoreQuality',
+  'scoreGrowthLeverage',
+  'scoreSatelliteFit',
+  'scoreNotes',
+  'finalScore',
+  'decisionBucket',
+  'finalDecision',
+  'userId'
+];
+
 const deriveDecision = (data) => {
-  const finalScore = ['scoreEdgeStrength', 'scoreQuality', 'scoreGrowthLeverage', 'scoreSatelliteFit']
-    .reduce((sum, key) => sum + (Number(data[key]) || 0), 0);
+  const finalScore = ['scoreEdgeStrength', 'scoreQuality', 'scoreGrowthLeverage', 'scoreSatelliteFit'].reduce((sum, key) => sum + (Number(data[key]) || 0), 0);
 
   let decisionBucket = 'kein Kandidat';
   if (finalScore >= 90) decisionBucket = 'Booster-Kandidat';
@@ -74,13 +120,18 @@ const deriveDecision = (data) => {
   return { ...data, finalScore, decisionBucket, finalDecision };
 };
 
+const buildPersistedPayload = (formData) =>
+  PERSISTED_FIELDS.reduce((acc, key) => {
+    if (formData[key] !== undefined) acc[key] = formData[key];
+    return acc;
+  }, {});
+
 export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess, initialTab = 'stammdaten' }) {
   const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
+  const [localUi, setLocalUi] = useState(DEFAULT_LOCAL_UI);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [baseDataInput, setBaseDataInput] = useState('');
-  const [researchInput, setResearchInput] = useState('');
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   const updateForm = (patch) => {
@@ -91,8 +142,7 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
     if (!isOpen) return;
     const base = analysis ? { ...DEFAULT_FORM_DATA, ...analysis } : { ...DEFAULT_FORM_DATA };
     setFormData(deriveDecision(base));
-    setBaseDataInput(analysis?.baseDataJson || '');
-    setResearchInput(analysis?.researchJson || '');
+    setLocalUi(DEFAULT_LOCAL_UI);
     setErrors({});
     setActiveTab(initialTab);
   }, [isOpen, analysis, initialTab]);
@@ -100,6 +150,10 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
   const handleChange = (field, value) => {
     updateForm({ [field]: value });
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: null }));
+  };
+
+  const handleLocalChange = (field, value) => {
+    setLocalUi((prev) => ({ ...prev, [field]: value }));
   };
 
   const validate = () => {
@@ -112,43 +166,51 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
   };
 
   const handleAutoLookup = () => {
-    const normalizedIds = normalizeIdentifierInput(formData);
+    const normalizedIds = normalizeIdentifierInput({ isin: localUi.isin, wkn: localUi.wkn, ticker: formData.ticker });
     if (!normalizedIds.lookup) {
       toast.error('Bitte ISIN, WKN oder Ticker für den Lookup angeben.');
       return;
     }
 
-    updateForm({
+    setLocalUi((prev) => ({
+      ...prev,
       isin: normalizedIds.isin,
       wkn: normalizedIds.wkn,
-      ticker: normalizedIds.ticker,
       autoDataStatus: 'Kein Live-Provider konfiguriert',
-      autoDataNote: 'Es ist aktuell kein echter Marktdaten-Provider eingebunden. Bitte Basisdaten als JSON einfügen. (Adapter-Stelle vorbereitet: handleAutoLookup -> providerAdapter.fetchByIdentifier)'
-    });
+      autoDataNote: 'Kein echter Live-Provider konfiguriert. Für die quantitative Vorbefüllung bitte Basisdaten als JSON einfügen.'
+    }));
+
+    updateForm({ ticker: normalizedIds.ticker || formData.ticker });
     setActiveTab('basisdaten');
     toast.info('Kein Live-Lookup verfügbar. Bitte nutzen Sie den JSON-Fallback.');
   };
 
   const handleBaseDataImport = () => {
     try {
-      const parsed = JSON.parse(baseDataInput);
+      const parsed = JSON.parse(localUi.baseDataInput);
       const normalized = normalizeBaseData(parsed);
       const { gates } = deriveAutoGates(normalized);
-      const { scores } = deriveAutoScores(normalized);
-      const autoNote = buildAutoDataNote({ normalizedData: normalized, gates, scores });
+      const { scores, notes } = deriveAutoScores(normalized);
+      const autoNote = buildAutoDataNote({ normalizedData: normalized, gates, scores, notes });
       const merged = mergeBaseDataIntoForm(formData, normalized, gates, scores, autoNote);
       updateForm(merged);
-      setBaseDataInput(JSON.stringify(parsed, null, 2));
-      toast.success('Basisdaten importiert und automatisch ausgewertet.');
-      setActiveTab('basisdaten');
+      setLocalUi((prev) => ({
+        ...prev,
+        baseDataJsonLocal: JSON.stringify(parsed, null, 2),
+        baseDataInput: JSON.stringify(parsed, null, 2),
+        autoDataStatus: 'Basisdaten importiert',
+        autoDataNote: autoNote
+      }));
+      toast.success('Basisdaten importiert und quantitative Vorbefüllung durchgeführt.');
+      setActiveTab('gates_scores');
     } catch {
-      toast.error('Ungültiges JSON für Basisdaten.');
+      toast.error('Basisdaten-JSON ist ungültig. Bitte gültiges JSON einfügen.');
     }
   };
 
   const handleGeneratePrompt = async () => {
-    const prompt = buildResearchPrompt(formData);
-    updateForm({ researchPrompt: prompt });
+    const prompt = buildResearchPrompt({ identifiers: { isin: localUi.isin, wkn: localUi.wkn, ticker: formData.ticker }, analysisType: localUi.analysisType, formData });
+    setLocalUi((prev) => ({ ...prev, researchPromptLocal: prompt }));
     try {
       await navigator.clipboard.writeText(prompt);
       setCopiedPrompt(true);
@@ -161,12 +223,13 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
 
   const handleResearchImport = () => {
     try {
-      const mapped = parseAndMapResearchJson(researchInput, formData);
+      const mapped = parseAndMapResearchJson(localUi.researchInput, formData);
       updateForm(mapped);
-      toast.success('Research-JSON importiert und gemappt.');
+      setLocalUi((prev) => ({ ...prev, researchJsonLocal: JSON.stringify(JSON.parse(localUi.researchInput), null, 2) }));
+      toast.success('Research-JSON importiert und qualitative Felder gemappt.');
       setActiveTab('qualitativ');
     } catch {
-      toast.error('Ungültiges Research-JSON.');
+      toast.error('Research-JSON ist ungültig oder entspricht nicht dem erwarteten Schema.');
     }
   };
 
@@ -180,7 +243,7 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
 
     setIsSubmitting(true);
     try {
-      const dataToSave = { ...formData, userId: pb.authStore.model.id };
+      const dataToSave = buildPersistedPayload({ ...formData, userId: pb.authStore.model.id });
       if (analysis?.id) {
         await pb.collection('analyses').update(analysis.id, dataToSave, { $autoCancel: false });
         toast.success('Analyse aktualisiert.');
@@ -220,21 +283,21 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
                   <div className="space-y-2"><Label>Ticker *</Label><Input value={formData.ticker} onChange={(e) => handleChange('ticker', e.target.value.toUpperCase())} /></div>
                   <div className="space-y-2"><Label>Unternehmen *</Label><Input value={formData.companyName} onChange={(e) => handleChange('companyName', e.target.value)} /></div>
                   <div className="space-y-2"><Label>Asset-Typ *</Label><Select value={formData.assetType} onValueChange={(v) => handleChange('assetType', v)}><SelectTrigger><SelectValue placeholder="Wählen" /></SelectTrigger><SelectContent>{ASSET_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-2"><Label>ISIN</Label><Input value={formData.isin} onChange={(e) => handleChange('isin', e.target.value.toUpperCase())} /></div>
-                  <div className="space-y-2"><Label>WKN</Label><Input value={formData.wkn} onChange={(e) => handleChange('wkn', e.target.value.toUpperCase())} /></div>
-                  <div className="space-y-2"><Label>Analyse-Typ</Label><Select value={formData.analysisType} onValueChange={(v) => handleChange('analysisType', v)}><SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger><SelectContent>{ANALYSIS_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="space-y-2"><Label>ISIN (lokal)</Label><Input value={localUi.isin} onChange={(e) => handleLocalChange('isin', e.target.value.toUpperCase())} /></div>
+                  <div className="space-y-2"><Label>WKN (lokal)</Label><Input value={localUi.wkn} onChange={(e) => handleLocalChange('wkn', e.target.value.toUpperCase())} /></div>
+                  <div className="space-y-2"><Label>Analyse-Typ (lokal)</Label><Select value={localUi.analysisType} onValueChange={(v) => handleLocalChange('analysisType', v)}><SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger><SelectContent>{ANALYSIS_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
                 </div>
-                <Button type="button" variant="outline" onClick={handleAutoLookup}><Database className="mr-2 h-4 w-4" />Identifier prüfen & Auto-Lookup starten</Button>
+                <Button type="button" variant="outline" onClick={handleAutoLookup}><Database className="mr-2 h-4 w-4" />Identifier prüfen & Hinweis anzeigen</Button>
               </TabsContent>
 
               <TabsContent value="basisdaten" className="m-0 space-y-4">
                 <div className="p-4 rounded-lg border bg-muted/20 space-y-2">
-                  <div className="flex items-center justify-between"><Label>Auto-Fill Status</Label><Badge variant="outline">{formData.autoDataStatus || 'Noch keine Daten'}</Badge></div>
-                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{formData.autoDataNote || 'Noch keine automatische Vorbefüllung vorhanden.'}</p>
+                  <div className="flex items-center justify-between"><Label>Auto-Fill Status</Label><Badge variant="outline">{localUi.autoDataStatus || 'Noch keine Daten'}</Badge></div>
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{localUi.autoDataNote || 'Kein echter Live-Provider konfiguriert. Für die quantitative Vorbefüllung bitte Basisdaten als JSON einfügen.'}</p>
                 </div>
                 <div className="p-4 rounded-lg border border-dashed space-y-3">
-                  <Label>Basisdaten JSON Fallback</Label>
-                  <Textarea className="font-mono text-xs min-h-[220px]" value={baseDataInput} onChange={(e) => setBaseDataInput(e.target.value)} placeholder='{"ticker":"AAPL","marketCap":3000000000000}' />
+                  <Label>Basisdaten JSON</Label>
+                  <Textarea className="font-mono text-xs min-h-[220px]" value={localUi.baseDataInput} onChange={(e) => handleLocalChange('baseDataInput', e.target.value)} placeholder='{"ticker":"AAPL","marketCap":3000000000000}' />
                   <Button type="button" onClick={handleBaseDataImport}><FileJson className="mr-2 h-4 w-4" />Basisdaten-JSON importieren</Button>
                 </div>
               </TabsContent>
@@ -259,30 +322,21 @@ export default function AnalysisFormModal({ isOpen, onClose, analysis, onSuccess
                     <Label>Promptgenerator</Label>
                     <Button type="button" variant="outline" size="sm" onClick={handleGeneratePrompt}>{copiedPrompt ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}Research-Prompt generieren</Button>
                   </div>
-                  <Textarea value={formData.researchPrompt} onChange={(e) => handleChange('researchPrompt', e.target.value)} className="font-mono text-xs min-h-[160px]" placeholder="Prompt wird hier erzeugt..." />
+                  <Textarea className="font-mono text-xs min-h-[220px]" readOnly value={localUi.researchPromptLocal} placeholder="Prompt wird hier angezeigt..." />
                 </div>
-                <div className="p-4 rounded-lg border bg-muted/10 space-y-2">
-                  <div className="flex items-center gap-2 text-sm"><Info className="h-4 w-4" /> JSON-Schema</div>
-                  <pre className="text-xs overflow-auto max-h-[220px] bg-background p-2 rounded border">{JSON.stringify(getResearchJsonSchema(), null, 2)}</pre>
-                </div>
-                <div className="p-4 rounded-lg border space-y-3">
-                  <Label>Research-JSON Import</Label>
-                  <Textarea value={researchInput} onChange={(e) => setResearchInput(e.target.value)} className="font-mono text-xs min-h-[180px]" placeholder='{"qualitative_gates":{...}}' />
-                  <Button type="button" onClick={handleResearchImport}><BrainCircuit className="h-4 w-4 mr-2" />Research-JSON importieren</Button>
+                <div className="p-4 rounded-lg border border-dashed space-y-3">
+                  <Label>Research JSON Import</Label>
+                  <Textarea className="font-mono text-xs min-h-[220px]" value={localUi.researchInput} onChange={(e) => handleLocalChange('researchInput', e.target.value)} placeholder='{"qualitative_gates":{"edge_proof":{"status":"PASS"}}}' />
+                  <Button type="button" onClick={handleResearchImport}><FileJson className="mr-2 h-4 w-4" />Research-JSON importieren</Button>
                 </div>
               </TabsContent>
             </form>
           </ScrollArea>
-          <DialogFooter className="px-4 py-3 border-t flex items-center justify-between">
-            <div className="flex items-center gap-3 text-sm">
-              <Badge variant="outline">Score: {formData.finalScore}</Badge>
-              <Badge variant="outline">Bucket: {formData.decisionBucket}</Badge>
-              <Badge variant={formData.finalDecision === 'Ausschluss' ? 'destructive' : 'secondary'}>{formData.finalDecision}</Badge>
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={onClose}>Abbrechen</Button>
-              <Button type="submit" form="analysis-form" disabled={isSubmitting}>{isSubmitting ? 'Speichern...' : 'Analyse speichern'}</Button>
-            </div>
+
+          <DialogFooter className="px-6 py-4 border-t bg-muted/10 shrink-0">
+            <div className="mr-auto text-sm text-muted-foreground">Score: <strong>{formData.finalScore}</strong> · Bucket: <strong>{formData.decisionBucket}</strong> · Entscheidung: <strong>{formData.finalDecision}</strong></div>
+            <Button variant="outline" onClick={onClose}>Abbrechen</Button>
+            <Button type="submit" form="analysis-form" disabled={isSubmitting}>{isSubmitting ? 'Speichere...' : analysis ? 'Aktualisieren' : 'Erstellen'}</Button>
           </DialogFooter>
         </Tabs>
       </DialogContent>

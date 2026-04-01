@@ -15,10 +15,12 @@ import AnalysisDetailModal from '@/components/analyse/AnalysisDetailModal.jsx';
 
 const normalizeDecision = (value) => {
   const raw = (value || '').toLowerCase();
-  if (['strong buy', 'buy', 'kaufkandidat', 'booster-kandidat'].includes(raw)) return 'Kaufkandidat';
+  if (['strong buy', 'buy', 'kaufkandidat'].includes(raw)) return 'Kaufkandidat';
+  if (['booster-kandidat', 'booster candidate'].includes(raw)) return 'Booster-Kandidat';
   if (['hold', 'watch', 'watchlist'].includes(raw)) return 'Watchlist';
   if (['sell', 'exclude', 'ausschluss'].includes(raw)) return 'Ausschluss';
-  return value || 'kein Kandidat';
+  if (!value) return 'kein Kandidat';
+  return value;
 };
 
 export default function AnalysePage() {
@@ -26,7 +28,7 @@ export default function AnalysePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [assetFilter, setAssetFilter] = useState('all');
-  const [bucketFilter, setBucketFilter] = useState('all');
+  const [decisionFilter, setDecisionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('updatedAt');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -46,21 +48,35 @@ export default function AnalysePage() {
     }
   };
 
-  useEffect(() => { fetchAnalyses(); }, [sortBy]);
+  useEffect(() => {
+    fetchAnalyses();
+  }, [sortBy]);
 
   const filteredAnalyses = useMemo(() => analyses.filter((item) => {
     const term = searchQuery.toLowerCase();
-    const matchesSearch = !term || (item.ticker || '').toLowerCase().includes(term) || (item.companyName || '').toLowerCase().includes(term) || (item.isin || '').toLowerCase().includes(term);
+    const matchesSearch = !term || (item.ticker || '').toLowerCase().includes(term) || (item.companyName || '').toLowerCase().includes(term);
     const matchesAsset = assetFilter === 'all' || item.assetType === assetFilter;
+
     const normalizedBucket = normalizeDecision(item.decisionBucket);
     const normalizedDecision = normalizeDecision(item.finalDecision);
-    const matchesBucket = bucketFilter === 'all' || normalizedBucket === bucketFilter || normalizedDecision === bucketFilter;
-    return matchesSearch && matchesAsset && matchesBucket;
-  }), [analyses, searchQuery, assetFilter, bucketFilter]);
+    const matchesDecision = decisionFilter === 'all' || normalizedBucket === decisionFilter || normalizedDecision === decisionFilter;
 
-  const openCreate = () => { setSelectedAnalysis(null); setIsFormOpen(true); };
-  const openDetail = (item) => { setSelectedAnalysis(item); setIsDetailOpen(true); };
-  const openEdit = (item) => { setSelectedAnalysis(item); setIsDetailOpen(false); setIsFormOpen(true); };
+    return matchesSearch && matchesAsset && matchesDecision;
+  }), [analyses, searchQuery, assetFilter, decisionFilter]);
+
+  const openCreate = () => {
+    setSelectedAnalysis(null);
+    setIsFormOpen(true);
+  };
+  const openDetail = (item) => {
+    setSelectedAnalysis(item);
+    setIsDetailOpen(true);
+  };
+  const openEdit = (item) => {
+    setSelectedAnalysis(item);
+    setIsDetailOpen(false);
+    setIsFormOpen(true);
+  };
 
   const handleDeleteConfirm = async () => {
     if (!analysisToDelete) return;
@@ -73,7 +89,9 @@ export default function AnalysePage() {
       fetchAnalyses();
     } catch {
       toast.error('Fehler beim Löschen der Analyse.');
-    } finally { setIsDeleting(false); }
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -82,7 +100,7 @@ export default function AnalysePage() {
         <div className="bg-card border rounded-2xl p-6 shadow-sm flex flex-col md:flex-row justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2"><BrainCircuit className="h-8 w-8 text-primary" />Hybrid-Analyse</h1>
-            <p className="text-muted-foreground mt-2">Quantitative Vorbefüllung + strukturierter Research-Import für robuste Entscheidungen.</p>
+            <p className="text-muted-foreground mt-2">6 Hard Gates + 4 Score-Blöcke: Quantitative Teile werden direkt vorbefüllt, qualitative Teile per Agent-Prompt + JSON-Import ergänzt.</p>
           </div>
           <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />Neue Analyse</Button>
         </div>
@@ -92,10 +110,10 @@ export default function AnalysePage() {
             <div className="flex flex-wrap gap-3 justify-between items-center">
               <CardTitle>Analysen Bestand</CardTitle>
               <div className="flex flex-wrap gap-2">
-                <div className="relative min-w-[220px]"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-8" placeholder="Ticker, ISIN, Name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
+                <div className="relative min-w-[220px]"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-8" placeholder="Ticker oder Name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
                 <Select value={assetFilter} onValueChange={setAssetFilter}><SelectTrigger className="w-[130px]"><SelectValue placeholder="Asset" /></SelectTrigger><SelectContent><SelectItem value="all">Alle Typen</SelectItem><SelectItem value="Aktie">Aktie</SelectItem><SelectItem value="ETF">ETF</SelectItem><SelectItem value="Pennystock">Pennystock</SelectItem></SelectContent></Select>
-                <Select value={bucketFilter} onValueChange={setBucketFilter}><SelectTrigger className="w-[160px]"><SelectValue placeholder="Bucket" /></SelectTrigger><SelectContent><SelectItem value="all">Alle Buckets</SelectItem><SelectItem value="Booster-Kandidat">Booster-Kandidat</SelectItem><SelectItem value="Kaufkandidat">Kaufkandidat</SelectItem><SelectItem value="Watchlist">Watchlist</SelectItem><SelectItem value="Ausschluss">Ausschluss</SelectItem></SelectContent></Select>
-                <Button variant="outline" size="icon" onClick={() => setSortBy((prev) => (prev === 'updatedAt' ? 'finalScore' : 'updatedAt'))}><ArrowUpDown className="h-4 w-4" /></Button>
+                <Select value={decisionFilter} onValueChange={setDecisionFilter}><SelectTrigger className="w-[170px]"><SelectValue placeholder="Entscheidung" /></SelectTrigger><SelectContent><SelectItem value="all">Alle</SelectItem><SelectItem value="Booster-Kandidat">Booster-Kandidat</SelectItem><SelectItem value="Kaufkandidat">Kaufkandidat</SelectItem><SelectItem value="Watchlist">Watchlist</SelectItem><SelectItem value="Ausschluss">Ausschluss</SelectItem><SelectItem value="kein Kandidat">kein Kandidat</SelectItem></SelectContent></Select>
+                <Button variant="outline" size="icon" title={sortBy === 'updatedAt' ? 'Sortierung: updatedAt' : 'Sortierung: finalScore'} onClick={() => setSortBy((prev) => (prev === 'updatedAt' ? 'finalScore' : 'updatedAt'))}><ArrowUpDown className="h-4 w-4" /></Button>
               </div>
             </div>
           </CardHeader>
