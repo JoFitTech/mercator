@@ -1,32 +1,45 @@
-"""Service für analytische Auswertungen auf bereinigten Daten."""
+"""Analyse-Service für UI-taugliche Aggregationen."""
 
 from __future__ import annotations
 
 import pandas as pd
 
+from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.models.analysis_result import AnalysisResult
 
 
 class AnalysisService:
-    """Erstellt robuste Kennzahlen und vorbereitete Ausgabetabellen."""
+    """Bereitet Trade- und Unternehmensdaten für Explorer und Ticker-Details auf."""
 
-    def build_basic_metrics(self, trades_df: pd.DataFrame) -> AnalysisResult:
-        """Erzeugt einfache Metriken für Dashboard und Präsentation."""
-        if trades_df.empty:
-            return AnalysisResult(
-                title="Basisanalyse",
-                metrics={"rows": 0, "unique_ticker": 0},
-                dataframe_rows=0,
-                note="Keine Daten verfügbar.",
-            )
+    def __init__(
+        self,
+        trade_repo: InsiderTradeMySqlRepository,
+        company_repo: CompanyMySqlRepository,
+    ) -> None:
+        self.trade_repo = trade_repo
+        self.company_repo = company_repo
+
+    def get_filtered_trades(self, filters: dict | None = None, limit: int = 500) -> pd.DataFrame:
+        """Lädt bereinigte Trades mit optionalen Filtern."""
+        return self.trade_repo.fetch_trades(filters=filters, limit=limit)
+
+    def get_ticker_detail(self, symbol: str) -> AnalysisResult:
+        """Liefert Profil, letzte Trades und Basiskennzahlen für ein Symbol."""
+        trades = self.trade_repo.fetch_trades(filters={"symbol": symbol}, limit=50)
+        profile_df = self.company_repo.fetch_company(symbol)
 
         metrics = {
-            "rows": int(len(trades_df.index)),
-            "unique_ticker": int(trades_df.get("ticker", pd.Series(dtype=str)).nunique()),
+            "trade_count": int(len(trades)),
+            "avg_price": float(trades["price"].dropna().mean()) if not trades.empty else 0.0,
+            "total_qty": float(trades["qty"].dropna().sum()) if not trades.empty else 0.0,
         }
+        rows = trades.to_dict(orient="records")
+        profile = profile_df.iloc[0].to_dict() if not profile_df.empty else {}
+        note = "Keine Profildaten gefunden." if profile_df.empty else "Profildaten verfügbar."
         return AnalysisResult(
-            title="Basisanalyse",
+            title=f"Ticker-Detail {symbol}",
             metrics=metrics,
-            dataframe_rows=int(len(trades_df.index)),
-            note="Kennzahlen wurden aus bereinigten Datensätzen aggregiert.",
+            rows=rows,
+            company_profile=profile,
+            note=note,
         )

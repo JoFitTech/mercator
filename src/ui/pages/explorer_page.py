@@ -1,39 +1,40 @@
-"""Explorer-Seite für Filterung, Tabelle und einfache Visualisierung."""
+"""Explorer-Seite mit interaktiven Filtern auf bereinigte Trades."""
 
 from __future__ import annotations
 
-import pandas as pd
 import streamlit as st
 
-from src.ui.components.charts import render_bar_chart
-from src.ui.components.filters import render_ticker_filter
-from src.ui.components.tables import render_dataframe_table
+from src.services.analysis_service import AnalysisService
 
 
-def render_explorer_page(trades_df: pd.DataFrame) -> None:
-    """Rendert interaktive Datenexploration mit Basisfiltern."""
-    st.title("Datenexplorer")
+def render_explorer_page(service: AnalysisService) -> None:
+    """Rendert Filter und Tabelle für bereinigte MySQL-Daten."""
+    st.title("Explorer")
     st.caption("Interaktive Filter- und Tabellenansicht für bereinigte Finanzdaten.")
 
-    if trades_df.empty:
-        st.info("Noch keine Daten im Explorer verfügbar.")
+    symbol = st.text_input("Symbol")
+    transaction_type = st.text_input("transaction_type")
+    gate_status = st.selectbox("gate_status", ["", "PASS", "PENDING", "FAIL"])
+    sector = st.text_input("sector")
+    country = st.text_input("country")
+
+    filters = {
+        "symbol": symbol.strip().upper() or None,
+        "transaction_type": transaction_type.strip() or None,
+        "gate_status": gate_status or None,
+        "sector": sector.strip() or None,
+        "country": country.strip() or None,
+    }
+
+    data = service.get_filtered_trades(filters=filters, limit=500)
+    if data.empty:
+        st.info("Keine Daten für die aktuelle Filterkombination gefunden.")
         return
 
-    ticker_column = "ticker" if "ticker" in trades_df.columns else None
-    filtered_df = trades_df
-
-    if ticker_column:
-        selected_ticker = render_ticker_filter(trades_df[ticker_column].dropna().tolist())
-        if selected_ticker != "Alle":
-            filtered_df = trades_df[trades_df[ticker_column] == selected_ticker]
-
-    render_dataframe_table(filtered_df)
-
-    if ticker_column:
-        chart_df = (
-            filtered_df.groupby(ticker_column)
-            .size()
-            .reset_index(name="anzahl_trades")
-            .sort_values("anzahl_trades", ascending=False)
-        )
-        render_bar_chart(chart_df, x=ticker_column, y="anzahl_trades")
+    st.dataframe(data, use_container_width=True)
+    st.download_button(
+        label="Export als CSV",
+        data=data.to_csv(index=False).encode("utf-8"),
+        file_name="explorer_export.csv",
+        mime="text/csv",
+    )
