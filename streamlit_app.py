@@ -27,6 +27,7 @@ def _build_services() -> tuple[DashboardService, AnalysisService]:
     settings = load_settings()
     mongo_client = MongoClientWrapper(settings.mongo)
     mysql_client = MySqlClient(settings.mysql)
+    mysql_client.initialize_schema()
 
     raw_repo = InsiderTradeMongoRepository(mongo_client)
     company_mongo_repo = CompanyMongoRepository(mongo_client)
