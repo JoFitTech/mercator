@@ -1,25 +1,82 @@
-"""MySQL-Client für relationale Zieldaten."""
+"""MySQL-Client für Verbindungsmanagement und Schema-Initialisierung."""
 
 from __future__ import annotations
 
-import mysql.connector
-from mysql.connector import MySQLConnection
+from contextlib import contextmanager
+from typing import Iterator
 
-from src.config.settings import MySqlConfig
+import mysql.connector
+from mysql.connector import Error, MySQLConnection
+
+from src.config.settings import Settings
+from src.db.schema import MYSQL_SCHEMA_STATEMENTS
 
 
 class MySqlClient:
-    """Stellt MySQL-Verbindungen für Repositories bereit."""
+    """Verantwortet Verbindungsaufbau, Verbindungsprüfung und Schema-Setup."""
 
-    def __init__(self, config: MySqlConfig) -> None:
-        self.config = config
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
 
-    def connect(self) -> MySQLConnection:
-        """Öffnet eine neue Verbindung."""
-        return mysql.connector.connect(
-            host=self.config.host,
-            port=self.config.port,
-            database=self.config.database,
-            user=self.config.user,
-            password=self.config.password,
+    @contextmanager
+    def connection(self, include_database: bool = True) -> Iterator[MySQLConnection]:
+        """Öffnet und schließt eine MySQL-Verbindung als Context Manager.
+
+        Args:
+            include_database: Steuert, ob direkt mit Zieldatenbank verbunden wird.
+
+        Yields:
+            Eine aktive MySQL-Verbindung.
+        """
+
+        conn = mysql.connector.connect(
+            **self._settings.mysql_connection_kwargs(include_database=include_database)
         )
+        try:
+            yield conn
+        finally:
+            if conn.is_connected():
+                conn.close()
+
+    def test_connection(self) -> tuple[bool, str]:
+        """Testet die MySQL-Erreichbarkeit mit kurzem Status-Text.
+
+        Returns:
+            Tupel mit Erfolgsflag und technischem Status-Text.
+        """
+
+        try:
+            with self.connection(include_database=True):
+                return True, "Connection successful."
+        except Error as exc:
+            return False, f"Connection failed: {exc}"
+
+    def initialize_schema(self) -> None:
+        """Initialisiert die Tabellenstruktur anhand der DDL-Statements."""
+
+        if self._settings.mysql_create_database:
+            self._create_database_if_requested()
+
+        with self.connection(include_database=True) as conn:
+            with conn.cursor() as cursor:
+                for statement in MYSQL_SCHEMA_STATEMENTS:
+                    cursor.execute(statement)
+            conn.commit()
+
+    def _create_database_if_requested(self) -> None:
+        """Legt die Datenbank optional an, falls explizit aktiviert.
+
+        Hinweis:
+            Standardmäßig bleibt diese Logik inaktiv, weil die Uni-Datenbank bereitgestellt wird.
+        """
+
+        with self.connection(include_database=False) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    (
+                        "CREATE DATABASE IF NOT EXISTS "
+                        f"`{self._settings.mysql_database}` "
+                        "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                    )
+                )
+            conn.commit()

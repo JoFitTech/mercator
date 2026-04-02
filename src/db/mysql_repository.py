@@ -1,4 +1,4 @@
-"""MySQL-Repositories für bereinigte Trades und Unternehmensprofile."""
+"""Schlanke Repository-Schicht für MySQL-Zugriffe in FinanzPort Academic."""
 
 from __future__ import annotations
 
@@ -9,91 +9,338 @@ import pandas as pd
 from src.db.mysql_client import MySqlClient
 
 
-class InsiderTradeMySqlRepository:
-    """Persistiert bereinigte Insider-Trades in der Tabelle `insider_trades`."""
+class CompanyRepository:
+    """Kapselt CRUD-nahe Zugriffe auf die Tabelle ``companies``."""
 
     def __init__(self, client: MySqlClient) -> None:
-        self.client = client
-        self._ensure_table()
+        self._client = client
 
-    def _ensure_table(self) -> None:
-        """Legt die Zieltabelle bei Bedarf an."""
-        ddl = """
-        CREATE TABLE IF NOT EXISTS insider_trades (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            symbol VARCHAR(16),
-            filing_date DATETIME NULL,
-            transaction_date DATETIME NULL,
-            reporting_cik VARCHAR(64) NULL,
-            company_cik VARCHAR(64) NULL,
-            reporting_name VARCHAR(255) NULL,
-            type_of_owner VARCHAR(128) NULL,
-            transaction_type VARCHAR(64) NULL,
-            acquisition_or_disposition VARCHAR(16) NULL,
-            direct_or_indirect VARCHAR(16) NULL,
-            form_type VARCHAR(32) NULL,
-            security_name VARCHAR(255) NULL,
-            qty DOUBLE NULL,
-            price DOUBLE NULL,
-            trade_value_estimated DOUBLE NULL,
-            gate_status VARCHAR(32) NULL,
-            source_url TEXT NULL,
-            dedupe_key VARCHAR(64) NOT NULL,
-            fetched_at DATETIME NULL,
-            first_seen_at DATETIME NULL,
-            UNIQUE KEY uk_dedupe_key (dedupe_key)
-        )
+    @staticmethod
+    def _rows_to_dicts(cursor: Any, rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
+        """Wandelt Cursor-Resultsets in Listen aus Dictionaries um.
+
+        Args:
+            cursor: MySQL-Cursor mit gesetzter ``description``.
+            rows: Ergebniszeilen als Tupel.
+
+        Returns:
+            Liste zeilenweiser Dictionaries.
         """
-        with self.client.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(ddl)
+
+        columns = [description[0] for description in cursor.description] if cursor.description else []
+        return [dict(zip(columns, row, strict=False)) for row in rows]
+
+    def upsert_company(self, company: dict[str, Any]) -> None:
+        """Speichert oder aktualisiert ein Unternehmensprofil per Upsert.
+
+        Args:
+            company: Feldwerte entsprechend dem ``companies``-Schema.
+
+        Returns:
+            None.
+        """
+
+        sql = """
+            INSERT INTO companies (
+                symbol, company_name, market_cap, price, currency, cik, isin, cusip,
+                exchange, exchange_full_name, industry, sector, country, website,
+                description, ceo, full_time_employees, ipo_date, is_etf,
+                is_actively_trading, is_adr, is_fund, profile_updated_at
+            ) VALUES (
+                %(symbol)s, %(company_name)s, %(market_cap)s, %(price)s, %(currency)s, %(cik)s, %(isin)s, %(cusip)s,
+                %(exchange)s, %(exchange_full_name)s, %(industry)s, %(sector)s, %(country)s, %(website)s,
+                %(description)s, %(ceo)s, %(full_time_employees)s, %(ipo_date)s, %(is_etf)s,
+                %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                company_name = VALUES(company_name),
+                market_cap = VALUES(market_cap),
+                price = VALUES(price),
+                currency = VALUES(currency),
+                cik = VALUES(cik),
+                isin = VALUES(isin),
+                cusip = VALUES(cusip),
+                exchange = VALUES(exchange),
+                exchange_full_name = VALUES(exchange_full_name),
+                industry = VALUES(industry),
+                sector = VALUES(sector),
+                country = VALUES(country),
+                website = VALUES(website),
+                description = VALUES(description),
+                ceo = VALUES(ceo),
+                full_time_employees = VALUES(full_time_employees),
+                ipo_date = VALUES(ipo_date),
+                is_etf = VALUES(is_etf),
+                is_actively_trading = VALUES(is_actively_trading),
+                is_adr = VALUES(is_adr),
+                is_fund = VALUES(is_fund),
+                profile_updated_at = VALUES(profile_updated_at)
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, company)
+            conn.commit()
+
+    def get_company_by_symbol(self, symbol: str) -> dict[str, Any] | None:
+        """Lädt genau ein Unternehmensprofil über das Symbol.
+
+        Args:
+            symbol: Börsenkürzel des Unternehmens.
+
+        Returns:
+            Gefundenes Profil oder ``None``.
+        """
+
+        query = "SELECT * FROM companies WHERE symbol = %s"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (symbol,))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return self._rows_to_dicts(cursor, [row])[0]
+
+    def list_companies(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Lädt eine limitierte Liste gespeicherter Unternehmen.
+
+        Args:
+            limit: Maximale Anzahl zurückgegebener Zeilen.
+
+        Returns:
+            Liste von Unternehmens-Dictionaries.
+        """
+
+        query = "SELECT * FROM companies ORDER BY symbol ASC LIMIT %s"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (limit,))
+                rows = cursor.fetchall()
+                return self._rows_to_dicts(cursor, rows)
+
+    def count_all(self) -> int:
+        """Liefert die Anzahl gespeicherter Unternehmen."""
+
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM companies")
+                result = cursor.fetchone()
+                return int(result[0]) if result else 0
+
+
+class InsiderTradeRepository:
+    """Kapselt CRUD-nahe Zugriffe auf die Tabelle ``insider_trades``."""
+
+    def __init__(self, client: MySqlClient) -> None:
+        self._client = client
+
+    @staticmethod
+    def _rows_to_dicts(cursor: Any, rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
+        """Wandelt Cursor-Resultsets in Listen aus Dictionaries um.
+
+        Args:
+            cursor: MySQL-Cursor mit gesetzter ``description``.
+            rows: Ergebniszeilen als Tupel.
+
+        Returns:
+            Liste zeilenweiser Dictionaries.
+        """
+
+        columns = [description[0] for description in cursor.description] if cursor.description else []
+        return [dict(zip(columns, row, strict=False)) for row in rows]
+
+    def upsert_trade(self, trade: dict[str, Any]) -> None:
+        """Speichert oder aktualisiert genau einen Insider-Trade.
+
+        Args:
+            trade: Feldwerte entsprechend dem ``insider_trades``-Schema.
+
+        Returns:
+            None.
+        """
+
+        sql = """
+            INSERT INTO insider_trades (
+                symbol, filing_date, transaction_date, reporting_cik, company_cik,
+                reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
+                direct_or_indirect, form_type, security_name, qty, price,
+                trade_value_estimated, gate_status, source_url, dedupe_key, fetched_at
+            ) VALUES (
+                %(symbol)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
+                %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
+                %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
+                %(trade_value_estimated)s, %(gate_status)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                symbol = VALUES(symbol),
+                filing_date = VALUES(filing_date),
+                transaction_date = VALUES(transaction_date),
+                reporting_cik = VALUES(reporting_cik),
+                company_cik = VALUES(company_cik),
+                reporting_name = VALUES(reporting_name),
+                type_of_owner = VALUES(type_of_owner),
+                transaction_type = VALUES(transaction_type),
+                acquisition_or_disposition = VALUES(acquisition_or_disposition),
+                direct_or_indirect = VALUES(direct_or_indirect),
+                form_type = VALUES(form_type),
+                security_name = VALUES(security_name),
+                qty = VALUES(qty),
+                price = VALUES(price),
+                trade_value_estimated = VALUES(trade_value_estimated),
+                gate_status = VALUES(gate_status),
+                source_url = VALUES(source_url),
+                fetched_at = VALUES(fetched_at)
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, trade)
             conn.commit()
 
     def upsert_trades(self, trades: list[dict[str, Any]]) -> int:
-        """Schreibt bereinigte Trades als Upsert."""
+        """Speichert oder aktualisiert mehrere Insider-Trades im Batch.
+
+        Args:
+            trades: Liste von Trade-Dictionaries.
+
+        Returns:
+            Anzahl verarbeiteter Trades.
+        """
+
         if not trades:
             return 0
+
         sql = """
-        INSERT INTO insider_trades (
-            symbol, filing_date, transaction_date, reporting_cik, company_cik,
-            reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
-            direct_or_indirect, form_type, security_name, qty, price,
-            trade_value_estimated, gate_status, source_url, dedupe_key, fetched_at, first_seen_at
-        ) VALUES (
-            %(symbol)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
-            %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
-            %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-            %(trade_value_estimated)s, %(gate_status)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s, %(first_seen_at)s
-        )
-        ON DUPLICATE KEY UPDATE
-            gate_status=VALUES(gate_status),
-            fetched_at=VALUES(fetched_at),
-            price=VALUES(price),
-            qty=VALUES(qty),
-            trade_value_estimated=VALUES(trade_value_estimated)
+            INSERT INTO insider_trades (
+                symbol, filing_date, transaction_date, reporting_cik, company_cik,
+                reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
+                direct_or_indirect, form_type, security_name, qty, price,
+                trade_value_estimated, gate_status, source_url, dedupe_key, fetched_at
+            ) VALUES (
+                %(symbol)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
+                %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
+                %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
+                %(trade_value_estimated)s, %(gate_status)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                symbol = VALUES(symbol),
+                filing_date = VALUES(filing_date),
+                transaction_date = VALUES(transaction_date),
+                reporting_cik = VALUES(reporting_cik),
+                company_cik = VALUES(company_cik),
+                reporting_name = VALUES(reporting_name),
+                type_of_owner = VALUES(type_of_owner),
+                transaction_type = VALUES(transaction_type),
+                acquisition_or_disposition = VALUES(acquisition_or_disposition),
+                direct_or_indirect = VALUES(direct_or_indirect),
+                form_type = VALUES(form_type),
+                security_name = VALUES(security_name),
+                qty = VALUES(qty),
+                price = VALUES(price),
+                trade_value_estimated = VALUES(trade_value_estimated),
+                gate_status = VALUES(gate_status),
+                source_url = VALUES(source_url),
+                fetched_at = VALUES(fetched_at)
         """
-        with self.client.connect() as conn:
-            with conn.cursor() as cur:
-                cur.executemany(sql, trades)
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.executemany(sql, trades)
             conn.commit()
         return len(trades)
 
+    def get_trade_by_dedupe_key(self, dedupe_key: str) -> dict[str, Any] | None:
+        """Lädt genau einen Trade über dessen Deduplizierungsschlüssel.
+
+        Args:
+            dedupe_key: Eindeutiger SHA-basierter Schlüssel.
+
+        Returns:
+            Gefundener Trade oder ``None``.
+        """
+
+        query = "SELECT * FROM insider_trades WHERE dedupe_key = %s"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (dedupe_key,))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return self._rows_to_dicts(cursor, [row])[0]
+
+    def list_latest_trades(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Lädt die neuesten Trades nach Filing- und Erfassungsdatum.
+
+        Args:
+            limit: Maximale Anzahl zurückgegebener Zeilen.
+
+        Returns:
+            Liste von Trade-Dictionaries.
+        """
+
+        query = """
+            SELECT *
+            FROM insider_trades
+            ORDER BY filing_date DESC, fetched_at DESC, id DESC
+            LIMIT %s
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (limit,))
+                rows = cursor.fetchall()
+                return self._rows_to_dicts(cursor, rows)
+
+    def list_trades_by_symbol(self, symbol: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Lädt Trades für ein einzelnes Symbol.
+
+        Args:
+            symbol: Börsenkürzel.
+            limit: Maximale Anzahl zurückgegebener Zeilen.
+
+        Returns:
+            Liste von Trade-Dictionaries.
+        """
+
+        query = """
+            SELECT *
+            FROM insider_trades
+            WHERE symbol = %s
+            ORDER BY filing_date DESC, fetched_at DESC, id DESC
+            LIMIT %s
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (symbol, limit))
+                rows = cursor.fetchall()
+                return self._rows_to_dicts(cursor, rows)
+
     def fetch_trades(self, filters: dict[str, Any] | None = None, limit: int = 500) -> pd.DataFrame:
-        """Liest Trades für Explorer, Dashboard und Details."""
+        """Liefert Trades als DataFrame für bestehende Analyse- und UI-Pfade.
+
+        Args:
+            filters: Optionale Filter auf Trade- und Company-Felder.
+            limit: Zeilenlimit.
+
+        Returns:
+            DataFrame mit Trade- und optionalen Company-Feldern.
+        """
+
         filters = filters or {}
         clauses: list[str] = []
-        params: dict[str, Any] = {"limit": limit}
-        mapping = {
-            "symbol": "t.symbol",
-            "transaction_type": "t.transaction_type",
-            "gate_status": "t.gate_status",
-            "sector": "c.sector",
-            "country": "c.country",
-        }
-        for field, sql_field in mapping.items():
-            if filters.get(field):
-                clauses.append(f"{sql_field} = %({field})s")
-                params[field] = filters[field]
+        params: list[Any] = []
+
+        if filters.get("symbol"):
+            clauses.append("t.symbol = %s")
+            params.append(filters["symbol"])
+        if filters.get("transaction_type"):
+            clauses.append("t.transaction_type = %s")
+            params.append(filters["transaction_type"])
+        if filters.get("gate_status"):
+            clauses.append("t.gate_status = %s")
+            params.append(filters["gate_status"])
+        if filters.get("sector"):
+            clauses.append("c.sector = %s")
+            params.append(filters["sector"])
+        if filters.get("country"):
+            clauses.append("c.country = %s")
+            params.append(filters["country"])
 
         where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         query = f"""
@@ -101,103 +348,38 @@ class InsiderTradeMySqlRepository:
             FROM insider_trades t
             LEFT JOIN companies c ON c.symbol = t.symbol
             {where_sql}
-            ORDER BY t.filing_date DESC
-            LIMIT %(limit)s
+            ORDER BY t.filing_date DESC, t.id DESC
+            LIMIT %s
         """
-        with self.client.connect() as conn:
+        params.append(limit)
+
+        with self._client.connection() as conn:
             return pd.read_sql(query, conn, params=params)
 
     def count_all(self) -> int:
-        """Liefert Gesamtzahl bereinigter Datensätze."""
-        with self.client.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM insider_trades")
-                return int(cur.fetchone()[0])
+        """Liefert die Anzahl gespeicherter Insider-Trades."""
+
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM insider_trades")
+                result = cursor.fetchone()
+                return int(result[0]) if result else 0
 
 
-class CompanyMySqlRepository:
-    """Persistiert bereinigte Unternehmensprofile in `companies`."""
-
-    def __init__(self, client: MySqlClient) -> None:
-        self.client = client
-        self._ensure_table()
-
-    def _ensure_table(self) -> None:
-        """Legt die Company-Tabelle an."""
-        ddl = """
-        CREATE TABLE IF NOT EXISTS companies (
-            symbol VARCHAR(16) PRIMARY KEY,
-            company_name VARCHAR(255) NULL,
-            market_cap DOUBLE NULL,
-            price DOUBLE NULL,
-            currency VARCHAR(16) NULL,
-            cik VARCHAR(64) NULL,
-            isin VARCHAR(64) NULL,
-            cusip VARCHAR(64) NULL,
-            exchange VARCHAR(64) NULL,
-            exchange_full_name VARCHAR(128) NULL,
-            industry VARCHAR(128) NULL,
-            sector VARCHAR(128) NULL,
-            country VARCHAR(64) NULL,
-            website TEXT NULL,
-            description TEXT NULL,
-            ceo VARCHAR(128) NULL,
-            full_time_employees VARCHAR(64) NULL,
-            ipo_date VARCHAR(32) NULL,
-            is_etf BOOLEAN NULL,
-            is_actively_trading BOOLEAN NULL,
-            is_adr BOOLEAN NULL,
-            is_fund BOOLEAN NULL,
-            profile_updated_at DATETIME NULL
-        )
-        """
-        with self.client.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(ddl)
-            conn.commit()
-
-    def upsert_company(self, company: dict[str, Any]) -> None:
-        """Speichert oder aktualisiert ein Unternehmensprofil."""
-        sql = """
-        INSERT INTO companies (
-            symbol, company_name, market_cap, price, currency, cik, isin, cusip,
-            exchange, exchange_full_name, industry, sector, country, website,
-            description, ceo, full_time_employees, ipo_date, is_etf,
-            is_actively_trading, is_adr, is_fund, profile_updated_at
-        ) VALUES (
-            %(symbol)s, %(company_name)s, %(market_cap)s, %(price)s, %(currency)s, %(cik)s, %(isin)s, %(cusip)s,
-            %(exchange)s, %(exchange_full_name)s, %(industry)s, %(sector)s, %(country)s, %(website)s,
-            %(description)s, %(ceo)s, %(full_time_employees)s, %(ipo_date)s, %(is_etf)s,
-            %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s
-        )
-        ON DUPLICATE KEY UPDATE
-            company_name=VALUES(company_name),
-            market_cap=VALUES(market_cap),
-            price=VALUES(price),
-            sector=VALUES(sector),
-            country=VALUES(country),
-            profile_updated_at=VALUES(profile_updated_at)
-        """
-        with self.client.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, company)
-            conn.commit()
+class CompanyMySqlRepository(CompanyRepository):
+    """Kompatibilitätsklasse für bestehende Aufrufe im Projekt."""
 
     def fetch_company(self, symbol: str) -> pd.DataFrame:
-        """Liefert ein Unternehmensprofil nach Symbol."""
-        with self.client.connect() as conn:
-            return pd.read_sql("SELECT * FROM companies WHERE symbol = %s", conn, params=(symbol,))
+        """Liefert ein Unternehmensprofil als DataFrame für Altpfade."""
+
+        data = self.get_company_by_symbol(symbol)
+        return pd.DataFrame([data]) if data else pd.DataFrame()
 
     def fetch_all_symbols(self) -> list[str]:
-        """Liefert vorhandene Tickersymbole."""
-        with self.client.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT symbol FROM companies ORDER BY symbol")
-                return [row[0] for row in cur.fetchall()]
+        """Liefert alle verfügbaren Symbole für bestehende Aufrufe."""
 
-    def count_all(self) -> int:
-        """Liefert die Anzahl gespeicherter Firmenprofile."""
-        with self.client.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM companies")
-                return int(cur.fetchone()[0])
+        return [row["symbol"] for row in self.list_companies(limit=100000)]
+
+
+class InsiderTradeMySqlRepository(InsiderTradeRepository):
+    """Kompatibilitätsklasse für bestehende Aufrufe im Projekt."""
