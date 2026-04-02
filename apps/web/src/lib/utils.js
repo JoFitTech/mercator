@@ -70,6 +70,10 @@ export function parseMetaBlock(rawText) {
   return splitMetaNotes(rawText);
 }
 
+export function stripMetaBlock(rawText) {
+  return splitMetaNotes(rawText).visibleText || '';
+}
+
 export function mergeVisibleNotesWithMeta(visibleText, metaObj) {
   const visible = asText(visibleText);
   const metaPayload = metaObj && typeof metaObj === 'object' ? metaObj : {};
@@ -81,8 +85,23 @@ export function mergeVisibleNotesWithMeta(visibleText, metaObj) {
   return [visible, FP_META_START, metaJson, FP_META_END].filter(Boolean).join('\n\n');
 }
 
-export function buildMetaBlock(visibleText, metaObj) {
-  return mergeVisibleNotesWithMeta(visibleText, metaObj);
+export function buildMetaBlock(metaObj = {}) {
+  const metaPayload = metaObj && typeof metaObj === 'object' ? metaObj : {};
+  const hasMeta = Object.values(metaPayload).some((v) => v !== '' && v !== null && v !== undefined);
+  if (!hasMeta) return '';
+  return [FP_META_START, JSON.stringify(metaPayload, null, 2), FP_META_END].join('\n');
+}
+
+export function mergeVisibleTextWithMeta(visibleText, metaObj) {
+  const visible = asText(visibleText);
+  const metaBlock = buildMetaBlock(metaObj);
+  if (!metaBlock) return visible;
+  return [visible, metaBlock].filter(Boolean).join('\n\n');
+}
+
+// Legacy alias for compatibility with existing imports/components.
+export function buildMetaBlockLegacy(visibleText, metaObj) {
+  return mergeVisibleTextWithMeta(visibleText, metaObj);
 }
 
 export function normalizeIdentifierInput({ isin, wkn, ticker }) {
@@ -242,26 +261,32 @@ export function buildAutoDataNote({ normalizedData, gates, scores, notes = [] })
 
 export function getResearchJsonSchema() {
   return {
-    asset: { ticker: '', isin: '', wkn: '', name: '', assetType: '' },
-    qualitative_gates: {
+    asset: { ticker: '', isin: '', wkn: '', name: '', assetType: '', analysisType: '' },
+    gates: {
+      universe_liquidity: { status: 'PASS|FAIL|OFFEN', reason: '', evidence: [] },
+      runway_18_24m: { status: 'PASS|FAIL|OFFEN', reason: '', evidence: [] },
       edge_proof: { status: 'PASS|FAIL|OFFEN', reason: '', evidence: [] },
-      governance: { status: 'PASS|FAIL|OFFEN', reason: '', evidence: [] }
+      growth_convexity: { status: 'PASS|FAIL|OFFEN', reason: '', evidence: [] },
+      governance: { status: 'PASS|FAIL|OFFEN', reason: '', evidence: [] },
+      trading_feasibility: { status: 'PASS|FAIL|OFFEN', reason: '', evidence: [] }
     },
-    qualitative_scores: { edge_strength_override: { value: 0, max: 30, reason: '' } },
-    summary: { thesis: '', catalyst: '', risks: '', management_quality: '', regulatory_context: '' },
-    optional_overrides: {
-      gateRunwayStatus: null,
-      gateGrowthConvexityStatus: null,
-      scoreQuality: null,
-      scoreGrowthLeverage: null,
-      scoreSatelliteFit: null
-    }
+    scores: {
+      edge_strength: { value: 0, max: 30, reason: '' },
+      quality: { value: 0, max: 25, reason: '' },
+      growth_leverage: { value: 0, max: 25, reason: '' },
+      satellite_fit: { value: 0, max: 20, reason: '' }
+    },
+    summary: { thesis: '', summary: '', catalyst: '', risks: '', management_quality: '', regulatory_context: '' },
+    result: { final_score: 0, decision_bucket: 'kein Kandidat|Watchlist|Kaufkandidat|Booster-Kandidat', final_decision: 'kein Kandidat|Watchlist|Kaufkandidat|Booster-Kandidat|Ausschluss' }
   };
 }
 
-export function buildResearchPrompt({ identifiers, analysisType, formData }) {
+export function buildResearchPrompt({ identifiers, analysisType, formData, formatPreference = 'JSON' }) {
   const schema = JSON.stringify(getResearchJsonSchema(), null, 2);
-  return `Du bist ein Equity/ETF-Research-Agent für eine Hybrid-Analyse.
+  const optionalFormatHint = formatPreference !== 'JSON'
+    ? `\nBevorzugtes Antwortformat: ${formatPreference}\nWichtig: Der Import in dieser App unterstützt in dieser Version zuverlässig nur JSON.\n`
+    : '';
+  return `Du bist ein Equity/ETF-Research-Agent für eine strukturierte Hybrid-Analyse nach Satellite-Checkliste.
 
 Asset-Kontext:
 - ticker: ${identifiers.ticker || formData.ticker || ''}
@@ -271,23 +296,47 @@ Asset-Kontext:
 - assetType: ${formData.assetType || ''}
 - analysisType: ${analysisType || 'nicht gesetzt'}
 
-Bereits gesetzte quantitative Gates:
-- gateUniverseLiquidityStatus=${formData.gateUniverseLiquidityStatus}
-- gateRunwayStatus=${formData.gateRunwayStatus}
-- gateGrowthConvexityStatus=${formData.gateGrowthConvexityStatus}
-- gateTradingFeasibilityStatus=${formData.gateTradingFeasibilityStatus}
+Ziel:
+- Standardisierte Analyse für FinanzPort.
+- Fokus auf Hard Gates, Score-Blöcke, These, Katalysator, Risiko, Management und Regulatorik.
 
-Bereits gesetzte quantitative Scores:
-- scoreQuality=${formData.scoreQuality}
-- scoreGrowthLeverage=${formData.scoreGrowthLeverage}
-- scoreSatelliteFit=${formData.scoreSatelliteFit}
+Harte Regeln:
+1) Keine quantitativen Daten raten.
+2) Keine qualitativen Aussagen ohne Begründung.
+3) Nur belastbare Quellen und Unsicherheit explizit markieren.
+4) Kein Fließtext außerhalb des gewünschten Formats.
+5) Wenn Daten fehlen: Status OFFEN setzen statt zu halluzinieren.
+6) Bei ETF ETF-spezifische Logik anwenden, bei Aktie/Pennystock primär Satellite-Checkliste.
 
-Wichtige Regeln:
-1) Quantitative Daten nicht raten oder erfinden.
-2) Nur qualitative Lücken ergänzen.
-3) Fokus: Edge-Proof, Governance, Management-Qualität, Regulatorik, Bottleneck/Switching Costs/Netzwerk, These, Katalysator, Risiko.
-4) Edge-Stärke darf nur qualitativ begründet als Override geliefert werden.
-5) Gib ausschließlich valides JSON gemäß Schema aus.
+Fachliche Bewertungslogik:
+1. Universum & Liquidität
+2. Runway 18-24M
+3. Edge-Proof
+4. Wachstum/Konvexität
+5. Governance
+6. Trading-Feasibility
+Scoring: Edge-Stärke /30, Qualität /25, Wachstum & Leverage /25, Satellite-Fit /20.
+Schwellen: <75 kein Kandidat, 75-84 Watchlist, 85-89 Kaufkandidat, >=90 Booster-Kandidat, irgendein Gate FAIL = Ausschluss.
+
+Was konkret recherchiert werden soll:
+- Universe/Liquidity Daten
+- Runway / Net Cash / FCF / Refinanzierungsrisiko
+- Edge-Proof mit mindestens zwei Proxies
+- Wachstum / Konvexität / Trendverbesserung
+- Governance / Red Flags
+- Trading-Feasibility
+- Qualitätsmerkmale
+- Wachstum & Leverage
+- Satellite-Fit
+- Investment-These
+- Katalysator
+- Risiko
+- Management-Qualität
+- Regulatorik-Kontext
+
+Ausgabeformat:
+- Primär JSON, kein zusätzlicher Text davor oder danach.
+${optionalFormatHint}
 
 Schema:
 ${schema}`;
@@ -299,42 +348,46 @@ export function parseResearchJson(jsonText) {
   const gateNotes = [];
   const scoreNotes = [];
 
-  const edge = parsed?.qualitative_gates?.edge_proof;
-  const gov = parsed?.qualitative_gates?.governance;
-  const edgeStatus = normalizeStatus(edge?.status);
-  const govStatus = normalizeStatus(gov?.status);
-  if (edgeStatus) updates.gateEdgeProofStatus = edgeStatus;
-  if (govStatus) updates.gateGovernanceStatus = govStatus;
+  const gateMap = [
+    ['universe_liquidity', 'gateUniverseLiquidityStatus', 'Universum & Liquidität'],
+    ['runway_18_24m', 'gateRunwayStatus', 'Runway 18-24M'],
+    ['edge_proof', 'gateEdgeProofStatus', 'Edge-Proof'],
+    ['growth_convexity', 'gateGrowthConvexityStatus', 'Wachstum/Konvexität'],
+    ['governance', 'gateGovernanceStatus', 'Governance'],
+    ['trading_feasibility', 'gateTradingFeasibilityStatus', 'Trading-Feasibility']
+  ];
 
-  if (edge?.reason) gateNotes.push(`Edge-Proof: ${edge.reason}`);
-  if (Array.isArray(edge?.evidence) && edge.evidence.length) gateNotes.push(`Edge-Evidence: ${edge.evidence.join(' | ')}`);
-  if (gov?.reason) gateNotes.push(`Governance: ${gov.reason}`);
-  if (Array.isArray(gov?.evidence) && gov.evidence.length) gateNotes.push(`Governance-Evidence: ${gov.evidence.join(' | ')}`);
+  gateMap.forEach(([sourceKey, targetKey, label]) => {
+    const gateItem = parsed?.gates?.[sourceKey];
+    const status = normalizeStatus(gateItem?.status);
+    if (status) updates[targetKey] = status;
+    if (gateItem?.reason) gateNotes.push(`${label}: ${gateItem.reason}`);
+    if (Array.isArray(gateItem?.evidence) && gateItem.evidence.length) {
+      gateNotes.push(`${label} Evidenz: ${gateItem.evidence.join(' | ')}`);
+    }
+  });
 
-  const edgeValue = normalizeBoundedNumber(parsed?.qualitative_scores?.edge_strength_override?.value, 0, 30);
-  if (edgeValue !== null) updates.scoreEdgeStrength = edgeValue;
-  if (parsed?.qualitative_scores?.edge_strength_override?.reason) {
-    scoreNotes.push(`Edge-Override: ${parsed.qualitative_scores.edge_strength_override.reason}`);
-  }
+  const scoreMap = [
+    ['edge_strength', 'scoreEdgeStrength', 30, 'Edge-Stärke'],
+    ['quality', 'scoreQuality', 25, 'Qualität'],
+    ['growth_leverage', 'scoreGrowthLeverage', 25, 'Wachstum & Leverage'],
+    ['satellite_fit', 'scoreSatelliteFit', 20, 'Satellite-Fit']
+  ];
+
+  scoreMap.forEach(([sourceKey, targetKey, max, label]) => {
+    const scoreItem = parsed?.scores?.[sourceKey];
+    const value = normalizeBoundedNumber(scoreItem?.value, 0, max);
+    if (value !== null) updates[targetKey] = value;
+    if (scoreItem?.reason) scoreNotes.push(`${label}: ${scoreItem.reason}`);
+  });
 
   if (parsed?.summary?.thesis) updates.thesis = parsed.summary.thesis;
+  if (parsed?.summary?.summary) updates.summary = parsed.summary.summary;
   if (parsed?.summary?.catalyst) updates.catalyst = parsed.summary.catalyst;
   if (parsed?.summary?.risks) updates.risk = parsed.summary.risks;
 
   if (parsed?.summary?.management_quality) gateNotes.push(`Management-Qualität: ${parsed.summary.management_quality}`);
-  if (parsed?.summary?.regulatory_context) gateNotes.push(`Regulatorik: ${parsed.summary.regulatory_context}`);
-
-  const runway = normalizeStatus(parsed?.optional_overrides?.gateRunwayStatus);
-  const growth = normalizeStatus(parsed?.optional_overrides?.gateGrowthConvexityStatus);
-  if (runway) updates.gateRunwayStatus = runway;
-  if (growth) updates.gateGrowthConvexityStatus = growth;
-
-  const sq = normalizeBoundedNumber(parsed?.optional_overrides?.scoreQuality, 0, 25);
-  const sg = normalizeBoundedNumber(parsed?.optional_overrides?.scoreGrowthLeverage, 0, 25);
-  const ss = normalizeBoundedNumber(parsed?.optional_overrides?.scoreSatelliteFit, 0, 20);
-  if (sq !== null) updates.scoreQuality = sq;
-  if (sg !== null) updates.scoreGrowthLeverage = sg;
-  if (ss !== null) updates.scoreSatelliteFit = ss;
+  if (parsed?.summary?.regulatory_context) gateNotes.push(`Regulatorik-Kontext: ${parsed.summary.regulatory_context}`);
 
   return { parsed, updates, gateNotes, scoreNotes };
 }
