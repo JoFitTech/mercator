@@ -3,5 +3,5 @@ pandas
 mysql-connector-python
 pymongo
 python-dotenv
-plotly
 pytest
+requests

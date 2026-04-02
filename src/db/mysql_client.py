@@ -1,25 +1,25 @@
-"""MySQL-Client für Mercator."""
+"""MySQL-Client für relationale Zieldaten."""
 
 from __future__ import annotations
 
 import mysql.connector
 from mysql.connector import MySQLConnection
 
-from src.config.settings import AppSettings
+from src.config.settings import MySqlConfig
 
 
-class MySQLClient:
-    """Verwaltet Verbindungsaufbau und Basiskonnektivität zu MySQL."""
+class MySqlClient:
+    """Stellt MySQL-Verbindungen für Repositories bereit."""
 
-    def __init__(self, settings: AppSettings) -> None:
-        self.settings = settings
+    def __init__(self, config: MySqlConfig) -> None:
+        self.config = config
 
     def connect(self) -> MySQLConnection:
-        """Öffnet eine MySQL-Verbindung mit Parametern aus den Settings."""
+        """Öffnet eine neue Verbindung."""
         return mysql.connector.connect(
-            host=self.settings.mysql_host,
-            port=self.settings.mysql_port,
-            database=self.settings.mysql_database,
-            user=self.settings.mysql_user,
-            password=self.settings.mysql_password,
+            host=self.config.host,
+            port=self.config.port,
+            database=self.config.database,
+            user=self.config.user,
+            password=self.config.password,
         )

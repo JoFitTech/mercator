@@ -1,7 +1,6 @@
 """Zentrale Konfiguration für Mercator.
 
-Dieses Modul lädt Umgebungsvariablen und stellt Konfigurationsobjekte bereit,
-die in Datenimport, Datenbankzugriff und UI genutzt werden.
+Dieses Modul kapselt Umgebungsvariablen für API, Datenbanken und App-Metadaten.
 """
 
 from __future__ import annotations
@@ -12,63 +11,103 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Lädt lokale .env-Datei, falls vorhanden.
 load_dotenv()
+
+FMP_BASE_URL = "https://financialmodelingprep.com/stable"
+LATEST_INSIDER_ENDPOINT = "/insider-trading/latest"
+PROFILE_ENDPOINT = "/profile"
+DEFAULT_FEED_PAGE = 0
+DEFAULT_FEED_LIMIT = 100
+PROFILE_TTL_DAYS = 7
+POLL_INTERVAL_HOURS = 1
+
+
+@dataclass(frozen=True)
+class MySqlConfig:
+    """Konfiguration für MySQL-Verbindungen."""
+
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+
+
+@dataclass(frozen=True)
+class MongoConfig:
+    """Konfiguration für MongoDB-Verbindungen."""
+
+    uri: str
+    database: str
+
+
+@dataclass(frozen=True)
+class FmpConfig:
+    """Konfiguration für den FMP-Zugriff inklusive API-Key."""
+
+    base_url: str
+    api_key: str
+    default_feed_page: int = DEFAULT_FEED_PAGE
+    default_feed_limit: int = DEFAULT_FEED_LIMIT
+    profile_ttl_days: int = PROFILE_TTL_DAYS
+    poll_interval_hours: int = POLL_INTERVAL_HOURS
 
 
 @dataclass(frozen=True)
 class AppSettings:
-    """Konfigurationscontainer für Anwendung und Infrastruktur.
-
-    Verantwortung:
-    - zentrale Ablage von App-Metadaten
-    - Definition von Pfaden für Roh-, Zwischen- und Zieldaten
-    - Bereitstellung von DB-Verbindungsparametern
-    """
+    """Zentrale Anwendungseinstellungen für Services und UI."""
 
     app_env: str
     app_title: str
     dataset_path: str
     project_root: Path
-    data_raw_path: Path
-    data_interim_path: Path
-    data_processed_path: Path
-    mysql_host: str
-    mysql_port: int
-    mysql_database: str
-    mysql_user: str
-    mysql_password: str
-    mongo_uri: str
-    mongo_database: str
+    mysql: MySqlConfig
+    mongo: MongoConfig
+    fmp: FmpConfig
 
 
 def load_settings() -> AppSettings:
-    """Erstellt ein `AppSettings`-Objekt aus Umgebungsvariablen.
+    """Lädt Settings aus `.env` mit lokalen Entwicklungsdefaults.
 
     Returns:
-        AppSettings: Vollständige Konfiguration für Laufzeitmodule.
-
-    Hinweise:
-        - MYSQL_PASSWORD und MONGO_URI sind Platzhalter und müssen für reale
-          Umgebungen über eine lokale `.env` überschrieben werden.
-        - Keine echten Credentials im Repository hinterlegen.
+        AppSettings: Vollständige Konfiguration für das Projekt.
     """
 
     project_root = Path(__file__).resolve().parents[2]
-
     return AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
         app_title=os.getenv("APP_TITLE", "Mercator"),
         dataset_path=os.getenv("DATASET_PATH", "data/raw/"),
         project_root=project_root,
-        data_raw_path=project_root / "data" / "raw",
-        data_interim_path=project_root / "data" / "interim",
-        data_processed_path=project_root / "data" / "processed",
-        mysql_host=os.getenv("MYSQL_HOST", "localhost"),
-        mysql_port=int(os.getenv("MYSQL_PORT", "3306")),
-        mysql_database=os.getenv("MYSQL_DATABASE", "mercator"),
-        mysql_user=os.getenv("MYSQL_USER", "root"),
-        mysql_password=os.getenv("MYSQL_PASSWORD", "change_me"),
-        mongo_uri=os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
-        mongo_database=os.getenv("MONGO_DATABASE", "mercator"),
+        mysql=MySqlConfig(
+            host=os.getenv("MYSQL_HOST", "localhost"),
+            port=int(os.getenv("MYSQL_PORT", "3306")),
+            database=os.getenv("MYSQL_DATABASE", "mercator"),
+            user=os.getenv("MYSQL_USER", "root"),
+            password=os.getenv("MYSQL_PASSWORD", "change_me"),
+        ),
+        mongo=MongoConfig(
+            uri=os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
+            database=os.getenv("MONGO_DATABASE", "mercator"),
+        ),
+        fmp=FmpConfig(
+            base_url=FMP_BASE_URL,
+            api_key=os.getenv("FMP_API_KEY", ""),
+        ),
     )
+
+
+def validate_fmp_api_key(api_key: str) -> None:
+    """Validiert den API-Key für Importläufe.
+
+    Args:
+        api_key: API-Key aus der Konfiguration.
+
+    Raises:
+        ValueError: Falls der Key fehlt oder nur Platzhalter enthält.
+    """
+
+    if not api_key or api_key.strip().lower() in {"change_me", "your_api_key"}:
+        raise ValueError(
+            "FMP_API_KEY fehlt oder ist ein Platzhalter. Bitte trage einen gültigen Schlüssel in der .env ein."
+        )

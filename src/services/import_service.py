@@ -1,61 +1,140 @@
-"""Service für End-to-End-Datenimport in beide Datenbanken."""
+"""Import-Service für FMP-Feed, Verarbeitung und Persistenz."""
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
-import pandas as pd
+from src.config.settings import DEFAULT_FEED_LIMIT, DEFAULT_FEED_PAGE
+from src.data_sources.fmp_api_client import FmpApiClient
+from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
+from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
+from src.preprocessing.gate_evaluator import (
+    GATE_PASS,
+    GATE_PROFILE_FETCH_FAILED,
+    GATE_PROFILE_FETCHED,
+    GateEvaluator,
+)
+from src.preprocessing.insider_trade_cleaner import normalize_insider_trade
 
-from src.data_sources.dataset_loader import DatasetLoader
-from src.db.mongo_repository import MongoRepository
-from src.db.mysql_repository import MySQLRepository
-from src.preprocessing.cleaning import drop_empty_rows, standardize_column_names
+LOGGER = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)
 class ImportSummary:
-    """Gibt ein kompaktes Ergebnis des Importprozesses zurück."""
+    """Ergebnis eines Importlaufs."""
 
-    raw_rows: int
-    clean_rows: int
-    mongo_written: int
-    mysql_written: int
+    fetched_feed_records: int
+    inserted_raw_records: int
+    upserted_clean_records: int
+    fetched_profiles: int
 
 
 class ImportService:
-    """Orchestriert Rohdatenimport, Bereinigung und Persistenz."""
+    """Orchestriert FMP-Import, Gate-Prüfung und DB-Speicherung."""
 
     def __init__(
         self,
-        dataset_loader: DatasetLoader,
-        mongo_repository: MongoRepository,
-        mysql_repository: MySQLRepository,
+        fmp_client: FmpApiClient,
+        gate_evaluator: GateEvaluator,
+        raw_repo: InsiderTradeMongoRepository,
+        company_mongo_repo: CompanyMongoRepository,
+        trade_mysql_repo: InsiderTradeMySqlRepository,
+        company_mysql_repo: CompanyMySqlRepository,
     ) -> None:
-        self.dataset_loader = dataset_loader
-        self.mongo_repository = mongo_repository
-        self.mysql_repository = mysql_repository
+        self.fmp_client = fmp_client
+        self.gate_evaluator = gate_evaluator
+        self.raw_repo = raw_repo
+        self.company_mongo_repo = company_mongo_repo
+        self.trade_mysql_repo = trade_mysql_repo
+        self.company_mysql_repo = company_mysql_repo
 
-    def import_from_path(self, dataset_path: str) -> ImportSummary:
-        """Führt einen einfachen Importlauf für einen Dateipfad aus."""
-        raw_df = self.dataset_loader.load_from_path(dataset_path)
-        clean_df = standardize_column_names(drop_empty_rows(raw_df))
+    def run_hourly_import(self, page: int = DEFAULT_FEED_PAGE, limit: int = DEFAULT_FEED_LIMIT) -> ImportSummary:
+        """Führt einen vollständigen MVP-Importlauf aus."""
+        fetched_at = datetime.now(timezone.utc)
+        raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
+        normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]
 
-        mongo_written = self.mongo_repository.save_raw_trades(raw_df)
-        mysql_written = self.mysql_repository.save_clean_trades(clean_df)
+        for item in normalized:
+            decision = self.gate_evaluator.evaluate(item)
+            item["gate_status"] = decision.status
 
+        inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
+
+        fetched_profiles = 0
+        for trade in normalized:
+            if trade["gate_status"] != GATE_PASS or not trade.get("symbol"):
+                continue
+
+            symbol = trade["symbol"]
+            cached = self.company_mongo_repo.get_recent_profile(
+                symbol=symbol,
+                ttl_days=self.fmp_client.config.profile_ttl_days,
+            )
+            if cached:
+                trade["gate_status"] = GATE_PROFILE_FETCHED
+                continue
+
+            try:
+                profile = self.fmp_client.fetch_company_profile(symbol)
+            except Exception:
+                LOGGER.exception("Profilabruf fehlgeschlagen für %s", symbol)
+                trade["gate_status"] = GATE_PROFILE_FETCH_FAILED
+                continue
+
+            if not profile:
+                trade["gate_status"] = GATE_PROFILE_FETCH_FAILED
+                continue
+
+            company = self._normalize_company_profile(profile, fetched_at)
+            self.company_mongo_repo.upsert_profile(company)
+            self.company_mysql_repo.upsert_company(company)
+            trade["gate_status"] = GATE_PROFILE_FETCHED
+            fetched_profiles += 1
+
+        self.trade_mysql_repo.upsert_trades(normalized)
+
+        LOGGER.info(
+            "Import abgeschlossen: feed=%s raw_inserted=%s clean_upserted=%s profiles=%s",
+            len(raw_feed),
+            inserted_raw,
+            len(normalized),
+            fetched_profiles,
+        )
         return ImportSummary(
-            raw_rows=len(raw_df.index),
-            clean_rows=len(clean_df.index),
-            mongo_written=mongo_written,
-            mysql_written=mysql_written,
+            fetched_feed_records=len(raw_feed),
+            inserted_raw_records=inserted_raw,
+            upserted_clean_records=len(normalized),
+            fetched_profiles=fetched_profiles,
         )
 
-    def import_dataframe(self, dataframe: pd.DataFrame) -> ImportSummary:
-        """Alternative Importschnittstelle für bereits geladene DataFrames."""
-        clean_df = standardize_column_names(drop_empty_rows(dataframe))
-        return ImportSummary(
-            raw_rows=len(dataframe.index),
-            clean_rows=len(clean_df.index),
-            mongo_written=self.mongo_repository.save_raw_trades(dataframe),
-            mysql_written=self.mysql_repository.save_clean_trades(clean_df),
-        )
+    @staticmethod
+    def _normalize_company_profile(profile: dict, fetched_at: datetime) -> dict:
+        """Überführt FMP-Profilfelder in das Projektschema."""
+        return {
+            "symbol": str(profile.get("symbol", "")).strip().upper(),
+            "company_name": profile.get("companyName"),
+            "market_cap": profile.get("mktCap"),
+            "price": profile.get("price"),
+            "currency": profile.get("currency"),
+            "cik": profile.get("cik"),
+            "isin": profile.get("isin"),
+            "cusip": profile.get("cusip"),
+            "exchange": profile.get("exchangeShortName"),
+            "exchange_full_name": profile.get("exchange"),
+            "industry": profile.get("industry"),
+            "sector": profile.get("sector"),
+            "country": profile.get("country"),
+            "website": profile.get("website"),
+            "description": profile.get("description"),
+            "ceo": profile.get("ceo"),
+            "full_time_employees": profile.get("fullTimeEmployees"),
+            "ipo_date": profile.get("ipoDate"),
+            "is_etf": profile.get("isEtf"),
+            "is_actively_trading": profile.get("isActivelyTrading"),
+            "is_adr": profile.get("isAdr"),
+            "is_fund": profile.get("isFund"),
+            "profile_updated_at": fetched_at,
+            "profile_payload": profile,
+        }

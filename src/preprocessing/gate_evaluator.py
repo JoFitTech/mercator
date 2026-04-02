@@ -1,0 +1,61 @@
+"""Lokale Gate-Prüfung für Insider-Trades im MVP."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+GATE_PENDING = "PENDING"
+GATE_PASS = "PASS"
+GATE_FAIL = "FAIL"
+GATE_PROFILE_FETCHED = "PROFILE_FETCHED"
+GATE_PROFILE_FETCH_FAILED = "PROFILE_FETCH_FAILED"
+
+
+@dataclass(slots=True)
+class GateDecision:
+    """Ergebniscontainer für die lokale Gate-Entscheidung."""
+
+    status: str
+    reason: str
+
+
+class GateEvaluator:
+    """Bewertet Trades lokal mit konservativen MVP-Regeln."""
+
+    def evaluate(self, trade: dict) -> GateDecision:
+        """Prüft ein normalisiertes Trade-Dict mit einfachen Regeln.
+
+        Parameter:
+            trade: Normalisiertes Trade-Dictionary.
+
+        Rückgabe:
+            GateDecision mit Status und Begründung.
+        """
+
+        symbol = str(trade.get("symbol", "")).strip().upper()
+        qty = trade.get("qty") or 0
+        price = trade.get("price") or 0
+        transaction_type = str(trade.get("transaction_type", "")).lower()
+        security_name = str(trade.get("security_name", "")).lower()
+        acquisition = str(trade.get("acquisition_or_disposition", "")).upper()
+
+        if not symbol:
+            return GateDecision(status=GATE_FAIL, reason="Fehlendes Symbol")
+        if qty <= 0:
+            return GateDecision(status=GATE_FAIL, reason="Ungültige Stückzahl")
+        if price <= 0:
+            return GateDecision(status=GATE_PENDING, reason="Preis fehlt oder ist ungültig")
+
+        # TODO: Grenzwerte nach fachlicher Abstimmung konkretisieren.
+        trade_value = qty * price
+        if trade_value < 10_000:
+            return GateDecision(status=GATE_FAIL, reason="Transaktionswert unter Mindestschwelle")
+
+        is_purchase = acquisition == "A" or "purchase" in transaction_type or "buy" in transaction_type
+        if not is_purchase:
+            return GateDecision(status=GATE_FAIL, reason="Kein Kaufereignis")
+
+        if security_name and "common stock" not in security_name:
+            return GateDecision(status=GATE_FAIL, reason="Nicht als Common Stock erkennbar")
+
+        return GateDecision(status=GATE_PASS, reason="Basisregeln erfüllt")

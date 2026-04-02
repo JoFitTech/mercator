@@ -1,108 +1,88 @@
 # Mercator
 
-## 1) Kurzbeschreibung
-Mercator ist eine interaktive Streamlit-Datenanwendung zur Analyse öffentlich verfügbarer Finanzdaten. Der Fokus liegt auf der Verarbeitung, Speicherung und Visualisierung von Insider-Trade-Daten bzw. ähnlichen Finanzereignisdaten. Die Anwendung dient als Uni-Projekt im Modul Datenbanken 2 und demonstriert den Einsatz von Pandas, MySQL, MongoDB und Streamlit in einer durchgängigen Datenpipeline.
+## Kurzbeschreibung
+Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. Die Anwendung verarbeitet öffentlich verfügbare Insider-Trade-Daten und stellt sie in einer Streamlit-Oberfläche analysierbar dar.
 
-## 2) Ziel der Anwendung
-Die Anwendung soll einen öffentlich verfügbaren Datensatz einlesen, bereinigen, in zwei unterschiedlichen Datenbanksystemen speichern und anschließend in einer interaktiven Weboberfläche analysierbar machen. Ziel ist es, Datenexploration, Visualisierung und nachvollziehbare Datenverarbeitung in einer kompakten, akademisch sauberen Anwendung zu verbinden.
+## Ziel der Anwendung
+1. öffentliche Finanzdaten laden
+2. Rohdaten in MongoDB speichern
+3. bereinigte Daten in MySQL speichern
+4. Ergebnisse interaktiv in Streamlit visualisieren
 
-## 3) Uni-Kontext und fachlicher Scope
-### Im Scope
-- Import eines öffentlichen Datensatzes
-- Aufbereitung mit Pandas
-- Speicherung in MongoDB und MySQL
-- Interaktive Analyse mit Streamlit
-- Visualisierung zentraler Muster und Zusammenhänge
-- Fokus auf Insider-Trades oder ähnliche Finanzdaten
-- bewusste Reduktion auf einen klaren akademischen Kern
+## Uni-Kontext und Scope
+Mercator ist bewusst als akademisches MVP ausgelegt:
+- Fokus auf nachvollziehbaren Datenfluss
+- klare Trennung von Roh- und Zieldaten
+- keine Produkt-/Enterprise-Nebenziele
 
-### Nicht Teil des Scopes
-- Broker-Anbindung
-- Live-Trading
-- Login-System
-- E-Mail-Automation
-- komplexe Produktplattform-Funktionen
-- Realtime-Marktdatenarchitektur
-
-## 4) Verwendete Technologien
-- Python 3.x
+## Verwendete Technologien
+- Python
 - Streamlit
 - Pandas
-- MySQL (relationale Speicherung)
-- MongoDB (Rohdatenablage)
-- python-dotenv
+- MySQL (`mysql-connector-python`)
+- MongoDB (`pymongo`)
+- `python-dotenv`
+- `requests`
+- `pytest`
 
-## 5) Projektstruktur
+## Projektstruktur
+- `streamlit_app.py` – Einstiegspunkt
+- `src/config/` – App-, API- und DB-Konfiguration
+- `src/models/` – Dataclasses (`InsiderTrade`, `Company`, `AnalysisResult`)
+- `src/data_sources/` – FMP-API-Client
+- `src/preprocessing/` – Normalisierung, Dedupe-Key, Gate-Evaluation
+- `src/db/` – MongoDB-/MySQL-Clients und Repositories
+- `src/services/` – Import-, Dashboard- und Analyse-Logik
+- `src/ui/pages/` – Dashboard, Explorer, Ticker-Detail, Methodik
+- `src/utils/` – Hilfsfunktionen
+- `docs/` – Scope, Architektur, Datensatznotizen
+- `tests/` – robuste Basistests
+- `legacy/` – geordnete Altbestände
 
-| Pfad | Zweck |
-|---|---|
-| `streamlit_app.py` | Einstiegspunkt der Streamlit-Anwendung mit Navigation und Routing. |
-| `src/config/` | Zentrale Konfiguration und Laden von Umgebungsvariablen. |
-| `src/data_sources/` | Einlesen von Datensätzen (lokale Dateien, später ggf. weitere Quellen). |
-| `src/preprocessing/` | Bereinigung, Normalisierung und Transformation mit Pandas. |
-| `src/db/` | DB-Clients und Repository-Schnittstellen für MySQL und MongoDB. |
-| `src/services/` | Fachliche Orchestrierung (Import, Analyse, Dashboard-Aufbereitung). |
-| `src/ui/` | Seitenmodule und Komponenten für die Streamlit-Oberfläche. |
-| `src/models/` | Lesbare Domänenmodelle (`InsiderTrade`, `Company`, `AnalysisResult`). |
-| `src/utils/` | Allgemeine Hilfsfunktionen (Logging, Datum, DataFrames). |
-| `data/` | Lokale Datenablage (`raw`, `interim`, `processed`). |
-| `docs/` | Projektdokumentation (Scope, Architektur, Datensatznotizen). |
-| `tests/` | Basistests und Platzhaltertests. |
-| `legacy/` | Geordnet ausgelagerte Altbestände außerhalb des aktuellen Uni-Scopes. |
+## Datenfluss
+1. `ImportService` lädt `Latest Insider Trading` von FMP (`page=0`, `limit=100`).
+2. Rohobjekte werden normalisiert, typisiert und dedupliziert.
+3. Rohdaten landen in MongoDB (`insider_trades_raw`).
+4. Gate-Pass-Kandidaten lösen optionalen Profilabruf aus (`/profile`), inkl. 7-Tage-Cache.
+5. Bereinigte Trades und Profile werden in MySQL gespeichert.
+6. Streamlit-Seiten lesen über Services aus den Repositories.
 
-## 6) Datenfluss
-1. Datensatz wird in `data/raw/` abgelegt.
-2. Import über `DatasetLoader`.
-3. Bereinigung/Normalisierung mit Modulen in `src/preprocessing/`.
-4. Rohdaten werden in MongoDB gespeichert.
-5. Bereinigte Daten werden in MySQL gespeichert.
-6. Streamlit liest Daten/Ergebnisse und stellt Dashboard + Explorer bereit.
-
-## 7) Einrichtung lokal
+## Lokale Einrichtung
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-## 8) Umgebungsvariablen
-Siehe `.env.example` als Vorlage.
+## Umgebungsvariablen
+Siehe `.env.example`.
 
-Relevante Variablen:
-- `MYSQL_HOST`
-- `MYSQL_PORT`
-- `MYSQL_DATABASE`
-- `MYSQL_USER`
-- `MYSQL_PASSWORD`
-- `MONGO_URI`
-- `MONGO_DATABASE`
-- `APP_ENV`
-- `APP_TITLE`
-- `DATASET_PATH`
+Pflichtvariablen:
+- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`
+- `MONGO_URI`, `MONGO_DATABASE`
+- `FMP_API_KEY`
+- `APP_ENV`, `APP_TITLE`, `DATASET_PATH`
 
-## 9) Start der Anwendung
+## Start der Anwendung
 ```bash
 streamlit run streamlit_app.py
 ```
 
-## 10) Geplante nächste Schritte
-1. Finalen öffentlichen Datensatz auswählen und dokumentieren.
-2. Persistenzmethoden in `mysql_repository.py` und `mongo_repository.py` produktiv implementieren.
-3. Datenmodell und SQL-Schema auf finalen Spaltenkatalog ausrichten.
-4. Weitere Kennzahlen/Visualisierungen für die Präsentation ergänzen.
-5. Ergebnisabschnitte für den Projektbericht iterativ befüllen.
+## Nächste Schritte
+- Scheduler für stündlichen Importlauf ergänzen.
+- Gate-Regeln fachlich verfeinern.
+- Zusätzliche Auswertungen für Präsentation und Bericht ergänzen.
 
-## 11) Hinweise zum Datensatz
-- Der finale Datensatz ist noch nicht festgelegt.
-- In `docs/dataset_notes.md` sind offene Punkte und Mapping-Ideen dokumentiert.
-- Solange kein finaler Datensatz feststeht, sind einige Verarbeitungsregeln bewusst als TODO markiert.
+## Hinweise zu Datensatz, MySQL und MongoDB
+- FMP-MVP nutzt **nur zwei Endpunkte**:
+  - `/insider-trading/latest`
+  - `/profile`
+- MongoDB speichert Rohdaten und Profilpayloads.
+- MySQL speichert bereinigte, auswertbare Zieldaten.
+- Ohne DB-Verbindung zeigt die UI eine verständliche Fehlermeldung.
 
-## 12) Hinweise zu MySQL und MongoDB
-- MySQL: Zielsystem für bereinigte, auswertbare Struktur.
-- MongoDB: Ablage semistrukturierter oder roher Eingabedaten.
-- Ohne laufende DB-Instanzen zeigt die App einen klaren Hinweis an, statt still zu scheitern.
-
-## 13) Hinweise für Präsentation und Bericht
-- Methodik-Seite in der App als Demo-Narrativ verwenden.
-- Architektur aus `docs/architecture.md` als Basis für Schaubilder nutzen.
-- Für den 5–10-seitigen Bericht: Problemstellung, Datenquelle, Pipeline, DB-Design, UI und Erkenntnisse getrennt darstellen.
+## Hinweise für Präsentation und Bericht
+- Methodik-Seite als roten Faden nutzen.
+- Architektur aus `docs/architecture.md` übernehmen.
+- Berichtsfokus: Datenquelle, Datenfluss, Deduplizierung, Gate-Logik, Mehrwert der Zwei-DB-Architektur.

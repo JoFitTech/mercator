@@ -1,4 +1,4 @@
-"""Domänenmodell für aggregierte Analyseergebnisse."""
+"""Leichtgewichtiges Analysemodell für UI-Ausgaben."""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass
+@dataclass(slots=True)
 class AnalysisResult:
-    """Kapselt Ergebnisse, die im Dashboard oder Explorer angezeigt werden."""
+    """Strukturiert Kennzahlen und Zusatzdaten für Dashboard und Detailansichten."""
 
     title: str
     metrics: dict[str, Any] = field(default_factory=dict)
-    dataframe_rows: int = 0
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    company_profile: dict[str, Any] = field(default_factory=dict)
     note: str = ""

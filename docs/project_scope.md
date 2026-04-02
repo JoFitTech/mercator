@@ -1,20 +1,21 @@
-# Projekt-Scope
+# Projekt-Scope (Mercator)
 
-## Fachliches Ziel
-Mercator fokussiert auf die interaktive Analyse von Insider-Trades bzw. vergleichbaren Finanzereignisdaten mit klarer Datenpipeline.
+## Akademischer Kern
+Mercator demonstriert eine durchgängige Datenpipeline vom öffentlichen Finanzfeed bis zur interaktiven Analyseoberfläche.
 
-## Technischer Scope
-- Import eines öffentlichen Datensatzes
-- Verarbeitung und Bereinigung mit Pandas
-- Speicherung von Rohdaten in MongoDB
-- Speicherung bereinigter, auswertbarer Daten in MySQL
-- Interaktive Exploration und Visualisierung mit Streamlit
+## Verbindlicher MVP-Scope
+- Nur zwei FMP-Endpunkte:
+  1. `GET /insider-trading/latest?page={page}&limit={limit}`
+  2. `GET /profile?symbol={SYMBOL}`
+- Feed-Polling 1x pro Stunde, Standard `page=0`, `limit=100`
+- Keine zusätzliche Seitennavigation im Feed im MVP
+- Profile nur für Gate-Pass-Kandidaten
+- Profil-Cache mit 7 Tagen TTL
+- Deduplizierung über technischen Schlüssel
 
 ## Nicht-Ziele
-- Kein Live-Trading
-- Keine Broker-Integration
-- Kein Login-, Rollen- oder Billing-System
-- Keine komplexe Realtime-Architektur
-
-## Warum passt das zur Uni-Aufgabe?
-Die Anwendung kombiniert Datenbeschaffung, Transformation, Multi-DB-Persistenz und interaktive Visualisierung in einem nachvollziehbaren, akademisch präsentierbaren End-to-End-Workflow.
+- Kein Trading und keine Broker-Anbindung
+- Kein Login-/Rollenmodell
+- Kein Mail-Versand
+- Keine zusätzlichen FMP-Endpunkte
+- Keine unnötige Enterprise-Komplexität

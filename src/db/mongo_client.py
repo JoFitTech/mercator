@@ -1,20 +1,20 @@
-"""MongoDB-Client für Rohdatenpersistenz."""
+"""MongoDB-Client-Wrapper für Mercator."""
 
 from __future__ import annotations
 
 from pymongo import MongoClient
 from pymongo.database import Database
 
-from src.config.settings import AppSettings
+from src.config.settings import MongoConfig
 
 
-class MongoDbClient:
-    """Erzeugt Mongo-Verbindungen für semistrukturierte Rohdaten."""
+class MongoClientWrapper:
+    """Erzeugt eine MongoDB-Datenbankverbindung für Rohdaten und Profile."""
 
-    def __init__(self, settings: AppSettings) -> None:
-        self.settings = settings
+    def __init__(self, config: MongoConfig) -> None:
+        self.config = config
 
     def get_database(self) -> Database:
-        """Liefert die konfigurierte MongoDB-Datenbankinstanz zurück."""
-        client = MongoClient(self.settings.mongo_uri)
-        return client[self.settings.mongo_database]
+        """Liefert die konfigurierte Datenbankinstanz zurück."""
+        client = MongoClient(self.config.uri, serverSelectionTimeoutMS=3000)
+        return client[self.config.database]

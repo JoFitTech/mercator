@@ -1,23 +1,55 @@
-"""Service zur Aufbereitung von KPI- und Chartdaten für Streamlit."""
+"""Dashboard-Service für KPIs und Diagrammdaten."""
 
 from __future__ import annotations
 
 import pandas as pd
 
-from src.services.analysis_service import AnalysisService
+from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
+from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 
 
 class DashboardService:
-    """Bereitet Anzeigeobjekte für Dashboard-Komponenten vor."""
+    """Erzeugt Dashboard-Kennzahlen aus MongoDB und MySQL."""
 
-    def __init__(self, analysis_service: AnalysisService) -> None:
-        self.analysis_service = analysis_service
+    def __init__(
+        self,
+        raw_repo: InsiderTradeMongoRepository,
+        company_mongo_repo: CompanyMongoRepository,
+        trade_repo: InsiderTradeMySqlRepository,
+        company_repo: CompanyMySqlRepository,
+    ) -> None:
+        self.raw_repo = raw_repo
+        self.company_mongo_repo = company_mongo_repo
+        self.trade_repo = trade_repo
+        self.company_repo = company_repo
 
-    def build_dashboard_payload(self, trades_df: pd.DataFrame) -> dict:
-        """Liefert ein minimales Payload mit KPIs und tabellarischen Daten."""
-        analysis = self.analysis_service.build_basic_metrics(trades_df)
-        return {
-            "kpis": analysis.metrics,
-            "row_count": analysis.dataframe_rows,
-            "note": analysis.note,
+    def build_dashboard_payload(self) -> dict:
+        """Liefert KPIs und vorbereitete DataFrames für Charts."""
+        trades_df = self.trade_repo.fetch_trades(limit=2000)
+        payload = {
+            "raw_records": self.raw_repo.count_all(),
+            "clean_records": self.trade_repo.count_all(),
+            "company_profiles": self.company_repo.count_all(),
+            "transaction_type_distribution": pd.DataFrame(),
+            "sector_distribution": pd.DataFrame(),
+            "timeline_distribution": pd.DataFrame(),
+            "trades": trades_df,
         }
+
+        if trades_df.empty:
+            return payload
+
+        payload["transaction_type_distribution"] = (
+            trades_df.groupby("transaction_type", dropna=False).size().reset_index(name="count")
+        )
+        payload["sector_distribution"] = (
+            trades_df.groupby("sector", dropna=False).size().reset_index(name="count")
+        )
+        timeline_col = "filing_date" if "filing_date" in trades_df.columns else "transaction_date"
+        payload["timeline_distribution"] = (
+            trades_df.assign(event_date=pd.to_datetime(trades_df[timeline_col], errors="coerce").dt.date)
+            .groupby("event_date", dropna=False)
+            .size()
+            .reset_index(name="count")
+        )
+        return payload
