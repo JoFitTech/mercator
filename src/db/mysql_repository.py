@@ -1,4 +1,4 @@
-"""Schlanke Repository-Schicht für MySQL-Zugriffe in FinanzPort Academic."""
+"""Schlanke Repository-Schicht für MySQL-Zugriffe in Mercator."""
 
 from __future__ import annotations
 

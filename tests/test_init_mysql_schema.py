@@ -58,3 +58,16 @@ def test_initialize_mysql_schema_connection_fail(monkeypatch, capsys):
 
     assert exit_code == 1
 
+
+
+def test_main_uses_initialize_exit_code(monkeypatch):
+    """Prueft, dass main den Exit-Code von initialize_mysql_schema weitergibt."""
+
+    monkeypatch.setattr(init_mysql_schema, "initialize_mysql_schema", lambda: 7)
+
+    try:
+        init_mysql_schema.main()
+    except SystemExit as exc:
+        assert exc.code == 7
+    else:  # pragma: no cover - defensiver Pfad fuer fehlerhafte Exit-Weitergabe
+        assert False, "main() sollte SystemExit ausloesen"
