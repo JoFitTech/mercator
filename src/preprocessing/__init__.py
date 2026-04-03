@@ -8,12 +8,14 @@ from src.preprocessing.gate_evaluator import (
     GATE_PROFILE_FETCHED,
     GateDecision,
     GateEvaluator,
+    GateRules,
 )
 from src.preprocessing.insider_trade_cleaner import build_dedupe_key, normalize_insider_trade
 
 __all__ = [
     "GateDecision",
     "GateEvaluator",
+    "GateRules",
     "GATE_PENDING",
     "GATE_PASS",
     "GATE_FAIL",

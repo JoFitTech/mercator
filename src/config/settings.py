@@ -21,6 +21,14 @@ DEFAULT_FEED_PAGE = 0
 DEFAULT_FEED_LIMIT = 100
 PROFILE_TTL_DAYS = 7
 POLL_INTERVAL_HOURS = 1
+DEFAULT_GATE_MIN_TRADE_VALUE = 10_000
+ALLOWED_GATE_FILTER_STATUSES = {
+    "PASS",
+    "PENDING",
+    "FAIL",
+    "PROFILE_FETCHED",
+    "PROFILE_FETCH_FAILED",
+}
 
 
 class SettingsError(ValueError):
@@ -118,6 +126,27 @@ def _read_bool_env(name: str, default: bool | None = None) -> bool:
     )
 
 
+def _read_csv_status_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Liest eine komma-separierte Statusliste aus der Umgebung und validiert diese."""
+
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    statuses = tuple(item.strip().upper() for item in raw_value.split(",") if item.strip())
+    if not statuses:
+        return default
+
+    invalid = sorted(set(statuses) - ALLOWED_GATE_FILTER_STATUSES)
+    if invalid:
+        raise SettingsError(
+            f"Environment variable '{name}' contains invalid values: {', '.join(invalid)}. "
+            f"Allowed values: {', '.join(sorted(ALLOWED_GATE_FILTER_STATUSES))}."
+        )
+
+    return statuses
+
+
 @dataclass(frozen=True)
 class Settings:
     """Zentrale MySQL-Einstellungen für Verbindung und SSL-Verhalten."""
@@ -208,6 +237,16 @@ class FmpConfig:
     default_feed_limit: int = DEFAULT_FEED_LIMIT
     profile_ttl_days: int = PROFILE_TTL_DAYS
     poll_interval_hours: int = POLL_INTERVAL_HOURS
+    profile_gate_filter_statuses: tuple[str, ...] = ("PASS",)
+
+
+@dataclass(frozen=True)
+class GateConfig:
+    """Konfiguration der lokalen Gate-Regeln fuer Profilabrufe."""
+
+    min_trade_value: int = DEFAULT_GATE_MIN_TRADE_VALUE
+    require_purchase_event: bool = True
+    require_common_stock: bool = True
 
 
 @dataclass(frozen=True)
@@ -221,6 +260,7 @@ class AppSettings:
     mysql: Settings
     mongo: MongoConfig
     fmp: FmpConfig
+    gate: GateConfig
 
 
 def load_settings() -> AppSettings:
@@ -244,6 +284,14 @@ def load_settings() -> AppSettings:
         fmp=FmpConfig(
             base_url=FMP_BASE_URL,
             api_key=os.getenv("FMP_API_KEY", ""),
+            profile_gate_filter_statuses=_read_csv_status_env(
+                "PROFILE_GATE_FILTER_STATUSES", default=("PASS",)
+            ),
+        ),
+        gate=GateConfig(
+            min_trade_value=_read_int_env("GATE_MIN_TRADE_VALUE", default=DEFAULT_GATE_MIN_TRADE_VALUE),
+            require_purchase_event=_read_bool_env("GATE_REQUIRE_PURCHASE_EVENT", default=True),
+            require_common_stock=_read_bool_env("GATE_REQUIRE_COMMON_STOCK", default=True),
         ),
     )
 

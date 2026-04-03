@@ -48,11 +48,40 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 6. Streamlit-Seiten lesen über Services aus den Repositories.
 
 ## Lokale Einrichtung
+### Windows PowerShell (empfohlen)
+Wenn du **nur testen/starten** willst, brauchst du lokal **kein Python**, solange Docker Desktop laeuft.
+
+```powershell
+Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
+Copy-Item .env.example .env -Force
+.\mercator.ps1 start
+.\mercator.ps1 open
+```
+
+Wichtig:
+- In PowerShell musst du lokale Skripte mit **`.\mercator.ps1 start`** aufrufen.
+- `source` ist ein Bash-Befehl und funktioniert in PowerShell nicht.
+- Wenn `python`, `pip` oder `streamlit` nicht gefunden werden, ist lokal noch kein Python installiert. Fuer den Docker-Start ist das aber **nicht noetig**.
+
+### Lokale Python-Umgebung (nur wenn du ohne Docker entwickeln willst)
+```powershell
+Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env -Force
+streamlit run streamlit_app.py
+```
+
+Falls `py` ebenfalls nicht gefunden wird, installiere zuerst Python 3.11 fuer Windows.
+
+### macOS / Linux (Bash)
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+streamlit run streamlit_app.py
 ```
 
 ## Umgebungsvariablen
@@ -64,10 +93,74 @@ Pflichtvariablen:
 - `FMP_API_KEY`
 - `APP_ENV`, `APP_TITLE`, `DATASET_PATH`
 
+Optionale Import-/Gate-Parameter:
+- `GATE_MIN_TRADE_VALUE` (Default `10000`)
+- `GATE_REQUIRE_PURCHASE_EVENT` (`true`/`false`)
+- `GATE_REQUIRE_COMMON_STOCK` (`true`/`false`)
+- `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
+
 ## Start der Anwendung
 ```bash
 streamlit run streamlit_app.py
 ```
+
+## One-File Steuerung (Start/Stop/Restart)
+Nutze zentral `mercator.ps1`, um den lokalen Stack und den DB-Init zu steuern.
+
+```powershell
+Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
+.\mercator.ps1 start
+```
+
+Verfuegbare Aktionen:
+- `start` - startet App + Mongo per Compose
+- `stop` - stoppt den Stack
+- `restart` - startet den Stack neu
+- `status` - zeigt Containerstatus
+- `logs` - streamt Logs (default Service `app`)
+- `init-db` - fuehrt MySQL-Schema-Init im App-Container aus
+- `open` - oeffnet `http://localhost:8501`
+
+Beispiele:
+
+```powershell
+.\mercator.ps1 status
+.\mercator.ps1 restart
+.\mercator.ps1 logs
+.\mercator.ps1 logs -Service mongo
+.\mercator.ps1 init-db
+```
+
+In der Dashboard-Seite kannst du unter **Import- und Gate-Konfiguration** die API-Parameter (page/limit)
+und den Profilabruf-Filter zur Laufzeit anpassen. Das ueberschreibt die Code-/`.env`-Defaults nur fuer den aktuellen Lauf.
+
+## MySQL-Schema initial anlegen (Initialsetup / nach Wipe)
+Wenn die MySQL-Tabellen fehlen, kannst du die Struktur gezielt per CLI neu anlegen:
+
+```bash
+python -m src.scripts.init_mysql_schema
+```
+
+Hinweis:
+- Der Befehl nutzt die MySQL-Zugangsdaten aus `.env`.
+- Falls das Schema selbst neu erstellt werden soll, setze `MYSQL_CREATE_DATABASE=true`.
+- Alternativ zentral per Script: `.\mercator.ps1 init-db`.
+
+## Docker-Start für lokale Tests (App + MongoDB)
+Für einen Klick-Start/Stop in Docker Desktop liegt eine Compose-Datei unter `mercator-compose.yml`.
+
+```bash
+docker compose -f mercator-compose.yml up -d
+```
+```bash
+docker compose -f mercator-compose.yml down
+```
+
+Hinweise:
+- Mit `up -d` starten beide Services: Streamlit-App (`http://localhost:8501`) und MongoDB.
+- Die App nutzt weiter die MySQL-Verbindung aus `.env` (z. B. Uni-MySQL).
+- Innerhalb von Compose nutzt die App automatisch `MONGO_URI=mongodb://mongo:27017/`.
+- Persistenz erfolgt über das Volume `mongo_data`.
 
 ## Nächste Schritte
 - Scheduler für stündlichen Importlauf ergänzen.

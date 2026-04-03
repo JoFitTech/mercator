@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.config.settings import Settings
+from src.config.settings import Settings, load_settings
 
 
 def test_settings_from_env(monkeypatch) -> None:
@@ -53,6 +53,31 @@ def test_mysql_connection_kwargs_ssl_disabled(monkeypatch) -> None:
     assert kwargs["host"] == "localhost"
     assert kwargs["database"] == "finanzport_academic"
     assert kwargs["ssl_disabled"] is True
+
+
+def test_load_settings_reads_gate_and_profile_filters(monkeypatch) -> None:
+    """Prueft, dass Gate-Regeln und Profil-Fetch-Statusfilter aus Env geladen werden."""
+
+    monkeypatch.setenv("MYSQL_HOST", "localhost")
+    monkeypatch.setenv("MYSQL_PORT", "3306")
+    monkeypatch.setenv("MYSQL_DATABASE", "finanzport_academic")
+    monkeypatch.setenv("MYSQL_USER", "root")
+    monkeypatch.setenv("MYSQL_PASSWORD", "change_me")
+    monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT", "10")
+    monkeypatch.setenv("MYSQL_CREATE_DATABASE", "false")
+    monkeypatch.setenv("MYSQL_SSL_DISABLED", "true")
+    monkeypatch.setenv("FMP_API_KEY", "demo")
+    monkeypatch.setenv("GATE_MIN_TRADE_VALUE", "25000")
+    monkeypatch.setenv("GATE_REQUIRE_PURCHASE_EVENT", "false")
+    monkeypatch.setenv("GATE_REQUIRE_COMMON_STOCK", "false")
+    monkeypatch.setenv("PROFILE_GATE_FILTER_STATUSES", "PASS,PENDING")
+
+    settings = load_settings()
+
+    assert settings.gate.min_trade_value == 25000
+    assert settings.gate.require_purchase_event is False
+    assert settings.gate.require_common_stock is False
+    assert settings.fmp.profile_gate_filter_statuses == ("PASS", "PENDING")
 
 
 # TODO: Integrationstest mit echter Uni-MySQL-Verbindung ergänzen, sobald Zugangsdaten vorliegen.

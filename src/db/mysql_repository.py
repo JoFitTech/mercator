@@ -76,9 +76,35 @@ class CompanyRepository:
                 is_fund = VALUES(is_fund),
                 profile_updated_at = VALUES(profile_updated_at)
         """
+        params = {
+            "symbol": company.get("symbol"),
+            "company_name": company.get("company_name"),
+            "market_cap": company.get("market_cap"),
+            "price": company.get("price"),
+            "currency": company.get("currency"),
+            "cik": company.get("cik"),
+            "isin": company.get("isin"),
+            "cusip": company.get("cusip"),
+            "exchange": company.get("exchange"),
+            "exchange_full_name": company.get("exchange_full_name"),
+            "industry": company.get("industry"),
+            "sector": company.get("sector"),
+            "country": company.get("country"),
+            "website": company.get("website"),
+            "description": company.get("description"),
+            "ceo": company.get("ceo"),
+            "full_time_employees": company.get("full_time_employees"),
+            "ipo_date": company.get("ipo_date"),
+            "is_etf": company.get("is_etf"),
+            "is_actively_trading": company.get("is_actively_trading"),
+            "is_adr": company.get("is_adr"),
+            "is_fund": company.get("is_fund"),
+            "profile_updated_at": company.get("profile_updated_at"),
+        }
+
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(sql, company)
+                cursor.execute(sql, params)
             conn.commit()
 
     def get_company_by_symbol(self, symbol: str) -> dict[str, Any] | None:

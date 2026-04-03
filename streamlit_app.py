@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.config.settings import load_settings
+from src.config.settings import AppSettings, load_settings
+from src.data_sources.fmp_api_client import FmpApiClient
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.mysql_client import MySqlClient
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.services.analysis_service import AnalysisService
 from src.services.dashboard_service import DashboardService
+from src.services.import_service import ImportService
+from src.preprocessing import GateEvaluator, GateRules
 from src.ui.pages.dashboard_page import render_dashboard_page
 from src.ui.pages.explorer_page import render_explorer_page
 from src.ui.pages.methodology_page import render_methodology_page
@@ -22,7 +25,7 @@ DB_ERROR_MESSAGE = (
 )
 
 
-def _build_services() -> tuple[DashboardService, AnalysisService]:
+def _build_services() -> tuple[DashboardService, AnalysisService, ImportService | None, AppSettings]:
     """Initialisiert Repositories und Services für die UI."""
     settings = load_settings()
     mongo_client = MongoClientWrapper(settings.mongo)
@@ -34,8 +37,36 @@ def _build_services() -> tuple[DashboardService, AnalysisService]:
     trade_repo = InsiderTradeMySqlRepository(mysql_client)
     company_repo = CompanyMySqlRepository(mysql_client)
 
-    return DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo), AnalysisService(
-        trade_repo, company_repo
+    import_service: ImportService | None = None
+    try:
+        gate_evaluator = GateEvaluator(
+            GateRules(
+                min_trade_value=settings.gate.min_trade_value,
+                require_purchase_event=settings.gate.require_purchase_event,
+                require_common_stock=settings.gate.require_common_stock,
+            )
+        )
+        fmp_client = FmpApiClient(settings.fmp)
+        import_service = ImportService(
+            fmp_client=fmp_client,
+            gate_evaluator=gate_evaluator,
+            raw_repo=raw_repo,
+            company_mongo_repo=company_mongo_repo,
+            trade_mysql_repo=trade_repo,
+            company_mysql_repo=company_repo,
+            profile_fetch_statuses=settings.fmp.profile_gate_filter_statuses,
+        )
+    except Exception as exc:
+        st.session_state["import_service_error"] = str(exc)
+        import_service = None
+    else:
+        st.session_state.pop("import_service_error", None)
+
+    return (
+        DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo),
+        AnalysisService(trade_repo, company_repo),
+        import_service,
+        settings,
     )
 
 
@@ -46,7 +77,7 @@ def main() -> None:
     st.sidebar.caption("Interaktive Datenanwendung für das Modul Datenbanken 2")
 
     try:
-        dashboard_service, analysis_service = _build_services()
+        dashboard_service, analysis_service, import_service, settings = _build_services()
     except Exception:
         st.sidebar.error(DB_ERROR_MESSAGE)
 
@@ -63,7 +94,7 @@ def main() -> None:
         return
 
     def _dashboard() -> None:
-        render_dashboard_page(dashboard_service)
+        render_dashboard_page(dashboard_service, import_service, settings)
 
     def _explorer() -> None:
         render_explorer_page(analysis_service)

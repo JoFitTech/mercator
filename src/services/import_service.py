@@ -42,6 +42,7 @@ class ImportService:
         company_mongo_repo: CompanyMongoRepository,
         trade_mysql_repo: InsiderTradeMySqlRepository,
         company_mysql_repo: CompanyMySqlRepository,
+        profile_fetch_statuses: tuple[str, ...] = (GATE_PASS,),
     ) -> None:
         self.fmp_client = fmp_client
         self.gate_evaluator = gate_evaluator
@@ -49,12 +50,21 @@ class ImportService:
         self.company_mongo_repo = company_mongo_repo
         self.trade_mysql_repo = trade_mysql_repo
         self.company_mysql_repo = company_mysql_repo
+        self.profile_fetch_statuses = tuple(status.upper() for status in profile_fetch_statuses)
 
-    def run_hourly_import(self, page: int = DEFAULT_FEED_PAGE, limit: int = DEFAULT_FEED_LIMIT) -> ImportSummary:
+    def run_hourly_import(
+        self,
+        page: int = DEFAULT_FEED_PAGE,
+        limit: int = DEFAULT_FEED_LIMIT,
+        profile_fetch_statuses: tuple[str, ...] | None = None,
+    ) -> ImportSummary:
         """Führt einen vollständigen MVP-Importlauf aus."""
         fetched_at = datetime.now(timezone.utc)
         raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
         normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]
+        effective_profile_fetch_statuses = {
+            status.upper() for status in (profile_fetch_statuses or self.profile_fetch_statuses)
+        }
 
         for item in normalized:
             decision = self.gate_evaluator.evaluate(item)
@@ -64,7 +74,7 @@ class ImportService:
 
         fetched_profiles = 0
         for trade in normalized:
-            if trade["gate_status"] != GATE_PASS or not trade.get("symbol"):
+            if trade["gate_status"].upper() not in effective_profile_fetch_statuses or not trade.get("symbol"):
                 continue
 
             symbol = trade["symbol"]

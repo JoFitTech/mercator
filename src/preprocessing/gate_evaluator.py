@@ -19,8 +19,20 @@ class GateDecision:
     reason: str
 
 
+@dataclass(slots=True)
+class GateRules:
+    """Konfigurierbare Regeln fuer die lokale Gate-Entscheidung."""
+
+    min_trade_value: int = 10_000
+    require_purchase_event: bool = True
+    require_common_stock: bool = True
+
+
 class GateEvaluator:
     """Bewertet Trades lokal mit konservativen MVP-Regeln."""
+
+    def __init__(self, rules: GateRules | None = None) -> None:
+        self.rules = rules or GateRules()
 
     def evaluate(self, trade: dict) -> GateDecision:
         """Prüft ein normalisiertes Trade-Dict mit einfachen Regeln.
@@ -48,14 +60,14 @@ class GateEvaluator:
 
         # TODO: Grenzwerte nach fachlicher Abstimmung konkretisieren.
         trade_value = qty * price
-        if trade_value < 10_000:
+        if trade_value < self.rules.min_trade_value:
             return GateDecision(status=GATE_FAIL, reason="Transaktionswert unter Mindestschwelle")
 
         is_purchase = acquisition == "A" or "purchase" in transaction_type or "buy" in transaction_type
-        if not is_purchase:
+        if self.rules.require_purchase_event and not is_purchase:
             return GateDecision(status=GATE_FAIL, reason="Kein Kaufereignis")
 
-        if security_name and "common stock" not in security_name:
+        if self.rules.require_common_stock and security_name and "common stock" not in security_name:
             return GateDecision(status=GATE_FAIL, reason="Nicht als Common Stock erkennbar")
 
         return GateDecision(status=GATE_PASS, reason="Basisregeln erfüllt")
