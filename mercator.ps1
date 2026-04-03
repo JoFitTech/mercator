@@ -23,9 +23,25 @@ function Invoke-Compose {
     }
 }
 
+function Invoke-ComposeQuiet {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$ComposeArgs
+    )
+
+    $joinedArgs = $ComposeArgs -join " "
+    $command = "docker compose -f `"$composeFile`" $joinedArgs >nul 2>nul"
+    cmd.exe /d /c $command | Out-Null
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker compose -f $composeFile $joinedArgs fehlgeschlagen (ExitCode $LASTEXITCODE)."
+    }
+}
+
 switch ($Action) {
     "start" {
-        Invoke-Compose up -d
+        # Startet den Stack still im Hintergrund; Details erscheinen nur im Fehlerfall.
+        Invoke-ComposeQuiet up -d
         Write-Host "Mercator gestartet. App: http://localhost:8501" -ForegroundColor Green
     }
     "stop" {
@@ -33,8 +49,8 @@ switch ($Action) {
         Write-Host "Mercator gestoppt." -ForegroundColor Yellow
     }
     "restart" {
-        Invoke-Compose down
-        Invoke-Compose up -d
+        Invoke-ComposeQuiet down
+        Invoke-ComposeQuiet up -d
         Write-Host "Mercator neu gestartet. App: http://localhost:8501" -ForegroundColor Green
     }
     "status" {
