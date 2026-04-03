@@ -126,20 +126,21 @@ class CompanyRepository:
                     return None
                 return self._rows_to_dicts(cursor, [row])[0]
 
-    def list_companies(self, limit: int = 100) -> list[dict[str, Any]]:
+    def list_companies(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Lädt eine limitierte Liste gespeicherter Unternehmen.
 
         Args:
             limit: Maximale Anzahl zurückgegebener Zeilen.
+            offset: Anzahl zu überspringender Zeilen für Paging.
 
         Returns:
             Liste von Unternehmens-Dictionaries.
         """
 
-        query = "SELECT * FROM companies ORDER BY symbol ASC LIMIT %s"
+        query = "SELECT * FROM companies ORDER BY symbol ASC LIMIT %s OFFSET %s"
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (limit,))
+                cursor.execute(query, (limit, offset))
                 rows = cursor.fetchall()
                 return self._rows_to_dicts(cursor, rows)
 
@@ -291,11 +292,12 @@ class InsiderTradeRepository:
                     return None
                 return self._rows_to_dicts(cursor, [row])[0]
 
-    def list_latest_trades(self, limit: int = 100) -> list[dict[str, Any]]:
+    def list_latest_trades(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Lädt die neuesten Trades nach Filing- und Erfassungsdatum.
 
         Args:
             limit: Maximale Anzahl zurückgegebener Zeilen.
+            offset: Anzahl zu überspringender Zeilen für Paging.
 
         Returns:
             Liste von Trade-Dictionaries.
@@ -305,11 +307,11 @@ class InsiderTradeRepository:
             SELECT *
             FROM insider_trades
             ORDER BY filing_date DESC, fetched_at DESC, id DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
         """
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (limit,))
+                cursor.execute(query, (limit, offset))
                 rows = cursor.fetchall()
                 return self._rows_to_dicts(cursor, rows)
 

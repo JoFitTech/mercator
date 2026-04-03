@@ -58,7 +58,7 @@ class GateEvaluator:
         if price <= 0:
             return GateDecision(status=GATE_PENDING, reason="Preis fehlt oder ist ungültig")
 
-        # TODO: Grenzwerte nach fachlicher Abstimmung konkretisieren.
+        # Offene Fachfragen sind zentral in ``docs/todos_offene_fragen.md`` dokumentiert.
         trade_value = qty * price
         if trade_value < self.rules.min_trade_value:
             return GateDecision(status=GATE_FAIL, reason="Transaktionswert unter Mindestschwelle")

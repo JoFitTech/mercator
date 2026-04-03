@@ -5,67 +5,93 @@ from __future__ import annotations
 from src.config.settings import Settings, load_settings
 
 
-def test_settings_from_env(monkeypatch) -> None:
-    """Prüft, dass alle relevanten MySQL-Settings korrekt aus Env gelesen werden."""
+def test_settings_from_env_reads_targets(monkeypatch) -> None:
+    """Prüft, dass beide MySQL-Targets korrekt aus Env geladen werden."""
 
-    monkeypatch.setenv("MYSQL_HOST", "127.0.0.1")
-    monkeypatch.setenv("MYSQL_PORT", "3307")
-    monkeypatch.setenv("MYSQL_DATABASE", "mercator")
-    monkeypatch.setenv("MYSQL_USER", "tester")
-    monkeypatch.setenv("MYSQL_PASSWORD", "secret")
-    monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT", "15")
-    monkeypatch.setenv("MYSQL_CREATE_DATABASE", "false")
-    monkeypatch.setenv("MYSQL_SSL_DISABLED", "true")
-    monkeypatch.setenv("MYSQL_SSL_CA", "")
-    monkeypatch.setenv("MYSQL_SSL_CERT", "")
-    monkeypatch.setenv("MYSQL_SSL_KEY", "")
+    monkeypatch.setenv("MYSQL_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv("MYSQL_AUTO_FALLBACK_TO_LOCAL", "true")
+    monkeypatch.setenv("MYSQL_SYNC_ENABLED", "false")
+
+    monkeypatch.setenv("LOCAL_MYSQL_HOST", "127.0.0.1")
+    monkeypatch.setenv("LOCAL_MYSQL_PORT", "3307")
+    monkeypatch.setenv("LOCAL_MYSQL_DATABASE", "mercator_local")
+    monkeypatch.setenv("LOCAL_MYSQL_USER", "local_user")
+    monkeypatch.setenv("LOCAL_MYSQL_PASSWORD", "local_secret")
+    monkeypatch.setenv("LOCAL_MYSQL_CONNECT_TIMEOUT", "15")
+
+    monkeypatch.setenv("UNI_MYSQL_HOST", "uni-db")
+    monkeypatch.setenv("UNI_MYSQL_PORT", "3306")
+    monkeypatch.setenv("UNI_MYSQL_DATABASE", "mercator_uni")
+    monkeypatch.setenv("UNI_MYSQL_USER", "uni_user")
+    monkeypatch.setenv("UNI_MYSQL_PASSWORD", "uni_secret")
+    monkeypatch.setenv("UNI_MYSQL_CONNECT_TIMEOUT", "5")
 
     settings = Settings.from_env()
 
-    assert settings.mysql_host == "127.0.0.1"
-    assert settings.mysql_port == 3307
-    assert settings.mysql_database == "mercator"
-    assert settings.mysql_user == "tester"
-    assert settings.mysql_password == "secret"
-    assert settings.mysql_connect_timeout == 15
-    assert settings.mysql_create_database is False
-    assert settings.mysql_ssl_disabled is True
-    assert settings.mysql_ssl_ca is None
-    assert settings.mysql_ssl_cert is None
-    assert settings.mysql_ssl_key is None
+    assert settings.mysql_active_target == "uni"
+    assert settings.mysql_auto_fallback_to_local is True
+    assert settings.mysql_sync_enabled is False
+
+    assert settings.local_mysql.host == "127.0.0.1"
+    assert settings.local_mysql.port == 3307
+    assert settings.local_mysql.database == "mercator_local"
+    assert settings.local_mysql.user == "local_user"
+    assert settings.local_mysql.password == "local_secret"
+    assert settings.local_mysql.connect_timeout == 15
+
+    assert settings.uni_mysql.host == "uni-db"
+    assert settings.uni_mysql.database == "mercator_uni"
 
 
 def test_mysql_connection_kwargs_ssl_disabled(monkeypatch) -> None:
-    """Prüft, dass Verbindungsparameter für deaktiviertes SSL korrekt gesetzt werden."""
+    """Prüft, dass Verbindungsparameter bei deaktiviertem SSL korrekt gesetzt werden."""
 
-    monkeypatch.setenv("MYSQL_HOST", "localhost")
-    monkeypatch.setenv("MYSQL_PORT", "3306")
-    monkeypatch.setenv("MYSQL_DATABASE", "mercator")
-    monkeypatch.setenv("MYSQL_USER", "root")
-    monkeypatch.setenv("MYSQL_PASSWORD", "change_me")
-    monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT", "10")
-    monkeypatch.setenv("MYSQL_CREATE_DATABASE", "false")
-    monkeypatch.setenv("MYSQL_SSL_DISABLED", "true")
+    monkeypatch.setenv("LOCAL_MYSQL_HOST", "localhost")
+    monkeypatch.setenv("LOCAL_MYSQL_PORT", "3306")
+    monkeypatch.setenv("LOCAL_MYSQL_DATABASE", "mercator")
+    monkeypatch.setenv("LOCAL_MYSQL_USER", "root")
+    monkeypatch.setenv("LOCAL_MYSQL_PASSWORD", "change_me")
+    monkeypatch.setenv("LOCAL_MYSQL_SSL_DISABLED", "true")
 
     settings = Settings.from_env()
-    kwargs = settings.mysql_connection_kwargs(include_database=True)
+    kwargs = settings.local_mysql.mysql_connection_kwargs(include_database=True)
 
     assert kwargs["host"] == "localhost"
     assert kwargs["database"] == "mercator"
     assert kwargs["ssl_disabled"] is True
 
 
+def test_settings_uses_legacy_mysql_env_for_local_target(monkeypatch) -> None:
+    """Prüft die Kompatibilität mit alten MYSQL_* Variablen für das lokale Ziel."""
+
+    monkeypatch.setenv("MYSQL_HOST", "legacy-host")
+    monkeypatch.setenv("MYSQL_PORT", "3310")
+    monkeypatch.setenv("MYSQL_DATABASE", "legacy_db")
+    monkeypatch.setenv("MYSQL_USER", "legacy_user")
+    monkeypatch.setenv("MYSQL_PASSWORD", "legacy_password")
+    monkeypatch.delenv("LOCAL_MYSQL_HOST", raising=False)
+    monkeypatch.delenv("LOCAL_MYSQL_PORT", raising=False)
+    monkeypatch.delenv("LOCAL_MYSQL_DATABASE", raising=False)
+    monkeypatch.delenv("LOCAL_MYSQL_USER", raising=False)
+    monkeypatch.delenv("LOCAL_MYSQL_PASSWORD", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.local_mysql.host == "legacy-host"
+    assert settings.local_mysql.port == 3310
+    assert settings.local_mysql.database == "legacy_db"
+    assert settings.local_mysql.user == "legacy_user"
+    assert settings.local_mysql.password == "legacy_password"
+
+
 def test_load_settings_reads_gate_and_profile_filters(monkeypatch) -> None:
     """Prueft, dass Gate-Regeln und Profil-Fetch-Statusfilter aus Env geladen werden."""
 
-    monkeypatch.setenv("MYSQL_HOST", "localhost")
-    monkeypatch.setenv("MYSQL_PORT", "3306")
-    monkeypatch.setenv("MYSQL_DATABASE", "mercator")
-    monkeypatch.setenv("MYSQL_USER", "root")
-    monkeypatch.setenv("MYSQL_PASSWORD", "change_me")
-    monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT", "10")
-    monkeypatch.setenv("MYSQL_CREATE_DATABASE", "false")
-    monkeypatch.setenv("MYSQL_SSL_DISABLED", "true")
+    monkeypatch.setenv("LOCAL_MYSQL_HOST", "localhost")
+    monkeypatch.setenv("LOCAL_MYSQL_PORT", "3306")
+    monkeypatch.setenv("LOCAL_MYSQL_DATABASE", "mercator")
+    monkeypatch.setenv("LOCAL_MYSQL_USER", "root")
+    monkeypatch.setenv("LOCAL_MYSQL_PASSWORD", "change_me")
     monkeypatch.setenv("FMP_API_KEY", "demo")
     monkeypatch.setenv("GATE_MIN_TRADE_VALUE", "25000")
     monkeypatch.setenv("GATE_REQUIRE_PURCHASE_EVENT", "false")
@@ -80,4 +106,4 @@ def test_load_settings_reads_gate_and_profile_filters(monkeypatch) -> None:
     assert settings.fmp.profile_gate_filter_statuses == ("PASS", "PENDING")
 
 
-# TODO: Integrationstest mit echter Uni-MySQL-Verbindung ergänzen, sobald Zugangsdaten vorliegen.
+# Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

@@ -66,4 +66,4 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
     """,
 ]
 
-# TODO: Bei wachsendem Projektumfang Migrationswerkzeug evaluieren statt direkter DDL-Initialisierung.
+# Offene Architekturpunkte sind zentral in ``docs/todos_offene_fragen.md`` dokumentiert.

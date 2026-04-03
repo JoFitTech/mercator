@@ -8,15 +8,21 @@ from typing import Iterator
 import mysql.connector
 from mysql.connector import Error, MySQLConnection
 
-from src.config.settings import Settings
+from src.config.settings import MySqlTargetSettings
 from src.db.schema import MYSQL_SCHEMA_STATEMENTS
 
 
 class MySqlClient:
     """Verantwortet Verbindungsaufbau, Verbindungsprüfung und Schema-Setup."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: MySqlTargetSettings) -> None:
         self._settings = settings
+
+    @property
+    def target_name(self) -> str:
+        """Liefert den Namen des konfigurierten MySQL-Ziels."""
+
+        return self._settings.name
 
     @contextmanager
     def connection(self, include_database: bool = True) -> Iterator[MySQLConnection]:
@@ -47,14 +53,14 @@ class MySqlClient:
 
         try:
             with self.connection(include_database=True):
-                return True, "Connection successful."
+                return True, f"Connection to target '{self._settings.name}' successful."
         except Error as exc:
-            return False, f"Connection failed: {exc}"
+            return False, f"Connection to target '{self._settings.name}' failed: {exc}"
 
     def initialize_schema(self) -> None:
         """Initialisiert die Tabellenstruktur anhand der DDL-Statements."""
 
-        if self._settings.mysql_create_database:
+        if self._settings.create_database:
             self._create_database_if_requested()
 
         with self.connection(include_database=True) as conn:
@@ -64,18 +70,14 @@ class MySqlClient:
             conn.commit()
 
     def _create_database_if_requested(self) -> None:
-        """Legt die Datenbank optional an, falls explizit aktiviert.
-
-        Hinweis:
-            Standardmäßig bleibt diese Logik inaktiv, weil die Uni-Datenbank bereitgestellt wird.
-        """
+        """Legt die Datenbank optional an, falls explizit aktiviert."""
 
         with self.connection(include_database=False) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     (
                         "CREATE DATABASE IF NOT EXISTS "
-                        f"`{self._settings.mysql_database}` "
+                        f"`{self._settings.database}` "
                         "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
                     )
                 )

@@ -87,17 +87,38 @@ streamlit run streamlit_app.py
 ## Umgebungsvariablen
 Siehe `.env.example`.
 
-Pflichtvariablen:
-- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`
+Pflichtvariablen (MySQL-Mehrzielbetrieb):
+- `MYSQL_ACTIVE_TARGET` (`local` oder `uni`)
+- `MYSQL_AUTO_FALLBACK_TO_LOCAL` (`true`/`false`)
+- `LOCAL_MYSQL_HOST`, `LOCAL_MYSQL_PORT`, `LOCAL_MYSQL_DATABASE`, `LOCAL_MYSQL_USER`, `LOCAL_MYSQL_PASSWORD`
+- `UNI_MYSQL_HOST`, `UNI_MYSQL_PORT`, `UNI_MYSQL_DATABASE`, `UNI_MYSQL_USER`, `UNI_MYSQL_PASSWORD`
 - `MONGO_URI`, `MONGO_DATABASE`
 - `FMP_API_KEY`
 - `APP_ENV`, `APP_TITLE`, `DATASET_PATH`
+
+Kompatibilität:
+- Bestehende `MYSQL_*` Variablen werden weiter als Fallback für das lokale Ziel unterstützt.
 
 Optionale Import-/Gate-Parameter:
 - `GATE_MIN_TRADE_VALUE` (Default `10000`)
 - `GATE_REQUIRE_PURCHASE_EVENT` (`true`/`false`)
 - `GATE_REQUIRE_COMMON_STOCK` (`true`/`false`)
 - `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
+
+
+## MySQL-Target-Switch (local/uni)
+- Mercator kennt zwei MySQL-Ziele: `local` (Docker/Entwicklung) und `uni` (Uni-DB).
+- Das aktive Ziel wird per `MYSQL_ACTIVE_TARGET` gewählt.
+- Wenn `MYSQL_ACTIVE_TARGET=uni` gesetzt ist und die Uni-DB nicht erreichbar ist, kann optional auf `local` zurückgefallen werden (`MYSQL_AUTO_FALLBACK_TO_LOCAL=true`).
+- Der Fallback ist technisch transparent: der Resolver liefert Hinweise, statt still zu verschleiern.
+- Ohne Uni-WLAN funktioniert in der Regel nur `local`, sofern kein externer Zugriff auf die Uni-DB möglich ist.
+
+## Kontrollierter MySQL-Sync
+- Sync ist explizit und standardmäßig deaktiviert (`MYSQL_SYNC_ENABLED=false`).
+- Default-Richtung im aktuellen Stand: `local -> uni`.
+- Betroffene Tabellen: `companies` und `insider_trades`.
+- Verfahren: SQL-basierte Upserts (`companies` über `symbol`, `insider_trades` über `dedupe_key`).
+- Es gibt **keinen** automatischen Hintergrund-Sync beim App-Start.
 
 ## Start der Anwendung
 ```bash
@@ -142,8 +163,9 @@ python -m src.scripts.init_mysql_schema
 ```
 
 Hinweis:
-- Der Befehl nutzt die MySQL-Zugangsdaten aus `.env`.
-- Falls das Schema selbst neu erstellt werden soll, setze `MYSQL_CREATE_DATABASE=true`.
+- Der Befehl nutzt das aktive oder gefallbackte Ziel aus der MySQL-Resolver-Logik.
+- Für gezielte Initialisierung pro Ziel steht intern `initialize_mysql_schema_for_target("local"|"uni")` bereit.
+- Falls das Schema selbst neu erstellt werden soll, setze `LOCAL_MYSQL_CREATE_DATABASE=true` oder `UNI_MYSQL_CREATE_DATABASE=true`.
 - Alternativ zentral per Script: `.\mercator.ps1 init-db`.
 
 ## Docker-Start für lokale Tests (App + MongoDB)
@@ -194,3 +216,6 @@ Danach kannst du den Status prüfen oder die App öffnen:
 - Methodik-Seite als roten Faden nutzen.
 - Architektur aus `docs/architecture.md` übernehmen.
 - Berichtsfokus: Datenquelle, Datenfluss, Deduplizierung, Gate-Logik, Mehrwert der Zwei-DB-Architektur.
+
+## TODO / offene Punkte
+- Zentrale Liste: `docs/todos_offene_fragen.md`.
