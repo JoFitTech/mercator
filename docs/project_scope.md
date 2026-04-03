@@ -1,21 +1,28 @@
-# Projekt-Scope (Mercator)
+# Projekt-Scope: FinanzPort Academic
 
-## Akademischer Kern
-Mercator demonstriert eine durchgängige Datenpipeline vom öffentlichen Finanzfeed bis zur interaktiven Analyseoberfläche.
+## Zielsetzung
+Das Projekt "FinanzPort Academic" dient als interaktive Datenanwendung zur Analyse öffentlich verfügbarer Insider-Trading-Daten im Rahmen des Moduls **Datenbanken 2**. 
 
-## Verbindlicher MVP-Scope
-- Nur zwei FMP-Endpunkte:
-  1. `GET /insider-trading/latest?page={page}&limit={limit}`
-  2. `GET /profile?symbol={SYMBOL}`
-- Feed-Polling 1x pro Stunde, Standard `page=0`, `limit=100`
-- Keine zusätzliche Seitennavigation im Feed im MVP
-- Profile nur für Gate-Pass-Kandidaten
-- Profil-Cache mit 7 Tagen TTL
-- Deduplizierung über technischen Schlüssel
+## Funktionaler Scope (MVP)
+- **Dashboard:** Überblick über KPIs und Datenverteilung.
+- **Datenexplorer:** Interaktive Filter- und Tabellenansicht.
+- **Ticker-Detailseite:** Tiefere Analyse einzelner Unternehmen und deren Transaktionen.
+- **Methodik-Seite:** Transparente Darstellung von Datenfluss und Technik.
+- **Import-Service:** Automatisierter Abruf von FMP-Daten inkl. Gate-Prüfung und Caching.
 
-## Nicht-Ziele
-- Kein Trading und keine Broker-Anbindung
-- Kein Login-/Rollenmodell
-- Kein Mail-Versand
-- Keine zusätzlichen FMP-Endpunkte
-- Keine unnötige Enterprise-Komplexität
+## Datenquellen & API
+Es werden ausschließlich zwei Endpunkte der Financial Modeling Prep (FMP) API verwendet:
+1. `Latest Insider Trading`: Abruf der neuesten Insider-Transaktionen (limit=100).
+2. `Company Profile Data`: Anreicherung von Metadaten für relevante Unternehmen.
+
+## Nicht-Ziele (Out of Scope)
+- Keine Broker-Anbindung oder Trading-Funktionalität.
+- Kein Login-/Rollenmodell.
+- Keine Realtime-Daten (Feed-Polling max. 1x pro Stunde).
+- Keine Mail-Automation oder Benachrichtigungen.
+- Keine Social- oder Community-Features.
+
+## Technische Leitplanken
+- **Zwei-Datenbank-Architektur:** MongoDB (Rohdaten) + MySQL (strukturierte Daten).
+- **Technologien:** Python, Streamlit, Pandas, MySQL, MongoDB, Pytest.
+- **Sprache:** UI/Docs in Deutsch, Code/Kommentare in Englisch.

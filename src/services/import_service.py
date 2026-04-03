@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from src.config.settings import DEFAULT_FEED_LIMIT, DEFAULT_FEED_PAGE
-from src.data_sources.fmp_api_client import FmpApiClient
+from src.data_sources.fmp_client import FmpClient
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.preprocessing.gate_evaluator import (
@@ -16,7 +16,7 @@ from src.preprocessing.gate_evaluator import (
     GATE_PROFILE_FETCHED,
     GateEvaluator,
 )
-from src.preprocessing.insider_trade_cleaner import normalize_insider_trade
+from src.preprocessing.cleaning import normalize_insider_trade
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class ImportService:
 
     def __init__(
         self,
-        fmp_client: FmpApiClient,
+        fmp_client: FmpClient,
         gate_evaluator: GateEvaluator,
         raw_repo: InsiderTradeMongoRepository,
         company_mongo_repo: CompanyMongoRepository,

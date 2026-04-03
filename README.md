@@ -1,13 +1,14 @@
-# Mercator
+# FinanzPort Academic
 
 ## Kurzbeschreibung
-Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. Die Anwendung verarbeitet öffentlich verfügbare Insider-Trade-Daten und stellt sie in einer Streamlit-Oberfläche analysierbar dar.
+FinanzPort Academic ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. Die Anwendung verarbeitet öffentlich verfügbare Insider-Trade-Daten und stellt sie in einer Streamlit-Oberfläche analysierbar dar.
 
 ## Ziel der Anwendung
-1. öffentliche Finanzdaten laden
+1. öffentliche Finanzdaten laden (FMP API)
 2. Rohdaten in MongoDB speichern
 3. bereinigte Daten in MySQL speichern
 4. Ergebnisse interaktiv in Streamlit visualisieren
+5. Methodik und Datenfluss für akademische Zwecke transparent machen
 
 ## Uni-Kontext und Scope
 Mercator ist bewusst als akademisches MVP ausgelegt:
@@ -29,11 +30,12 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - `streamlit_app.py` – Einstiegspunkt
 - `src/config/` – App-, API- und DB-Konfiguration
 - `src/models/` – Dataclasses (`InsiderTrade`, `Company`, `AnalysisResult`)
-- `src/data_sources/` – FMP-API-Client
-- `src/preprocessing/` – Normalisierung, Dedupe-Key, Gate-Evaluation
+- `src/data_sources/` – FMP-Client (freigegebene Endpunkte)
+- `src/preprocessing/` – Cleaning, Normalization, Deduplication, Gate-Evaluation
 - `src/db/` – MongoDB-/MySQL-Clients und Repositories
 - `src/services/` – Import-, Dashboard- und Analyse-Logik
 - `src/ui/pages/` – Dashboard, Explorer, Ticker-Detail, Methodik
+- `src/ui/components/` – Wiederverwendbare UI-Bausteine
 - `src/utils/` – Hilfsfunktionen
 - `docs/` – Scope, Architektur, Datensatznotizen
 - `tests/` – robuste Basistests
@@ -106,8 +108,16 @@ Optionale Import-/Gate-Parameter:
 - `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
 
 
+## In-App-Konfiguration (Advanced Mode)
+Die Anwendung verfügt über einen **Advanced Mode** in der Sidebar, der zusätzliche Details und technische Informationen freischaltet:
+- Erweiterte Tabellenspalten im Explorer.
+- Detaillierte Unternehmensinformationen in der Ticker-Ansicht.
+- Einblick in Gate-Regeln und Import-Details im Dashboard.
+- Zusätzliche Analyse-Metriken.
+
+Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen fokussiert.
+
 ## MySQL-Target-Switch (local/uni)
-- Mercator kennt zwei MySQL-Ziele: `local` (Docker/Entwicklung) und `uni` (Uni-DB).
 - Das aktive Ziel wird per `MYSQL_ACTIVE_TARGET` gewählt.
 - In der Streamlit-Sidebar kann das Ziel pro Laufzeit zwischen `local` und `uni` umgeschaltet werden (`st.session_state`).
 - Wenn `MYSQL_ACTIVE_TARGET=uni` gesetzt ist und die Uni-DB nicht erreichbar ist, kann optional auf `local` zurückgefallen werden (`MYSQL_AUTO_FALLBACK_TO_LOCAL=true`).

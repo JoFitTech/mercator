@@ -1,6 +1,7 @@
 """Tests für Normalisierung und Deduplizierung von Insider-Trades."""
 
-from src.preprocessing.insider_trade_cleaner import build_dedupe_key, normalize_insider_trade
+from src.preprocessing.cleaning import normalize_insider_trade
+from src.preprocessing.deduplication import build_dedupe_key
 
 
 def test_build_dedupe_key_is_stable_for_identical_input() -> None:

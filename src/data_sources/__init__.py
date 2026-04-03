@@ -1,5 +1,5 @@
 """Datenquellen für externe APIs und Importpfade."""
 
-from src.data_sources.fmp_api_client import FmpApiClient
+from src.data_sources.fmp_client import FmpClient
 
-__all__ = ["FmpApiClient"]
+__all__ = ["FmpClient"]

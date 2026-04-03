@@ -5,7 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from src.config.settings import AppSettings, load_settings
-from src.data_sources.fmp_api_client import FmpApiClient
+from src.data_sources.fmp_client import FmpClient
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.mysql_client_factory import build_mysql_client_for_target
@@ -93,7 +93,7 @@ def _build_services(
                 require_common_stock=settings.gate.require_common_stock,
             )
         )
-        fmp_client = FmpApiClient(settings.fmp)
+        fmp_client = FmpClient(settings.fmp)
         if raw_repo is not None and company_mongo_repo is not None:
             import_service = ImportService(
                 fmp_client=fmp_client,
@@ -169,14 +169,19 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
 
 def main() -> None:
     """Konfiguriert Navigation und rendert die gewählte Seite."""
-    st.set_page_config(page_title="Mercator", layout="wide")
-    st.sidebar.title("Mercator")
+    st.set_page_config(page_title="FinanzPort Academic", layout="wide")
+    st.sidebar.title("FinanzPort Academic")
     st.sidebar.caption("Interaktive Datenanwendung für das Modul Datenbanken 2")
 
     settings = load_settings()
     status_service = DatabaseStatusService()
     mysql_resolution = _render_database_sidebar_status(status_service, settings)
     _render_sync_controls(settings, mysql_resolution)
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### App-Konfiguration")
+    advanced_mode = st.sidebar.toggle("Erweiterte Ansicht (Advanced Mode)", value=False)
+    st.session_state["advanced_mode"] = advanced_mode
 
     if mysql_resolution is None:
         st.error("MySQL: aktive Datenbank nicht erreichbar. Bitte Einstellungen prüfen.")

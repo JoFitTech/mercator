@@ -9,55 +9,84 @@ from src.services.analysis_service import AnalysisService
 
 def render_explorer_page(service: AnalysisService) -> None:
     """Rendert Filter und Tabelle für bereinigte MySQL-Daten."""
-    st.title("Explorer")
+    st.title("FinanzPort Academic")
+    st.markdown("### Datenexplorer")
     st.caption("Interaktive Filter- und Tabellenansicht für bereinigte Finanzdaten.")
 
-    symbol = st.text_input("Symbol")
-    transaction_type = st.text_input("transaction_type")
-    gate_status = st.selectbox("gate_status", ["", "PASS", "PENDING", "FAIL"])
-    sector = st.text_input("sector")
-    country = st.text_input("country")
+    advanced_mode = st.session_state.get("advanced_mode", False)
+
+    with st.expander("Filter-Optionen", expanded=True):
+        c1, c2, c3 = st.columns(3)
+        symbol = c1.text_input("Börsensymbol", placeholder="z.B. AAPL")
+        transaction_type = c2.text_input("Transaktionstyp", placeholder="z.B. P-Purchase")
+        gate_status = c3.selectbox("Gate-Status", ["Alle", "PASS", "PENDING", "FAIL", "PROFILE_FETCHED", "PROFILE_FETCH_FAILED"])
+
+        if advanced_mode:
+            c4, c5 = st.columns(2)
+            sector = c4.text_input("Sektor", placeholder="z.B. Technology")
+            country = c5.text_input("Land", placeholder="z.B. US")
+        else:
+            sector = ""
+            country = ""
 
     filters = {
         "symbol": symbol.strip().upper() or None,
         "transaction_type": transaction_type.strip() or None,
-        "gate_status": gate_status or None,
+        "gate_status": None if gate_status == "Alle" else gate_status,
         "sector": sector.strip() or None,
         "country": country.strip() or None,
     }
 
     data = service.get_filtered_trades(filters=filters, limit=500)
+    
     if data.empty:
-        st.info("Keine Daten für die aktuelle Filterkombination gefunden.")
+        st.info("Es sind aktuell keine verarbeiteten Daten verfügbar, die den Filtern entsprechen.")
         return
 
-    st.download_button(
-        label="Export als CSV",
-        data=data.to_csv(index=False).encode("utf-8"),
-        file_name="explorer_export.csv",
-        mime="text/csv",
-    )
-
-    st.subheader("Gefilterte Daten")
+    st.markdown("---")
     
-    # Fachliche Spaltenreihenfolge definieren
-    display_columns = [
+    # Fachliche Spaltenreihenfolge
+    core_cols = [
         "symbol", "transaction_date", "reporting_name", "transaction_type",
-        "qty", "price", "trade_value_estimated", "gate_status", "gate_reason",
-        "company_name", "sector", "country"
+        "qty", "price", "trade_value_estimated", "gate_status"
     ]
     
-    # Nur Spalten anzeigen, die auch im DF existieren
-    existing_cols = [c for c in display_columns if c in data.columns]
+    company_cols = ["company_name", "sector", "country"]
     
-    # Restliche Spalten (technische) optional ans Ende
-    other_cols = [c for c in data.columns if c not in display_columns]
+    technical_cols = [
+        "gate_reason", "filing_date", "reporting_cik", "company_cik", 
+        "type_of_owner", "acquisition_or_disposition", "direct_or_indirect", 
+        "form_type", "security_name", "source_url", "dedupe_key", "fetched_at"
+    ]
+
+    # Dynamische Spaltenauswahl
+    display_cols = core_cols + company_cols
+    if advanced_mode:
+        display_cols = display_cols + technical_cols
+
+    # Nur existierende Spalten nehmen
+    final_cols = [c for c in display_cols if c in data.columns]
     
-    with st.expander("Tabellen-Optionen"):
-        show_technical = st.checkbox("Technische Spalten anzeigen", value=False)
+    # UI-Anzeige
+    st.subheader(f"Ergebnisse ({len(data)} Datensätze)")
     
-    final_cols = existing_cols
-    if show_technical:
-        final_cols = existing_cols + other_cols
-        
-    st.dataframe(data[final_cols], use_container_width=True)
+    # Download Button oben rechts (simuliert durch Spalten)
+    col_text, col_btn = st.columns([0.8, 0.2])
+    with col_btn:
+        st.download_button(
+            label="Export CSV",
+            data=data.to_csv(index=False).encode("utf-8"),
+            file_name="finanzport_export.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+    st.dataframe(
+        data[final_cols].style.format({
+            "price": "{:,.2f}",
+            "qty": "{:,.0f}",
+            "trade_value_estimated": "{:,.2f}"
+        }, na_rep="-"),
+        use_container_width=True,
+        hide_index=True
+    )

@@ -28,19 +28,21 @@ def render_dashboard_page(
     settings: AppSettings | None = None,
 ) -> None:
     """Rendert KPI-Karten und Diagramme für den Gesamtüberblick."""
-    st.title("Dashboard")
+    st.title("FinanzPort Academic")
+    st.markdown("### Dashboard")
     st.caption("Überblick über importierte Datensätze, Kennzahlen und erste Analyseergebnisse.")
 
-    st.subheader("Import- und Gate-Konfiguration")
-    if settings is None:
-        st.info("Konfiguration konnte nicht geladen werden.")
-    else:
-        with st.expander("API- und Filtereinstellungen", expanded=False):
-            page = st.number_input(
-                "Feed-Seite (API 1)", min_value=0, step=1, value=settings.fmp.default_feed_page
+    advanced_mode = st.session_state.get("advanced_mode", False)
+
+    if settings is not None:
+        with st.expander("Import-Steuerung & Konfiguration", expanded=advanced_mode):
+            st.subheader("FMP API Import")
+            c1, c2 = st.columns(2)
+            page = c1.number_input(
+                "Feed-Seite (Standard: 0)", min_value=0, step=1, value=settings.fmp.default_feed_page
             )
-            limit = st.number_input(
-                "Feed-Limit (API 1)", min_value=1, max_value=1000, step=10, value=settings.fmp.default_feed_limit
+            limit = c2.number_input(
+                "Feed-Limit (Standard: 100)", min_value=1, max_value=1000, step=10, value=settings.fmp.default_feed_limit
             )
 
             status_options = [
@@ -51,42 +53,38 @@ def render_dashboard_page(
                 GATE_PROFILE_FETCH_FAILED,
             ]
             selected_statuses = st.multiselect(
-                "Gate-Status, die API 2 triggern",
+                "Gate-Status für Profil-Anreicherung (API 2)",
                 options=status_options,
                 default=list(settings.fmp.profile_gate_filter_statuses),
-                help="Code-Default kommt aus PROFILE_GATE_FILTER_STATUSES in .env und kann hier pro Lauf ueberschrieben werden.",
+                help="Profil-Abfrage erfolgt nur für Trades mit diesen Statuswerten.",
             )
 
-            st.caption(
-                "Code-Default: min_trade_value=%s, require_purchase=%s, require_common_stock=%s"
-                % (
-                    settings.gate.min_trade_value,
-                    settings.gate.require_purchase_event,
-                    settings.gate.require_common_stock,
+            if advanced_mode:
+                st.info(
+                    "Gate-Regeln (Read-only): min_trade_value=%s, require_purchase=%s, require_common_stock=%s"
+                    % (
+                        settings.gate.min_trade_value,
+                        settings.gate.require_purchase_event,
+                        settings.gate.require_common_stock,
+                    )
                 )
-            )
 
-            run_import = st.button("Import jetzt starten", type="primary")
-            if run_import:
+            if st.button("Datenimport jetzt starten", type="primary", use_container_width=True):
                 if import_service is None:
-                    st.error("ImportService ist nicht aktiv. Pruefe FMP_API_KEY in .env.")
+                    st.error("ImportService ist nicht aktiv. Bitte FMP_API_KEY in .env prüfen.")
                     error_detail = st.session_state.get("import_service_error")
                     if error_detail:
                         st.caption(f"Technischer Hinweis: {error_detail}")
                 else:
-                    summary = import_service.run_hourly_import(
-                        page=int(page),
-                        limit=int(limit),
-                        profile_fetch_statuses=tuple(selected_statuses),
-                    )
-                    st.success(
-                        "Import fertig: feed=%s, raw=%s, clean=%s, profiles=%s"
-                        % (
-                            summary.fetched_feed_records,
-                            summary.inserted_raw_records,
-                            summary.upserted_clean_records,
-                            summary.fetched_profiles,
+                    with st.spinner("Import läuft..."):
+                        summary = import_service.run_hourly_import(
+                            page=int(page),
+                            limit=int(limit),
+                            profile_fetch_statuses=tuple(selected_statuses),
                         )
+                    st.success(
+                        "Import erfolgreich abgeschlossen: %s Rohdatensätze, %s Profile geladen."
+                        % (summary.fetched_feed_records, summary.fetched_profiles)
                     )
 
     payload = service.build_dashboard_payload()
@@ -95,16 +93,29 @@ def render_dashboard_page(
         st.warning(EMPTY_DATA_MESSAGE)
         return
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Rohdatensätze (MongoDB)", payload["raw_records"])
-    c2.metric("Bereinigte Datensätze (MySQL)", payload["clean_records"])
-    c3.metric("Firmenprofile", payload["company_profiles"])
+    st.markdown("---")
+    st.subheader("Zentrale Kennzahlen")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Rohdaten (Mongo)", f"{payload['raw_records']:,}")
+    c2.metric("Bereinigte Trades (MySQL)", f"{payload['clean_records']:,}")
+    c3.metric("Unternehmensprofile", f"{payload['company_profiles']:,}")
+    
+    # Optional: Ein fiktiver Score oder eine zusätzliche Kennzahl
+    pass_count = payload.get("gate_pass_records", 0)
+    c4.metric("Gate-PASS", f"{pass_count:,}")
 
-    st.subheader("Verteilung nach transaction_type")
-    st.bar_chart(payload["transaction_type_distribution"].set_index("transaction_type"))
+    st.markdown("---")
+    col_left, col_right = st.columns(2)
 
-    st.subheader("Verteilung nach sector")
-    st.bar_chart(payload["sector_distribution"].set_index("sector"))
+    with col_left:
+        st.subheader("Transaktionstypen")
+        st.bar_chart(payload["transaction_type_distribution"].set_index("transaction_type"))
 
-    st.subheader("Zeitliche Verteilung")
-    st.line_chart(payload["timeline_distribution"].set_index("event_date"))
+    with col_right:
+        st.subheader("Sektoren-Verteilung")
+        st.bar_chart(payload["sector_distribution"].set_index("sector"))
+
+    if advanced_mode:
+        st.markdown("---")
+        st.subheader("Zeitliche Verteilung (Filing Date)")
+        st.line_chart(payload["timeline_distribution"].set_index("event_date"))

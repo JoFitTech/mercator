@@ -10,35 +10,79 @@ from src.services.analysis_service import AnalysisService
 
 def render_ticker_detail_page(service: AnalysisService) -> None:
     """Rendert die Detailansicht für ein ausgewähltes Symbol."""
-    st.title("Ticker-Detailansicht")
+    st.title("FinanzPort Academic")
+    st.markdown("### Ticker-Detailansicht")
     st.caption(
         "Detaillierte Sicht auf ausgewählte Unternehmen, Transaktionen und vorbereitete Analysekennzahlen."
     )
 
-    all_rows = service.get_filtered_trades(limit=200)
-    if all_rows.empty or "symbol" not in all_rows.columns:
-        st.info("Für die Detailansicht sind aktuell keine Daten verfügbar.")
+    advanced_mode = st.session_state.get("advanced_mode", False)
+
+    # Symbole für Auswahl laden
+    all_symbols = service.company_repo.fetch_all_symbols()
+    if not all_symbols:
+        st.info("Es sind aktuell noch keine verarbeiteten Daten verfügbar. Lade zunächst einen Datensatz.")
         return
 
-    symbols = sorted(s for s in all_rows["symbol"].dropna().unique().tolist() if s)
-    selected = st.selectbox("Symbol", symbols)
+    selected_symbol = st.selectbox("Unternehmen auswählen", sorted(all_symbols))
 
-    result = service.get_ticker_detail(selected)
+    if not selected_symbol:
+        return
 
-    st.subheader("Firmenprofil")
-    if result.company_profile:
-        st.json(result.company_profile)
+    result = service.get_ticker_detail(selected_symbol)
+    profile = result.company_profile
+
+    st.markdown("---")
+    
+    # Kopfbereich mit Firmenkontext
+    if profile:
+        c1, c2 = st.columns([0.7, 0.3])
+        with c1:
+            st.subheader(f"{profile.get('company_name', selected_symbol)} ({selected_symbol})")
+            st.write(f"**Sektor:** {profile.get('sector', '-')} | **Branche:** {profile.get('industry', '-')}")
+            st.write(f"**Land:** {profile.get('country', '-')} | **Börse:** {profile.get('exchange_full_name', '-')}")
+        with c2:
+            if profile.get('website'):
+                st.link_button("Website besuchen", profile['website'], use_container_width=True)
+            st.metric("Marktkapitalisierung", f"{profile.get('market_cap', 0):,.0f} {profile.get('currency', 'USD')}")
+
+        with st.expander("Unternehmensbeschreibung", expanded=False):
+            st.write(profile.get('description', 'Keine Beschreibung verfügbar.'))
+            if advanced_mode:
+                st.markdown("**Management:**")
+                st.write(f"CEO: {profile.get('ceo', '-')}")
+                st.write(f"Mitarbeiter: {profile.get('full_time_employees', '-')}")
     else:
-        st.info("Für dieses Symbol ist aktuell kein Firmenprofil verfügbar.")
+        st.warning(f"Kein Firmenprofil für {selected_symbol} gefunden. Eventuell wurde noch kein Gate-PASS erreicht.")
 
-    st.subheader("Einfache Kennzahlen")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Trades", result.metrics.get("trade_count", 0))
-    c2.metric("Ø Preis", f"{result.metrics.get('avg_price', 0):.2f}")
-    c3.metric("Gesamtmenge", f"{result.metrics.get('total_qty', 0):.0f}")
+    st.markdown("---")
+    st.subheader("Insider-Analyse")
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Anzahl Trades", result.metrics.get("trade_count", 0))
+    m2.metric("Ø Preis", f"{result.metrics.get('avg_price', 0):.2f}")
+    m3.metric("Gesamtmenge (Qty)", f"{result.metrics.get('total_qty', 0):,.0f}")
+    
+    # Ein fiktiver Score als Platzhalter
+    m4.metric("Analyse-Score", "Vorbereitet", help="Platzhalter für zukünftige Score-Erweiterung.")
 
-    st.subheader("Vorbereitete Analyse-Sektion")
-    st.info(result.note)
+    if advanced_mode:
+        st.info(result.note)
 
-    st.subheader("Letzte Insider-Trades")
-    st.dataframe(pd.DataFrame(result.rows), use_container_width=True)
+    st.subheader("Letzte Transaktionen")
+    if result.rows:
+        df_trades = pd.DataFrame(result.rows)
+        # Relevante Spalten für Detailansicht
+        cols = ["transaction_date", "reporting_name", "transaction_type", "qty", "price", "trade_value_estimated", "gate_status"]
+        existing = [c for c in cols if c in df_trades.columns]
+        st.dataframe(
+            df_trades[existing].style.format({
+                "price": "{:,.2f}",
+                "qty": "{:,.0f}",
+                "trade_value_estimated": "{:,.2f}"
+            }, na_rep="-"),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.write("Keine Transaktionen für dieses Symbol gefunden.")
