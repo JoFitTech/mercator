@@ -13,8 +13,8 @@ class DashboardService:
 
     def __init__(
         self,
-        raw_repo: InsiderTradeMongoRepository,
-        company_mongo_repo: CompanyMongoRepository,
+        raw_repo: InsiderTradeMongoRepository | None,
+        company_mongo_repo: CompanyMongoRepository | None,
         trade_repo: InsiderTradeMySqlRepository,
         company_repo: CompanyMySqlRepository,
     ) -> None:
@@ -26,8 +26,16 @@ class DashboardService:
     def build_dashboard_payload(self) -> dict:
         """Liefert KPIs und vorbereitete DataFrames für Charts."""
         trades_df = self.trade_repo.fetch_trades(limit=2000)
+        raw_records = 0
+        if self.raw_repo is not None:
+            try:
+                raw_records = self.raw_repo.count_all()
+            except Exception:
+                # TODO: Logging ergänzen, sobald zentrales UI-Logging definiert ist.
+                raw_records = 0
+
         payload = {
-            "raw_records": self.raw_repo.count_all(),
+            "raw_records": raw_records,
             "clean_records": self.trade_repo.count_all(),
             "company_profiles": self.company_repo.count_all(),
             "transaction_type_distribution": pd.DataFrame(),

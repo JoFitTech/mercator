@@ -2,32 +2,54 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from src.config.settings import Settings, SettingsError
 from src.db.mysql_client import MySqlClient
 from src.db.mysql_client_factory import build_mysql_client_for_target
 
 
-def resolve_active_target(settings: Settings) -> tuple[str, MySqlClient, list[str]]:
+@dataclass(frozen=True)
+class MySqlResolutionResult:
+    """Ergebnisstruktur der MySQL-Target-Auflösung."""
+
+    requested_target: str
+    active_target: str
+    client: MySqlClient
+    used_fallback: bool
+    messages: list[str]
+
+
+def resolve_active_mysql_target(
+    settings: Settings, requested_target: str | None = None
+) -> MySqlResolutionResult:
     """Löst das aktive MySQL-Ziel robust auf und prüft die Erreichbarkeit.
 
     Args:
         settings: Geladene MySQL-Gesamtkonfiguration.
+        requested_target: Optionales Ziel aus der Laufzeitwahl.
 
     Returns:
-        Tupel aus finalem Target-Namen, Client und Hinweisliste.
+        Aufgelöstes Ziel inklusive Status-Hinweisen.
 
     Raises:
         SettingsError: Wenn kein nutzbares Ziel aufgelöst werden kann.
     """
 
     messages: list[str] = []
-    active_name = settings.mysql_active_target
+    active_name = (requested_target or settings.mysql_active_target).strip().lower()
     active_client = build_mysql_client_for_target(settings, active_name)
 
     is_connected, details = active_client.test_connection()
     if is_connected:
         messages.append(details)
-        return active_name, active_client, messages
+        return MySqlResolutionResult(
+            requested_target=active_name,
+            active_target=active_name,
+            client=active_client,
+            used_fallback=False,
+            messages=messages,
+        )
 
     messages.append(details)
     fallback = settings.get_fallback_mysql_target()
@@ -49,4 +71,17 @@ def resolve_active_target(settings: Settings) -> tuple[str, MySqlClient, list[st
             f"Primary: '{active_name}', fallback: '{fallback.name}'."
         )
 
-    return fallback.name, fallback_client, messages
+    return MySqlResolutionResult(
+        requested_target=active_name,
+        active_target=fallback.name,
+        client=fallback_client,
+        used_fallback=True,
+        messages=messages,
+    )
+
+
+def resolve_active_target(settings: Settings) -> tuple[str, MySqlClient, list[str]]:
+    """Kompatibilitätswrapper für bestehende Aufrufer im Projekt."""
+
+    resolved = resolve_active_mysql_target(settings=settings, requested_target=None)
+    return resolved.active_target, resolved.client, resolved.messages

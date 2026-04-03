@@ -109,16 +109,23 @@ Optionale Import-/Gate-Parameter:
 ## MySQL-Target-Switch (local/uni)
 - Mercator kennt zwei MySQL-Ziele: `local` (Docker/Entwicklung) und `uni` (Uni-DB).
 - Das aktive Ziel wird per `MYSQL_ACTIVE_TARGET` gewählt.
+- In der Streamlit-Sidebar kann das Ziel pro Laufzeit zwischen `local` und `uni` umgeschaltet werden (`st.session_state`).
 - Wenn `MYSQL_ACTIVE_TARGET=uni` gesetzt ist und die Uni-DB nicht erreichbar ist, kann optional auf `local` zurückgefallen werden (`MYSQL_AUTO_FALLBACK_TO_LOCAL=true`).
 - Der Fallback ist technisch transparent: der Resolver liefert Hinweise, statt still zu verschleiern.
 - Ohne Uni-WLAN funktioniert in der Regel nur `local`, sofern kein externer Zugriff auf die Uni-DB möglich ist.
 
 ## Kontrollierter MySQL-Sync
-- Sync ist explizit und standardmäßig deaktiviert (`MYSQL_SYNC_ENABLED=false`).
+- Sync ist explizit und per Env steuerbar (`MYSQL_SYNC_ENABLED=true|false`).
 - Default-Richtung im aktuellen Stand: `local -> uni`.
 - Betroffene Tabellen: `companies` und `insider_trades`.
 - Verfahren: SQL-basierte Upserts (`companies` über `symbol`, `insider_trades` über `dedupe_key`).
 - Es gibt **keinen** automatischen Hintergrund-Sync beim App-Start.
+- Der Sync wird nur über den Sidebar-Button ausgelöst, wenn `uni` erreichbar ist.
+
+## Datenbank-Statusanzeigen in der UI
+- MySQL- und MongoDB-Status werden getrennt angezeigt.
+- Bei Uni-Ausfall mit erlaubtem Fallback wird der Wechsel auf `local` explizit ausgewiesen.
+- Wenn nur MongoDB ausfällt, bleibt die App für MySQL-basierte Auswertungen nutzbar; Rohdatenspeicherung/Import ist dann eingeschränkt.
 
 ## Start der Anwendung
 ```bash
@@ -210,7 +217,7 @@ Danach kannst du den Status prüfen oder die App öffnen:
   - `/profile`
 - MongoDB speichert Rohdaten und Profilpayloads.
 - MySQL speichert bereinigte, auswertbare Zieldaten.
-- Ohne DB-Verbindung zeigt die UI eine verständliche Fehlermeldung.
+- Uni-Zugangsdaten dürfen nur über `.env` gesetzt werden und nicht ins Repository gelangen.
 
 ## Hinweise für Präsentation und Bericht
 - Methodik-Seite als roten Faden nutzen.

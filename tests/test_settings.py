@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from src.config.settings import Settings, load_settings
+import pytest
+
+from src.config.settings import Settings, SettingsError, load_settings
 
 
 def test_settings_from_env_reads_targets(monkeypatch) -> None:
@@ -104,6 +106,30 @@ def test_load_settings_reads_gate_and_profile_filters(monkeypatch) -> None:
     assert settings.gate.require_purchase_event is False
     assert settings.gate.require_common_stock is False
     assert settings.fmp.profile_gate_filter_statuses == ("PASS", "PENDING")
+
+
+def test_settings_parses_bool_and_int_values(monkeypatch) -> None:
+    """Prüft die Konvertierung von booleschen und numerischen Env-Werten."""
+
+    monkeypatch.setenv("MYSQL_AUTO_FALLBACK_TO_LOCAL", "false")
+    monkeypatch.setenv("MYSQL_SYNC_ENABLED", "true")
+    monkeypatch.setenv("LOCAL_MYSQL_PORT", "3309")
+    monkeypatch.setenv("LOCAL_MYSQL_CONNECT_TIMEOUT", "12")
+
+    settings = Settings.from_env()
+
+    assert settings.mysql_auto_fallback_to_local is False
+    assert settings.mysql_sync_enabled is True
+    assert settings.local_mysql.port == 3309
+    assert settings.local_mysql.connect_timeout == 12
+
+
+def test_settings_raises_on_invalid_boolean(monkeypatch) -> None:
+    """Prüft die Fehlermeldung bei ungültigen Bool-Werten."""
+
+    monkeypatch.setenv("MYSQL_AUTO_FALLBACK_TO_LOCAL", "sometimes")
+    with pytest.raises(SettingsError):
+        Settings.from_env()
 
 
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

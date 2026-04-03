@@ -272,7 +272,7 @@ class Settings:
         return cls(
             mysql_active_target=active_target,
             mysql_auto_fallback_to_local=_read_bool_env("MYSQL_AUTO_FALLBACK_TO_LOCAL", default=True),
-            mysql_sync_enabled=_read_bool_env("MYSQL_SYNC_ENABLED", default=False),
+            mysql_sync_enabled=_read_bool_env("MYSQL_SYNC_ENABLED", default=True),
             local_mysql=MySqlTargetSettings(
                 name="local",
                 host=_read_string_env("LOCAL_MYSQL_HOST", default=_read_string_env("MYSQL_HOST", default="localhost")),
