@@ -157,10 +157,25 @@ docker compose -f mercator-compose.yml down
 ```
 
 Hinweise:
-- Mit `up -d` starten beide Services: Streamlit-App (`http://localhost:8501`) und MongoDB.
+- Mit `up -d` starten zwei Services: Streamlit-App (`http://localhost:8501`) und MongoDB.
 - Die App nutzt weiter die MySQL-Verbindung aus `.env` (z. B. Uni-MySQL).
 - Innerhalb von Compose nutzt die App automatisch `MONGO_URI=mongodb://mongo:27017/`.
 - Persistenz erfolgt über das Volume `mongo_data`.
+
+### Docker-Stack komplett zurücksetzen
+Wenn du Container und die lokale MongoDB frisch neu aufsetzen willst, entferne den Stack inklusive Volume und starte danach neu:
+
+```powershell
+docker compose -f mercator-compose.yml down -v
+docker compose -f mercator-compose.yml up -d
+```
+
+Danach kannst du den Status prüfen oder die App öffnen:
+
+```powershell
+.\mercator.ps1 status
+.\mercator.ps1 open
+```
 
 ## Nächste Schritte
 - Scheduler für stündlichen Importlauf ergänzen.
