@@ -10,7 +10,7 @@ def test_settings_from_env(monkeypatch) -> None:
 
     monkeypatch.setenv("MYSQL_HOST", "127.0.0.1")
     monkeypatch.setenv("MYSQL_PORT", "3307")
-    monkeypatch.setenv("MYSQL_DATABASE", "finanzport_academic")
+    monkeypatch.setenv("MYSQL_DATABASE", "mercator")
     monkeypatch.setenv("MYSQL_USER", "tester")
     monkeypatch.setenv("MYSQL_PASSWORD", "secret")
     monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT", "15")
@@ -24,7 +24,7 @@ def test_settings_from_env(monkeypatch) -> None:
 
     assert settings.mysql_host == "127.0.0.1"
     assert settings.mysql_port == 3307
-    assert settings.mysql_database == "finanzport_academic"
+    assert settings.mysql_database == "mercator"
     assert settings.mysql_user == "tester"
     assert settings.mysql_password == "secret"
     assert settings.mysql_connect_timeout == 15
@@ -40,7 +40,7 @@ def test_mysql_connection_kwargs_ssl_disabled(monkeypatch) -> None:
 
     monkeypatch.setenv("MYSQL_HOST", "localhost")
     monkeypatch.setenv("MYSQL_PORT", "3306")
-    monkeypatch.setenv("MYSQL_DATABASE", "finanzport_academic")
+    monkeypatch.setenv("MYSQL_DATABASE", "mercator")
     monkeypatch.setenv("MYSQL_USER", "root")
     monkeypatch.setenv("MYSQL_PASSWORD", "change_me")
     monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT", "10")
@@ -51,7 +51,7 @@ def test_mysql_connection_kwargs_ssl_disabled(monkeypatch) -> None:
     kwargs = settings.mysql_connection_kwargs(include_database=True)
 
     assert kwargs["host"] == "localhost"
-    assert kwargs["database"] == "finanzport_academic"
+    assert kwargs["database"] == "mercator"
     assert kwargs["ssl_disabled"] is True
 
 
@@ -60,7 +60,7 @@ def test_load_settings_reads_gate_and_profile_filters(monkeypatch) -> None:
 
     monkeypatch.setenv("MYSQL_HOST", "localhost")
     monkeypatch.setenv("MYSQL_PORT", "3306")
-    monkeypatch.setenv("MYSQL_DATABASE", "finanzport_academic")
+    monkeypatch.setenv("MYSQL_DATABASE", "mercator")
     monkeypatch.setenv("MYSQL_USER", "root")
     monkeypatch.setenv("MYSQL_PASSWORD", "change_me")
     monkeypatch.setenv("MYSQL_CONNECT_TIMEOUT", "10")
