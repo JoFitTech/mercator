@@ -31,10 +31,33 @@ def render_explorer_page(service: AnalysisService) -> None:
         st.info("Keine Daten für die aktuelle Filterkombination gefunden.")
         return
 
-    st.dataframe(data, use_container_width=True)
     st.download_button(
         label="Export als CSV",
         data=data.to_csv(index=False).encode("utf-8"),
         file_name="explorer_export.csv",
         mime="text/csv",
     )
+
+    st.subheader("Gefilterte Daten")
+    
+    # Fachliche Spaltenreihenfolge definieren
+    display_columns = [
+        "symbol", "transaction_date", "reporting_name", "transaction_type",
+        "qty", "price", "trade_value_estimated", "gate_status", "gate_reason",
+        "company_name", "sector", "country"
+    ]
+    
+    # Nur Spalten anzeigen, die auch im DF existieren
+    existing_cols = [c for c in display_columns if c in data.columns]
+    
+    # Restliche Spalten (technische) optional ans Ende
+    other_cols = [c for c in data.columns if c not in display_columns]
+    
+    with st.expander("Tabellen-Optionen"):
+        show_technical = st.checkbox("Technische Spalten anzeigen", value=False)
+    
+    final_cols = existing_cols
+    if show_technical:
+        final_cols = existing_cols + other_cols
+        
+    st.dataframe(data[final_cols], use_container_width=True)

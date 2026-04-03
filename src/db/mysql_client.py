@@ -58,7 +58,7 @@ class MySqlClient:
             return False, f"Connection to target '{self._settings.name}' failed: {exc}"
 
     def initialize_schema(self) -> None:
-        """Initialisiert die Tabellenstruktur anhand der DDL-Statements."""
+        """Initialisiert die Tabellenstruktur und führt Schema-Anpassungen durch."""
 
         if self._settings.create_database:
             self._create_database_if_requested()
@@ -67,6 +67,11 @@ class MySqlClient:
             with conn.cursor() as cursor:
                 for statement in MYSQL_SCHEMA_STATEMENTS:
                     cursor.execute(statement)
+                
+                # Einfache Migration fuer gate_reason (falls noch nicht vorhanden)
+                cursor.execute("SHOW COLUMNS FROM insider_trades LIKE 'gate_reason'")
+                if not cursor.fetchone():
+                    cursor.execute("ALTER TABLE insider_trades ADD COLUMN gate_reason VARCHAR(255) NULL AFTER gate_status")
             conn.commit()
 
     def _create_database_if_requested(self) -> None:

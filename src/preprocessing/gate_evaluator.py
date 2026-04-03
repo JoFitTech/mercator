@@ -16,7 +16,7 @@ class GateDecision:
     """Ergebniscontainer für die lokale Gate-Entscheidung."""
 
     status: str
-    reason: str
+    reason: str | None = None
 
 
 @dataclass(slots=True)

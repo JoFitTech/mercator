@@ -73,6 +73,11 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
     now = fetched_at or datetime.now(timezone.utc)
     qty = _parse_float(raw_trade.get("securitiesTransacted"), "securitiesTransacted")
     price = _parse_float(raw_trade.get("price"), "price")
+    
+    trade_value_estimated = (qty * price) if qty is not None and price is not None else None
+    if trade_value_estimated == 0 and price == 0:
+        trade_value_estimated = None
+
     normalized = {
         "symbol": str(raw_trade.get("symbol", "")).strip().upper() or None,
         "filing_date": _parse_datetime(raw_trade.get("filingDate"), "filingDate"),
@@ -88,12 +93,13 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
         "form_type": raw_trade.get("formType"),
         "qty": qty,
         "price": price,
-        "trade_value_estimated": (qty * price) if qty is not None and price is not None else None,
+        "trade_value_estimated": trade_value_estimated,
         "security_name": raw_trade.get("securityName"),
         "source_url": raw_trade.get("url"),
         "fetched_at": now,
         "first_seen_at": now,
         "gate_status": "PENDING",
+        "gate_reason": None,
         "raw_payload": raw_trade,
     }
     normalized["dedupe_key"] = build_dedupe_key(normalized)

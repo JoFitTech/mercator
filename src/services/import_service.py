@@ -69,6 +69,7 @@ class ImportService:
         for item in normalized:
             decision = self.gate_evaluator.evaluate(item)
             item["gate_status"] = decision.status
+            item["gate_reason"] = decision.reason
 
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
 

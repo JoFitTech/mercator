@@ -52,6 +52,7 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         price DECIMAL(18,4) NULL,
         trade_value_estimated DECIMAL(20,4) NULL,
         gate_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+        gate_reason VARCHAR(255) NULL,
         source_url VARCHAR(512) NULL,
         dedupe_key CHAR(64) NOT NULL,
         fetched_at DATETIME NOT NULL,

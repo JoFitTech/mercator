@@ -190,12 +190,12 @@ class InsiderTradeRepository:
                 symbol, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, gate_status, source_url, dedupe_key, fetched_at
+                trade_value_estimated, gate_status, gate_reason, source_url, dedupe_key, fetched_at
             ) VALUES (
                 %(symbol)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(gate_status)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
                 symbol = VALUES(symbol),
@@ -214,12 +214,21 @@ class InsiderTradeRepository:
                 price = VALUES(price),
                 trade_value_estimated = VALUES(trade_value_estimated),
                 gate_status = VALUES(gate_status),
+                gate_reason = VALUES(gate_reason),
                 source_url = VALUES(source_url),
                 fetched_at = VALUES(fetched_at)
         """
+        fields = [
+            "symbol", "filing_date", "transaction_date", "reporting_cik", "company_cik",
+            "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
+            "direct_or_indirect", "form_type", "security_name", "qty", "price",
+            "trade_value_estimated", "gate_status", "gate_reason", "source_url", "dedupe_key", "fetched_at"
+        ]
+        params = {k: trade.get(k) for k in fields}
+
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(sql, trade)
+                cursor.execute(sql, params)
             conn.commit()
 
     def upsert_trades(self, trades: list[dict[str, Any]]) -> int:
@@ -240,12 +249,12 @@ class InsiderTradeRepository:
                 symbol, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, gate_status, source_url, dedupe_key, fetched_at
+                trade_value_estimated, gate_status, gate_reason, source_url, dedupe_key, fetched_at
             ) VALUES (
                 %(symbol)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(gate_status)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
                 symbol = VALUES(symbol),
@@ -264,12 +273,24 @@ class InsiderTradeRepository:
                 price = VALUES(price),
                 trade_value_estimated = VALUES(trade_value_estimated),
                 gate_status = VALUES(gate_status),
+                gate_reason = VALUES(gate_reason),
                 source_url = VALUES(source_url),
                 fetched_at = VALUES(fetched_at)
         """
+        fields = [
+            "symbol", "filing_date", "transaction_date", "reporting_cik", "company_cik",
+            "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
+            "direct_or_indirect", "form_type", "security_name", "qty", "price",
+            "trade_value_estimated", "gate_status", "gate_reason", "source_url", "dedupe_key", "fetched_at"
+        ]
+        batch_params = [
+            {k: t.get(k) for k in fields}
+            for t in trades
+        ]
+
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.executemany(sql, trades)
+                cursor.executemany(sql, batch_params)
             conn.commit()
         return len(trades)
 

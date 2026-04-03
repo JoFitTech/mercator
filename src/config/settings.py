@@ -275,41 +275,41 @@ class Settings:
             mysql_sync_enabled=_read_bool_env("MYSQL_SYNC_ENABLED", default=True),
             local_mysql=MySqlTargetSettings(
                 name="local",
-                host=_read_string_env("LOCAL_MYSQL_HOST", default=_read_string_env("MYSQL_HOST", default="localhost")),
-                port=_read_int_env("LOCAL_MYSQL_PORT", default=_read_int_env("MYSQL_PORT", default=3306)),
-                database=_read_string_env(
-                    "LOCAL_MYSQL_DATABASE", default=_read_string_env("MYSQL_DATABASE", default="mercator_local")
-                ),
-                user=_read_string_env("LOCAL_MYSQL_USER", default=_read_string_env("MYSQL_USER", default="root")),
-                password=_read_string_env(
-                    "LOCAL_MYSQL_PASSWORD", default=_read_string_env("MYSQL_PASSWORD", default="change_me")
-                ),
-                connect_timeout=_read_int_env(
-                    "LOCAL_MYSQL_CONNECT_TIMEOUT", default=_read_int_env("MYSQL_CONNECT_TIMEOUT", default=10)
-                ),
-                create_database=_read_bool_env(
-                    "LOCAL_MYSQL_CREATE_DATABASE", default=_read_bool_env("MYSQL_CREATE_DATABASE", default=False)
-                ),
-                ssl_disabled=_read_bool_env(
-                    "LOCAL_MYSQL_SSL_DISABLED", default=_read_bool_env("MYSQL_SSL_DISABLED", default=True)
-                ),
-                ssl_ca=os.getenv("LOCAL_MYSQL_SSL_CA") or (os.getenv("MYSQL_SSL_CA") or None),
-                ssl_cert=os.getenv("LOCAL_MYSQL_SSL_CERT") or (os.getenv("MYSQL_SSL_CERT") or None),
-                ssl_key=os.getenv("LOCAL_MYSQL_SSL_KEY") or (os.getenv("MYSQL_SSL_KEY") or None),
+                host=_read_string_env("LOCAL_MYSQL_HOST", default="localhost"),
+                port=_read_int_env("LOCAL_MYSQL_PORT", default=3306),
+                database=_read_string_env("LOCAL_MYSQL_DATABASE", default="mercator_local"),
+                user=_read_string_env("LOCAL_MYSQL_USER", default="root"),
+                password=_read_string_env("LOCAL_MYSQL_PASSWORD", default="change_me"),
+                connect_timeout=_read_int_env("LOCAL_MYSQL_CONNECT_TIMEOUT", default=10),
+                create_database=_read_bool_env("LOCAL_MYSQL_CREATE_DATABASE", default=False),
+                ssl_disabled=_read_bool_env("LOCAL_MYSQL_SSL_DISABLED", default=False),
+                ssl_ca=os.getenv("LOCAL_MYSQL_SSL_CA") or None,
+                ssl_cert=os.getenv("LOCAL_MYSQL_SSL_CERT") or None,
+                ssl_key=os.getenv("LOCAL_MYSQL_SSL_KEY") or None,
             ),
             uni_mysql=MySqlTargetSettings(
                 name="uni",
-                host=_read_string_env("UNI_MYSQL_HOST", default=""),
-                port=_read_int_env("UNI_MYSQL_PORT", default=3306),
-                database=_read_string_env("UNI_MYSQL_DATABASE", default=""),
-                user=_read_string_env("UNI_MYSQL_USER", default=""),
-                password=_read_string_env("UNI_MYSQL_PASSWORD", default=""),
-                connect_timeout=_read_int_env("UNI_MYSQL_CONNECT_TIMEOUT", default=5),
-                create_database=_read_bool_env("UNI_MYSQL_CREATE_DATABASE", default=False),
-                ssl_disabled=_read_bool_env("UNI_MYSQL_SSL_DISABLED", default=True),
-                ssl_ca=os.getenv("UNI_MYSQL_SSL_CA") or None,
-                ssl_cert=os.getenv("UNI_MYSQL_SSL_CERT") or None,
-                ssl_key=os.getenv("UNI_MYSQL_SSL_KEY") or None,
+                host=_read_string_env("UNI_MYSQL_HOST", default=_read_string_env("MYSQL_HOST", default="")),
+                port=_read_int_env("UNI_MYSQL_PORT", default=_read_int_env("MYSQL_PORT", default=3306)),
+                database=_read_string_env(
+                    "UNI_MYSQL_DATABASE", default=_read_string_env("MYSQL_DATABASE", default="")
+                ),
+                user=_read_string_env("UNI_MYSQL_USER", default=_read_string_env("MYSQL_USER", default="")),
+                password=_read_string_env(
+                    "UNI_MYSQL_PASSWORD", default=_read_string_env("MYSQL_PASSWORD", default="")
+                ),
+                connect_timeout=_read_int_env(
+                    "UNI_MYSQL_CONNECT_TIMEOUT", default=_read_int_env("MYSQL_CONNECT_TIMEOUT", default=5)
+                ),
+                create_database=_read_bool_env(
+                    "UNI_MYSQL_CREATE_DATABASE", default=_read_bool_env("MYSQL_CREATE_DATABASE", default=False)
+                ),
+                ssl_disabled=_read_bool_env(
+                    "UNI_MYSQL_SSL_DISABLED", default=_read_bool_env("MYSQL_SSL_DISABLED", default=True)
+                ),
+                ssl_ca=os.getenv("UNI_MYSQL_SSL_CA") or (os.getenv("MYSQL_SSL_CA") or None),
+                ssl_cert=os.getenv("UNI_MYSQL_SSL_CERT") or (os.getenv("MYSQL_SSL_CERT") or None),
+                ssl_key=os.getenv("UNI_MYSQL_SSL_KEY") or (os.getenv("MYSQL_SSL_KEY") or None),
             ),
         )
 
