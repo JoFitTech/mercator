@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.config.settings import MySqlTargetSettings, Settings, SettingsError
-from src.db.mysql_target_resolver import resolve_active_target
+from src.db.mysql_target_resolver import resolve_active_mysql_target, resolve_active_target
 
 
 class _ClientStub:
@@ -91,6 +91,26 @@ def test_resolver_falls_back_to_local_when_uni_is_unreachable(monkeypatch) -> No
 
     assert target_name == "local"
     assert any("Falling back" in message for message in messages)
+
+
+def test_resolver_result_contains_fallback_flag(monkeypatch) -> None:
+    """Prüft, dass das strukturierte Resolver-Ergebnis das Fallback kennzeichnet."""
+
+    status = {
+        "local": (True, "local ok"),
+        "uni": (False, "uni down"),
+    }
+
+    monkeypatch.setattr(
+        "src.db.mysql_target_resolver.build_mysql_client_for_target",
+        lambda settings, target_name: _ClientStub(target_name, status),
+    )
+
+    resolved = resolve_active_mysql_target(_build_settings(active_target="uni", fallback=True))
+
+    assert resolved.requested_target == "uni"
+    assert resolved.active_target == "local"
+    assert resolved.used_fallback is True
 
 
 def test_resolver_raises_without_fallback(monkeypatch) -> None:
