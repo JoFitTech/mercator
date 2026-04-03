@@ -11,6 +11,10 @@ services:
       MONGO_URI: mongodb://mongo:27017/
       MYSQL_ACTIVE_TARGET: local
       LOCAL_MYSQL_HOST: mysql
+      LOCAL_MYSQL_PORT: 3306
+      LOCAL_MYSQL_DATABASE: mercator_local
+      LOCAL_MYSQL_USER: root
+      LOCAL_MYSQL_PASSWORD: change_me
     volumes:
       - ./:/app
     ports:
