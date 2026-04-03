@@ -9,12 +9,16 @@ services:
       - .env
     environment:
       MONGO_URI: mongodb://mongo:27017/
+      MYSQL_ACTIVE_TARGET: local
+      LOCAL_MYSQL_HOST: mysql
     volumes:
       - ./:/app
     ports:
       - "8501:8501"
     depends_on:
       mongo:
+        condition: service_healthy
+      mysql:
         condition: service_healthy
     command: >
       sh -c "pip install --no-cache-dir -r requirements.txt &&
@@ -34,6 +38,24 @@ services:
       timeout: 5s
       retries: 5
 
+  mysql:
+    image: mysql:8
+    container_name: mercator-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: change_me
+      MYSQL_DATABASE: mercator_local
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   mongo_data:
-
+  mysql_data:

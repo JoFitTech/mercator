@@ -113,6 +113,7 @@ Optionale Import-/Gate-Parameter:
 - Wenn `MYSQL_ACTIVE_TARGET=uni` gesetzt ist und die Uni-DB nicht erreichbar ist, kann optional auf `local` zurückgefallen werden (`MYSQL_AUTO_FALLBACK_TO_LOCAL=true`).
 - Der Fallback ist technisch transparent: der Resolver liefert Hinweise, statt still zu verschleiern.
 - Ohne Uni-WLAN funktioniert in der Regel nur `local`, sofern kein externer Zugriff auf die Uni-DB möglich ist.
+- Im Docker-Stack zeigt `local` auf den Compose-Service `mysql`; bei nativem Start bleibt `local` typischerweise `localhost`.
 
 ## Kontrollierter MySQL-Sync
 - Sync ist explizit und per Env steuerbar (`MYSQL_SYNC_ENABLED=true|false`).
@@ -141,7 +142,7 @@ Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
 ```
 
 Verfuegbare Aktionen:
-- `start` - startet App + Mongo per Compose
+- `start` - startet App + Mongo + lokale MySQL per Compose
 - `stop` - stoppt den Stack
 - `restart` - startet den Stack neu
 - `status` - zeigt Containerstatus
@@ -175,7 +176,7 @@ Hinweis:
 - Falls das Schema selbst neu erstellt werden soll, setze `LOCAL_MYSQL_CREATE_DATABASE=true` oder `UNI_MYSQL_CREATE_DATABASE=true`.
 - Alternativ zentral per Script: `.\mercator.ps1 init-db`.
 
-## Docker-Start für lokale Tests (App + MongoDB)
+## Docker-Start für lokale Tests (App + MongoDB + MySQL)
 Für einen Klick-Start/Stop in Docker Desktop liegt eine Compose-Datei unter `mercator-compose.yml`.
 
 ```bash
@@ -186,13 +187,14 @@ docker compose -f mercator-compose.yml down
 ```
 
 Hinweise:
-- Mit `up -d` starten zwei Services: Streamlit-App (`http://localhost:8501`) und MongoDB.
-- Die App nutzt weiter die MySQL-Verbindung aus `.env` (z. B. Uni-MySQL).
+- Mit `up -d` starten drei Services: Streamlit-App (`http://localhost:8501`), MongoDB und lokale MySQL (`mysql:8`).
 - Innerhalb von Compose nutzt die App automatisch `MONGO_URI=mongodb://mongo:27017/`.
-- Persistenz erfolgt über das Volume `mongo_data`.
+- Innerhalb von Compose wird `MYSQL_ACTIVE_TARGET=local` und `LOCAL_MYSQL_HOST=mysql` gesetzt, damit die lokale DB im Stack erreichbar ist.
+- Für native Runs außerhalb Docker kann `LOCAL_MYSQL_HOST=localhost` in `.env` unverändert bleiben.
+- Persistenz erfolgt über die Volumes `mongo_data` und `mysql_data`.
 
 ### Docker-Stack komplett zurücksetzen
-Wenn du Container und die lokale MongoDB frisch neu aufsetzen willst, entferne den Stack inklusive Volume und starte danach neu:
+Wenn du Container sowie lokale MongoDB- und MySQL-Daten frisch neu aufsetzen willst, entferne den Stack inklusive Volumes und starte danach neu:
 
 ```powershell
 docker compose -f mercator-compose.yml down -v

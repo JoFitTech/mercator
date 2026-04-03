@@ -60,6 +60,8 @@ switch ($Action) {
         Invoke-Compose logs -f $Service
     }
     "init-db" {
+        # Stellt sicher, dass App und lokale Datenbanken laufen, bevor das Schema initialisiert wird.
+        Invoke-ComposeQuiet up -d app mysql mongo
         # Fuehrt den MySQL-Schema-Init innerhalb des App-Containers aus.
         Invoke-Compose exec app python -m src.scripts.init_mysql_schema
     }
