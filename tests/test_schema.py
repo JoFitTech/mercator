@@ -20,4 +20,4 @@ def test_mysql_schema_contains_required_tables() -> None:
     assert "create table if not exists insider_trades" in ddl_blob
 
 
-# TODO: DDL-Ausführung in einer temporären Test-DB validieren, sobald CI-MySQL bereitsteht.
+# Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

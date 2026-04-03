@@ -29,11 +29,11 @@ ALLOWED_GATE_FILTER_STATUSES = {
     "PROFILE_FETCHED",
     "PROFILE_FETCH_FAILED",
 }
+ALLOWED_MYSQL_TARGETS = {"local", "uni"}
 
 
 class SettingsError(ValueError):
     """Fehlerklasse für unvollständige oder ungültige Settings."""
-
 
 
 def _read_required_string_env(name: str) -> str:
@@ -57,6 +57,24 @@ def _read_required_string_env(name: str) -> str:
         )
     return value.strip()
 
+
+def _read_string_env(name: str, default: str = "") -> str:
+    """Liest einen Stringwert aus der Umgebung.
+
+    Args:
+        name: Name der Umgebungsvariable.
+        default: Fallback-Wert bei leerem oder fehlendem Eintrag.
+
+    Returns:
+        Den gelesenen oder den Default-String.
+    """
+
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    stripped = value.strip()
+    return stripped if stripped else default
 
 
 def _read_int_env(name: str, default: int | None = None) -> int:
@@ -87,7 +105,6 @@ def _read_int_env(name: str, default: int | None = None) -> int:
         raise SettingsError(
             f"Environment variable '{name}' must be an integer, got '{raw_value}'."
         ) from exc
-
 
 
 def _read_bool_env(name: str, default: bool | None = None) -> bool:
@@ -148,42 +165,48 @@ def _read_csv_status_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]
 
 
 @dataclass(frozen=True)
-class Settings:
-    """Zentrale MySQL-Einstellungen für Verbindung und SSL-Verhalten."""
+class MySqlTargetSettings:
+    """MySQL-Konfiguration für genau ein Zielsystem."""
 
-    mysql_host: str
-    mysql_port: int
-    mysql_database: str
-    mysql_user: str
-    mysql_password: str
-    mysql_connect_timeout: int
-    mysql_create_database: bool
-    mysql_ssl_disabled: bool
-    mysql_ssl_ca: str | None
-    mysql_ssl_cert: str | None
-    mysql_ssl_key: str | None
+    name: str
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+    connect_timeout: int
+    create_database: bool
+    ssl_disabled: bool
+    ssl_ca: str | None
+    ssl_cert: str | None
+    ssl_key: str | None
 
-    @classmethod
-    def from_env(cls) -> Settings:
-        """Erstellt Settings aus den geladenen Umgebungsvariablen.
+    def validate_for_connection(self) -> None:
+        """Validiert, ob die Pflichtfelder für eine Verbindungsaufnahme gesetzt sind.
+
+        Args:
+            Keine.
 
         Returns:
-            Eine validierte Settings-Instanz.
+            None.
+
+        Raises:
+            SettingsError: Wenn Host/DB/User/Passwort fehlen.
         """
 
-        return cls(
-            mysql_host=_read_required_string_env("MYSQL_HOST"),
-            mysql_port=_read_int_env("MYSQL_PORT", default=3306),
-            mysql_database=_read_required_string_env("MYSQL_DATABASE"),
-            mysql_user=_read_required_string_env("MYSQL_USER"),
-            mysql_password=_read_required_string_env("MYSQL_PASSWORD"),
-            mysql_connect_timeout=_read_int_env("MYSQL_CONNECT_TIMEOUT", default=10),
-            mysql_create_database=_read_bool_env("MYSQL_CREATE_DATABASE", default=False),
-            mysql_ssl_disabled=_read_bool_env("MYSQL_SSL_DISABLED", default=True),
-            mysql_ssl_ca=os.getenv("MYSQL_SSL_CA") or None,
-            mysql_ssl_cert=os.getenv("MYSQL_SSL_CERT") or None,
-            mysql_ssl_key=os.getenv("MYSQL_SSL_KEY") or None,
-        )
+        missing: list[str] = []
+        if not self.host:
+            missing.append("host")
+        if not self.database:
+            missing.append("database")
+        if not self.user:
+            missing.append("user")
+        if not self.password:
+            missing.append("password")
+        if missing:
+            raise SettingsError(
+                f"MySQL target '{self.name}' is missing required connection fields: {', '.join(missing)}."
+            )
 
     def mysql_connection_kwargs(self, include_database: bool = True) -> dict[str, Any]:
         """Erstellt mysql-connector-kompatible Verbindungsparameter.
@@ -195,28 +218,136 @@ class Settings:
             Ein Dictionary für ``mysql.connector.connect(...)``.
         """
 
+        self.validate_for_connection()
+
         connection_kwargs: dict[str, Any] = {
-            "host": self.mysql_host,
-            "port": self.mysql_port,
-            "user": self.mysql_user,
-            "password": self.mysql_password,
-            "connection_timeout": self.mysql_connect_timeout,
+            "host": self.host,
+            "port": self.port,
+            "user": self.user,
+            "password": self.password,
+            "connection_timeout": self.connect_timeout,
         }
 
         if include_database:
-            connection_kwargs["database"] = self.mysql_database
+            connection_kwargs["database"] = self.database
 
-        if self.mysql_ssl_disabled:
+        if self.ssl_disabled:
             connection_kwargs["ssl_disabled"] = True
         else:
-            if self.mysql_ssl_ca:
-                connection_kwargs["ssl_ca"] = self.mysql_ssl_ca
-            if self.mysql_ssl_cert:
-                connection_kwargs["ssl_cert"] = self.mysql_ssl_cert
-            if self.mysql_ssl_key:
-                connection_kwargs["ssl_key"] = self.mysql_ssl_key
+            if self.ssl_ca:
+                connection_kwargs["ssl_ca"] = self.ssl_ca
+            if self.ssl_cert:
+                connection_kwargs["ssl_cert"] = self.ssl_cert
+            if self.ssl_key:
+                connection_kwargs["ssl_key"] = self.ssl_key
 
         return connection_kwargs
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Zentrale MySQL-Einstellungen inklusive Target-Auswahl."""
+
+    mysql_active_target: str
+    mysql_auto_fallback_to_local: bool
+    mysql_sync_enabled: bool
+    local_mysql: MySqlTargetSettings
+    uni_mysql: MySqlTargetSettings
+
+    @classmethod
+    def from_env(cls) -> Settings:
+        """Erstellt Settings aus den geladenen Umgebungsvariablen.
+
+        Returns:
+            Eine validierte Settings-Instanz.
+        """
+
+        active_target = _read_string_env("MYSQL_ACTIVE_TARGET", default="local").lower()
+        if active_target not in ALLOWED_MYSQL_TARGETS:
+            raise SettingsError(
+                "Environment variable 'MYSQL_ACTIVE_TARGET' must be one of: local, uni. "
+                f"Got '{active_target}'."
+            )
+
+        return cls(
+            mysql_active_target=active_target,
+            mysql_auto_fallback_to_local=_read_bool_env("MYSQL_AUTO_FALLBACK_TO_LOCAL", default=True),
+            mysql_sync_enabled=_read_bool_env("MYSQL_SYNC_ENABLED", default=False),
+            local_mysql=MySqlTargetSettings(
+                name="local",
+                host=_read_string_env("LOCAL_MYSQL_HOST", default=_read_string_env("MYSQL_HOST", default="localhost")),
+                port=_read_int_env("LOCAL_MYSQL_PORT", default=_read_int_env("MYSQL_PORT", default=3306)),
+                database=_read_string_env(
+                    "LOCAL_MYSQL_DATABASE", default=_read_string_env("MYSQL_DATABASE", default="mercator_local")
+                ),
+                user=_read_string_env("LOCAL_MYSQL_USER", default=_read_string_env("MYSQL_USER", default="root")),
+                password=_read_string_env(
+                    "LOCAL_MYSQL_PASSWORD", default=_read_string_env("MYSQL_PASSWORD", default="change_me")
+                ),
+                connect_timeout=_read_int_env(
+                    "LOCAL_MYSQL_CONNECT_TIMEOUT", default=_read_int_env("MYSQL_CONNECT_TIMEOUT", default=10)
+                ),
+                create_database=_read_bool_env(
+                    "LOCAL_MYSQL_CREATE_DATABASE", default=_read_bool_env("MYSQL_CREATE_DATABASE", default=False)
+                ),
+                ssl_disabled=_read_bool_env(
+                    "LOCAL_MYSQL_SSL_DISABLED", default=_read_bool_env("MYSQL_SSL_DISABLED", default=True)
+                ),
+                ssl_ca=os.getenv("LOCAL_MYSQL_SSL_CA") or (os.getenv("MYSQL_SSL_CA") or None),
+                ssl_cert=os.getenv("LOCAL_MYSQL_SSL_CERT") or (os.getenv("MYSQL_SSL_CERT") or None),
+                ssl_key=os.getenv("LOCAL_MYSQL_SSL_KEY") or (os.getenv("MYSQL_SSL_KEY") or None),
+            ),
+            uni_mysql=MySqlTargetSettings(
+                name="uni",
+                host=_read_string_env("UNI_MYSQL_HOST", default=""),
+                port=_read_int_env("UNI_MYSQL_PORT", default=3306),
+                database=_read_string_env("UNI_MYSQL_DATABASE", default=""),
+                user=_read_string_env("UNI_MYSQL_USER", default=""),
+                password=_read_string_env("UNI_MYSQL_PASSWORD", default=""),
+                connect_timeout=_read_int_env("UNI_MYSQL_CONNECT_TIMEOUT", default=5),
+                create_database=_read_bool_env("UNI_MYSQL_CREATE_DATABASE", default=False),
+                ssl_disabled=_read_bool_env("UNI_MYSQL_SSL_DISABLED", default=True),
+                ssl_ca=os.getenv("UNI_MYSQL_SSL_CA") or None,
+                ssl_cert=os.getenv("UNI_MYSQL_SSL_CERT") or None,
+                ssl_key=os.getenv("UNI_MYSQL_SSL_KEY") or None,
+            ),
+        )
+
+    def get_mysql_target(self, name: str) -> MySqlTargetSettings:
+        """Liefert ein MySQL-Ziel anhand seines Namens.
+
+        Args:
+            name: Zielname (``local`` oder ``uni``).
+
+        Returns:
+            Zielkonfiguration als ``MySqlTargetSettings``.
+
+        Raises:
+            SettingsError: Wenn ein unbekanntes Ziel angefragt wird.
+        """
+
+        normalized = name.lower().strip()
+        if normalized == "local":
+            return self.local_mysql
+        if normalized == "uni":
+            return self.uni_mysql
+        raise SettingsError(
+            f"Unsupported MySQL target '{name}'. Allowed values: local, uni."
+        )
+
+    def get_active_mysql_target(self) -> MySqlTargetSettings:
+        """Liefert das aktuell konfigurierte aktive MySQL-Ziel."""
+
+        return self.get_mysql_target(self.mysql_active_target)
+
+    def get_fallback_mysql_target(self) -> MySqlTargetSettings | None:
+        """Liefert optional das Fallback-Ziel für fehlgeschlagene Target-Checks."""
+
+        if not self.mysql_auto_fallback_to_local:
+            return None
+        if self.mysql_active_target == "uni":
+            return self.local_mysql
+        return None
 
 
 @dataclass(frozen=True)
@@ -312,5 +443,4 @@ def validate_fmp_api_key(api_key: str) -> None:
         )
 
 
-# TODO: Prüfen, ob die Uni-MySQL-Instanz SSL zwingend voraussetzt und welche Zertifikatspfade nötig sind.
-# TODO: Echte Uni-Zugangsdaten (Host, User, Passwort) pro Umgebung in .env hinterlegen.
+# Offene Punkte sind zentral dokumentiert in ``docs/todos_offene_fragen.md``.

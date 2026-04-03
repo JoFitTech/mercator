@@ -23,6 +23,5 @@ Financial Modeling Prep (Stable API), ausschließlich:
 - `PROFILE_FETCHED`
 - `PROFILE_FETCH_FAILED`
 
-## TODOs
-- TODO: Gate-Schwellenwerte fachlich final abstimmen.
-- TODO: Scheduler für den 1h-Importlauf ergänzen.
+## Offene Punkte
+- Zentrale Liste: `docs/todos_offene_fragen.md`.
