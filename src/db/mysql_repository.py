@@ -1,4 +1,4 @@
-"""Schlanke Repository-Schicht für MySQL-Zugriffe in FinanzPort Academic."""
+"""Schlanke Repository-Schicht für MySQL-Zugriffe in Mercator."""
 
 from __future__ import annotations
 
@@ -42,22 +42,27 @@ class CompanyRepository:
 
         sql = """
             INSERT INTO companies (
-                symbol, company_name, market_cap, price, currency, cik, isin, cusip,
+                company_key, company_cik, current_symbol, company_name, profile_status, profile_reason, first_seen_at, last_seen_at, market_cap, price, currency, isin, cusip,
                 exchange, exchange_full_name, industry, sector, country, website,
                 description, ceo, full_time_employees, ipo_date, is_etf,
                 is_actively_trading, is_adr, is_fund, profile_updated_at
             ) VALUES (
-                %(symbol)s, %(company_name)s, %(market_cap)s, %(price)s, %(currency)s, %(cik)s, %(isin)s, %(cusip)s,
+                %(company_key)s, %(company_cik)s, %(current_symbol)s, %(company_name)s, %(profile_status)s, %(profile_reason)s, %(first_seen_at)s, %(last_seen_at)s, %(market_cap)s, %(price)s, %(currency)s, %(isin)s, %(cusip)s,
                 %(exchange)s, %(exchange_full_name)s, %(industry)s, %(sector)s, %(country)s, %(website)s,
                 %(description)s, %(ceo)s, %(full_time_employees)s, %(ipo_date)s, %(is_etf)s,
                 %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s
             )
             ON DUPLICATE KEY UPDATE
-                company_name = VALUES(company_name),
+                company_cik = COALESCE(VALUES(company_cik), company_cik),
+                current_symbol = COALESCE(VALUES(current_symbol), current_symbol),
+                company_name = COALESCE(VALUES(company_name), company_name),
+                profile_status = VALUES(profile_status),
+                profile_reason = VALUES(profile_reason),
+                first_seen_at = COALESCE(first_seen_at, VALUES(first_seen_at)),
+                last_seen_at = COALESCE(VALUES(last_seen_at), last_seen_at),
                 market_cap = VALUES(market_cap),
                 price = VALUES(price),
                 currency = VALUES(currency),
-                cik = VALUES(cik),
                 isin = VALUES(isin),
                 cusip = VALUES(cusip),
                 exchange = VALUES(exchange),
@@ -77,12 +82,17 @@ class CompanyRepository:
                 profile_updated_at = VALUES(profile_updated_at)
         """
         params = {
-            "symbol": company.get("symbol"),
+            "company_key": company.get("company_key"),
+            "company_cik": company.get("company_cik"),
+            "current_symbol": company.get("current_symbol"),
             "company_name": company.get("company_name"),
             "market_cap": company.get("market_cap"),
             "price": company.get("price"),
             "currency": company.get("currency"),
-            "cik": company.get("cik"),
+            "profile_status": company.get("profile_status", "NOT_REQUESTED"),
+            "profile_reason": company.get("profile_reason"),
+            "first_seen_at": company.get("first_seen_at"),
+            "last_seen_at": company.get("last_seen_at"),
             "isin": company.get("isin"),
             "cusip": company.get("cusip"),
             "exchange": company.get("exchange"),
@@ -117,7 +127,7 @@ class CompanyRepository:
             Gefundenes Profil oder ``None``.
         """
 
-        query = "SELECT * FROM companies WHERE symbol = %s"
+        query = "SELECT * FROM companies WHERE company_key = %s"
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (symbol,))
@@ -137,7 +147,7 @@ class CompanyRepository:
             Liste von Unternehmens-Dictionaries.
         """
 
-        query = "SELECT * FROM companies ORDER BY symbol ASC LIMIT %s OFFSET %s"
+        query = "SELECT * FROM companies ORDER BY company_key ASC LIMIT %s OFFSET %s"
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (limit, offset))
@@ -187,18 +197,19 @@ class InsiderTradeRepository:
 
         sql = """
             INSERT INTO insider_trades (
-                symbol, filing_date, transaction_date, reporting_cik, company_cik,
+                company_key, symbol_at_trade, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, gate_status, gate_reason, source_url, dedupe_key, fetched_at
+                trade_value_estimated, gate_status, gate_reason, profile_status, profile_reason, source_url, dedupe_key, fetched_at
             ) VALUES (
-                %(symbol)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
+                %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
-                symbol = VALUES(symbol),
+                company_key = VALUES(company_key),
+                symbol_at_trade = VALUES(symbol_at_trade),
                 filing_date = VALUES(filing_date),
                 transaction_date = VALUES(transaction_date),
                 reporting_cik = VALUES(reporting_cik),
@@ -206,7 +217,6 @@ class InsiderTradeRepository:
                 reporting_name = VALUES(reporting_name),
                 type_of_owner = VALUES(type_of_owner),
                 transaction_type = VALUES(transaction_type),
-                acquisition_or_disposition = VALUES(acquisition_or_disposition),
                 direct_or_indirect = VALUES(direct_or_indirect),
                 form_type = VALUES(form_type),
                 security_name = VALUES(security_name),
@@ -215,14 +225,16 @@ class InsiderTradeRepository:
                 trade_value_estimated = VALUES(trade_value_estimated),
                 gate_status = VALUES(gate_status),
                 gate_reason = VALUES(gate_reason),
+                profile_status = VALUES(profile_status),
+                profile_reason = VALUES(profile_reason),
                 source_url = VALUES(source_url),
                 fetched_at = VALUES(fetched_at)
         """
         fields = [
-            "symbol", "filing_date", "transaction_date", "reporting_cik", "company_cik",
+            "company_key", "symbol_at_trade", "filing_date", "transaction_date", "reporting_cik", "company_cik",
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
-            "trade_value_estimated", "gate_status", "gate_reason", "source_url", "dedupe_key", "fetched_at"
+            "trade_value_estimated", "gate_status", "gate_reason", "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
         ]
         params = {k: trade.get(k) for k in fields}
 
@@ -246,18 +258,19 @@ class InsiderTradeRepository:
 
         sql = """
             INSERT INTO insider_trades (
-                symbol, filing_date, transaction_date, reporting_cik, company_cik,
+                company_key, symbol_at_trade, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, gate_status, gate_reason, source_url, dedupe_key, fetched_at
+                trade_value_estimated, gate_status, gate_reason, profile_status, profile_reason, source_url, dedupe_key, fetched_at
             ) VALUES (
-                %(symbol)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
+                %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
-                symbol = VALUES(symbol),
+                company_key = VALUES(company_key),
+                symbol_at_trade = VALUES(symbol_at_trade),
                 filing_date = VALUES(filing_date),
                 transaction_date = VALUES(transaction_date),
                 reporting_cik = VALUES(reporting_cik),
@@ -274,14 +287,16 @@ class InsiderTradeRepository:
                 trade_value_estimated = VALUES(trade_value_estimated),
                 gate_status = VALUES(gate_status),
                 gate_reason = VALUES(gate_reason),
+                profile_status = VALUES(profile_status),
+                profile_reason = VALUES(profile_reason),
                 source_url = VALUES(source_url),
                 fetched_at = VALUES(fetched_at)
         """
         fields = [
-            "symbol", "filing_date", "transaction_date", "reporting_cik", "company_cik",
+            "company_key", "symbol_at_trade", "filing_date", "transaction_date", "reporting_cik", "company_cik",
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
-            "trade_value_estimated", "gate_status", "gate_reason", "source_url", "dedupe_key", "fetched_at"
+            "trade_value_estimated", "gate_status", "gate_reason", "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
         ]
         batch_params = [
             {k: t.get(k) for k in fields}
@@ -336,7 +351,7 @@ class InsiderTradeRepository:
                 rows = cursor.fetchall()
                 return self._rows_to_dicts(cursor, rows)
 
-    def list_trades_by_symbol(self, symbol: str, limit: int = 100) -> list[dict[str, Any]]:
+    def list_trades_by_company_key(self, company_key: str, limit: int = 100) -> list[dict[str, Any]]:
         """Lädt Trades für ein einzelnes Symbol.
 
         Args:
@@ -350,13 +365,13 @@ class InsiderTradeRepository:
         query = """
             SELECT *
             FROM insider_trades
-            WHERE symbol = %s
+            WHERE company_key = %s
             ORDER BY filing_date DESC, fetched_at DESC, id DESC
             LIMIT %s
         """
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (symbol, limit))
+                cursor.execute(query, (company_key, limit))
                 rows = cursor.fetchall()
                 return self._rows_to_dicts(cursor, rows)
 
@@ -376,8 +391,11 @@ class InsiderTradeRepository:
         params: list[Any] = []
 
         if filters.get("symbol"):
-            clauses.append("t.symbol = %s")
+            clauses.append("t.symbol_at_trade = %s")
             params.append(filters["symbol"])
+        if filters.get("company_key"):
+            clauses.append("t.company_key = %s")
+            params.append(filters["company_key"])
         if filters.get("transaction_type"):
             clauses.append("t.transaction_type = %s")
             params.append(filters["transaction_type"])
@@ -395,7 +413,7 @@ class InsiderTradeRepository:
         query = f"""
             SELECT t.*, c.company_name, c.sector, c.country
             FROM insider_trades t
-            LEFT JOIN companies c ON c.symbol = t.symbol
+            LEFT JOIN companies c ON c.company_key = t.company_key
             {where_sql}
             ORDER BY t.filing_date DESC, t.id DESC
             LIMIT %s
@@ -427,7 +445,7 @@ class CompanyMySqlRepository(CompanyRepository):
     def fetch_all_symbols(self) -> list[str]:
         """Liefert alle verfügbaren Symbole für bestehende Aufrufe."""
 
-        return [row["symbol"] for row in self.list_companies(limit=100000)]
+        return [row["company_key"] for row in self.list_companies(limit=100000)]
 
 
 class InsiderTradeMySqlRepository(InsiderTradeRepository):
@@ -436,7 +454,7 @@ class InsiderTradeMySqlRepository(InsiderTradeRepository):
     def fetch_all_symbols(self) -> list[str]:
         """Liefert alle verfügbaren Symbole für bestehende Aufrufe."""
 
-        query = "SELECT DISTINCT symbol FROM insider_trades ORDER BY symbol"
+        query = "SELECT DISTINCT company_key FROM insider_trades ORDER BY company_key"
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query)

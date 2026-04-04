@@ -31,7 +31,7 @@ def format_number(value: Any, format_spec: str = "{:,.2f}", na_rep: str = "-") -
 
 def render_ticker_detail_page(service: AnalysisService) -> None:
     """Rendert die Detailansicht für ein ausgewähltes Symbol."""
-    st.title("FinanzPort Academic")
+    st.title("Mercator")
     st.markdown("### Ticker-Detailansicht")
     st.caption(
         "Detaillierte Sicht auf ausgewählte Unternehmen, Transaktionen und vorbereitete Analysekennzahlen."
@@ -39,11 +39,11 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
 
     advanced_mode = st.session_state.get("advanced_mode", False)
 
-    # Symbole aus Trades und Profilen kombinieren für bessere Auswahl
+    # Company-Keys aus Trades und Profilen kombinieren für robuste Auswahl
     try:
-        trade_symbols = set(service.trade_repo.fetch_all_symbols())
-        profile_symbols = set(service.company_repo.fetch_all_symbols())
-        all_symbols = sorted(list(trade_symbols | profile_symbols))
+        trade_company_keys = set(service.trade_repo.fetch_all_symbols())
+        profile_company_keys = set(service.company_repo.fetch_all_symbols())
+        all_symbols = sorted(list(trade_company_keys | profile_company_keys))
     except Exception:
         all_symbols = sorted(list(service.company_repo.fetch_all_symbols()))
 
@@ -65,7 +65,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     if profile:
         c1, c2 = st.columns([0.7, 0.3])
         with c1:
-            st.subheader(f"{profile.get('company_name') or selected_symbol} ({selected_symbol})")
+            st.subheader(f"{profile.get('company_name') or selected_symbol} ({profile.get('current_symbol') or '-'})")
             st.write(f"**Sektor:** {profile.get('sector') or '-'} | **Branche:** {profile.get('industry') or '-'}")
             st.write(f"**Land:** {profile.get('country') or '-'} | **Börse:** {profile.get('exchange_full_name') or '-'}")
         with c2:

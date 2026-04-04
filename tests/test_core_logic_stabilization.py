@@ -32,9 +32,13 @@ def test_import_service_profile_mapping():
     }
     fetched_at = datetime.now(timezone.utc)
     # ImportService._normalize_company_profile is static
-    normalized = ImportService._normalize_company_profile(profile, fetched_at)
+    normalized = ImportService._normalize_company_profile(
+        profile,
+        trade={"company_key": "CIK:1", "company_cik": "1", "symbol": "AAPL", "first_seen_at": fetched_at},
+        fetched_at=fetched_at,
+    )
     
-    assert normalized["symbol"] == "AAPL"
+    assert normalized["current_symbol"] == "AAPL"
     assert normalized["market_cap"] == 2500000000000
     assert isinstance(normalized["market_cap"], int)
     assert normalized["is_etf"] is True
@@ -47,7 +51,7 @@ def test_dashboard_gate_pass_kpi():
             return pd.DataFrame([
                 {"gate_status": "PASS", "transaction_type": "Buy", "sector": "Tech", "filing_date": "2024-01-01"},
                 {"gate_status": "FAIL", "transaction_type": "Sale", "sector": "Health", "filing_date": "2024-01-02"},
-                {"gate_status": "PROFILE_FETCHED", "transaction_type": "Buy", "sector": "Tech", "filing_date": "2024-01-03"},
+                {"gate_status": "PASS", "transaction_type": "Buy", "sector": "Tech", "filing_date": "2024-01-03"},
                 {"gate_status": "PENDING", "transaction_type": "Sale", "sector": "Energy", "filing_date": "2024-01-04"}
             ])
         def count_all(self):
@@ -65,5 +69,5 @@ def test_dashboard_gate_pass_kpi():
     )
     
     payload = service.build_dashboard_payload()
-    # PASS + PROFILE_FETCHED = 2
+    # Nur PASS wird gezählt.
     assert payload["gate_pass_records"] == 2

@@ -1,14 +1,19 @@
-"""MySQL-DDL für die relationale Zieldatenhaltung von FinanzPort Academic."""
+"""MySQL-DDL für die relationale Zieldatenhaltung von Mercator."""
 
 MYSQL_SCHEMA_STATEMENTS: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS companies (
-        symbol VARCHAR(20) NOT NULL PRIMARY KEY,
+        company_key VARCHAR(64) NOT NULL PRIMARY KEY,
+        company_cik VARCHAR(32) NULL UNIQUE,
+        current_symbol VARCHAR(20) NULL,
         company_name VARCHAR(255) NULL,
+        profile_status VARCHAR(32) NOT NULL DEFAULT 'NOT_REQUESTED',
+        profile_reason VARCHAR(255) NULL,
+        first_seen_at DATETIME NULL,
+        last_seen_at DATETIME NULL,
         market_cap BIGINT NULL,
         price DECIMAL(18,4) NULL,
         currency VARCHAR(10) NULL,
-        cik VARCHAR(32) NULL,
         isin VARCHAR(32) NULL,
         cusip VARCHAR(32) NULL,
         exchange VARCHAR(64) NULL,
@@ -28,6 +33,7 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         profile_updated_at DATETIME NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_companies_current_symbol (current_symbol),
         INDEX idx_companies_sector (sector),
         INDEX idx_companies_country (country),
         INDEX idx_companies_exchange (exchange)
@@ -36,7 +42,8 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS insider_trades (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        symbol VARCHAR(20) NOT NULL,
+        company_key VARCHAR(64) NOT NULL,
+        symbol_at_trade VARCHAR(20) NULL,
         filing_date DATE NULL,
         transaction_date DATE NULL,
         reporting_cik VARCHAR(32) NULL,
@@ -53,16 +60,21 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         trade_value_estimated DECIMAL(20,4) NULL,
         gate_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
         gate_reason VARCHAR(255) NULL,
+        profile_status VARCHAR(32) NOT NULL DEFAULT 'NOT_REQUESTED',
+        profile_reason VARCHAR(255) NULL,
         source_url VARCHAR(512) NULL,
         dedupe_key CHAR(64) NOT NULL,
         fetched_at DATETIME NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uq_insider_trades_dedupe_key (dedupe_key),
-        INDEX idx_insider_trades_symbol (symbol),
+        INDEX idx_insider_trades_company_key (company_key),
+        INDEX idx_insider_trades_symbol_at_trade (symbol_at_trade),
         INDEX idx_insider_trades_filing_date (filing_date),
         INDEX idx_insider_trades_transaction_date (transaction_date),
-        INDEX idx_insider_trades_gate_status (gate_status)
+        INDEX idx_insider_trades_gate_status (gate_status),
+        CONSTRAINT fk_insider_trades_company_key
+            FOREIGN KEY (company_key) REFERENCES companies(company_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
 ]

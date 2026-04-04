@@ -1,7 +1,7 @@
-# FinanzPort Academic
+# Mercator
 
 ## Kurzbeschreibung
-FinanzPort Academic ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. Die Anwendung verarbeitet öffentlich verfügbare Insider-Trade-Daten und stellt sie in einer Streamlit-Oberfläche analysierbar dar.
+Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. Die Anwendung verarbeitet öffentlich verfügbare Insider-Trade-Daten und stellt sie in einer Streamlit-Oberfläche analysierbar dar.
 
 ## Ziel der Anwendung
 1. öffentliche Finanzdaten laden (FMP API)
@@ -11,7 +11,7 @@ FinanzPort Academic ist eine interaktive Datenanwendung für das Modul **Datenba
 5. Methodik und Datenfluss für akademische Zwecke transparent machen
 
 ## Uni-Kontext und Scope
-FinanzPort Academic ist bewusst als akademisches MVP ausgelegt:
+Mercator ist bewusst als akademisches MVP ausgelegt:
 - Fokus auf nachvollziehbaren Datenfluss
 - klare Trennung von Roh- und Zieldaten
 - keine Produkt-/Enterprise-Nebenziele
@@ -50,7 +50,7 @@ FinanzPort Academic ist bewusst als akademisches MVP ausgelegt:
 1. `ImportService` lädt `Latest Insider Trading` von FMP (`page=0`, `limit=100`).
 2. Rohobjekte werden normalisiert, typisiert und dedupliziert.
 3. Rohdaten landen in MongoDB (`insider_trades_raw`).
-4. Gate-Pass-Kandidaten lösen optionalen Profilabruf aus (`/profile`), inkl. 7-Tage-Cache.
+4. Gate-Pass-Kandidaten lösen optionalen Profilabruf aus (`/profile-cik` primär, `/profile` als Fallback), inkl. TTL-Cache.
 5. Bereinigte Trades und Profile werden in MySQL gespeichert.
 6. Streamlit-Seiten lesen über Services aus den Repositories.
 
@@ -134,7 +134,7 @@ Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen foku
 - Sync ist explizit und per Env steuerbar (`MYSQL_SYNC_ENABLED=true|false`).
 - Default-Richtung im aktuellen Stand: `local -> uni`.
 - Betroffene Tabellen: `companies` und `insider_trades`.
-- Verfahren: SQL-basierte Upserts (`companies` über `symbol`, `insider_trades` über `dedupe_key`).
+- Verfahren: SQL-basierte Upserts (`companies` über `company_key`, `insider_trades` über `dedupe_key`).
 - Es gibt **keinen** automatischen Hintergrund-Sync beim App-Start.
 - Der Sync wird nur über den Sidebar-Button ausgelöst, wenn `uni` erreichbar ist.
 
@@ -176,8 +176,8 @@ Beispiele:
 .\mercator.ps1 init-db
 ```
 
-In der Dashboard-Seite kannst du unter **Import- und Gate-Konfiguration** die API-Parameter (page/limit)
-und den Profilabruf-Filter zur Laufzeit anpassen. Das ueberschreibt die Code-/`.env`-Defaults nur fuer den aktuellen Lauf.
+In der Dashboard-Seite kannst du unter **Gate- und Profil-Einstellungen** die Kriterien editieren
+und persistent in MongoDB (`app_settings`) speichern. Ohne gespeicherte Werte gelten `.env`-Defaults.
 
 ## MySQL-Schema initial anlegen (Initialsetup / nach Wipe)
 Wenn die MySQL-Tabellen fehlen, kannst du die Struktur gezielt per CLI neu anlegen:
@@ -243,9 +243,10 @@ Danach kannst du den Status prüfen oder die App öffnen:
 - Zusätzliche Auswertungen für Präsentation und Bericht ergänzen.
 
 ## Hinweise zu Datensatz, MySQL und MongoDB
-- FMP-MVP nutzt **nur zwei Endpunkte**:
+- FMP-MVP nutzt im Kern **zwei Endpunktklassen**:
   - `/insider-trading/latest`
-  - `/profile`
+  - `/profile-cik` (primär) + `/profile` (Fallback)
+- Optionaler manueller Backfill je Firma: `/insider-trading/search`.
 - MongoDB speichert Rohdaten und Profilpayloads.
 - MySQL speichert bereinigte, auswertbare Zieldaten.
 - Uni-Zugangsdaten dürfen nur über `.env` gesetzt werden und nicht ins Repository gelangen.

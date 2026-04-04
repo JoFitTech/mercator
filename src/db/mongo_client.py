@@ -1,4 +1,4 @@
-"""MongoDB-Client-Wrapper für FinanzPort Academic."""
+"""MongoDB-Client-Wrapper für Mercator."""
 
 from __future__ import annotations
 

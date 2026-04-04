@@ -1,4 +1,4 @@
-# Architektur: FinanzPort Academic
+# Architektur: Mercator
 
 ## Schichtenmodell
 Das Projekt folgt einem klaren Schichtenmodell zur Trennung von Belangen:

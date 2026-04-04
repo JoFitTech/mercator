@@ -7,8 +7,6 @@ from dataclasses import dataclass
 GATE_PENDING = "PENDING"
 GATE_PASS = "PASS"
 GATE_FAIL = "FAIL"
-GATE_PROFILE_FETCHED = "PROFILE_FETCHED"
-GATE_PROFILE_FETCH_FAILED = "PROFILE_FETCH_FAILED"
 
 
 @dataclass(slots=True)
@@ -26,6 +24,8 @@ class GateRules:
     min_trade_value: int = 10_000
     require_purchase_event: bool = True
     require_common_stock: bool = True
+    allowed_acquisition_or_disposition: tuple[str, ...] = ("A",)
+    allowed_transaction_types: tuple[str, ...] = ()
 
 
 class GateEvaluator:
@@ -62,6 +62,16 @@ class GateEvaluator:
         trade_value = qty * price
         if trade_value < self.rules.min_trade_value:
             return GateDecision(status=GATE_FAIL, reason="Transaktionswert unter Mindestschwelle")
+
+        if self.rules.allowed_acquisition_or_disposition:
+            allowed = {value.upper() for value in self.rules.allowed_acquisition_or_disposition}
+            if acquisition and acquisition not in allowed:
+                return GateDecision(status=GATE_FAIL, reason="Acquisition/Disposition nicht erlaubt")
+
+        if self.rules.allowed_transaction_types:
+            allowed_tx = {value.lower() for value in self.rules.allowed_transaction_types}
+            if transaction_type.lower() not in allowed_tx:
+                return GateDecision(status=GATE_FAIL, reason="Transaktionstyp nicht erlaubt")
 
         is_purchase = acquisition == "A" or "purchase" in transaction_type or "buy" in transaction_type
         if self.rules.require_purchase_event and not is_purchase:
