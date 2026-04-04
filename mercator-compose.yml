@@ -2,7 +2,7 @@ name: finanzport
 
 services:
   app:
-    image: python:3.11-slim
+    build: .
     restart: unless-stopped
     working_dir: /app
     env_file:
@@ -24,9 +24,6 @@ services:
         condition: service_healthy
       mysql:
         condition: service_healthy
-    command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt &&
-      streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8501"
 
   mongo:
     image: mongo:7

@@ -58,7 +58,7 @@ class CompanyMongoRepository:
         )
 
     def upsert_profile(self, company: dict[str, Any]) -> None:
-        """Speichert oder aktualisiert ein Profil nach Symbol."""
+        """Speichert oder aktualisiert ein Profil nach `company_key`."""
         self.collection.update_one(
             {"company_key": company["company_key"]},
             {"$set": company},
