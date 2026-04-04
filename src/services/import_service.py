@@ -13,8 +13,6 @@ from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRep
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.preprocessing.gate_evaluator import (
     GATE_PASS,
-    GATE_PROFILE_FETCH_FAILED,
-    GATE_PROFILE_FETCHED,
     GateEvaluator,
 )
 from src.preprocessing.cleaning import normalize_insider_trade
@@ -71,38 +69,54 @@ class ImportService:
             decision = self.gate_evaluator.evaluate(item)
             item["gate_status"] = decision.status
             item["gate_reason"] = decision.reason
+            self._upsert_company_stub(item, fetched_at)
 
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
 
         fetched_profiles = 0
         for trade in normalized:
-            if trade["gate_status"].upper() not in effective_profile_fetch_statuses or not trade.get("symbol"):
+            if trade["gate_status"].upper() not in effective_profile_fetch_statuses:
                 continue
 
-            symbol = trade["symbol"]
+            company_key = trade.get("company_key")
+            symbol = trade.get("symbol")
+            company_cik = trade.get("company_cik")
+            if not company_key:
+                trade["profile_status"] = "FAILED"
+                trade["profile_reason"] = "company_key fehlt"
+                continue
+
             cached = self.company_mongo_repo.get_recent_profile(
-                symbol=symbol,
+                company_key=company_key,
                 ttl_days=self.fmp_client.config.profile_ttl_days,
             )
             if cached:
-                trade["gate_status"] = GATE_PROFILE_FETCHED
+                trade["profile_status"] = "FETCHED"
+                trade["profile_reason"] = "cache_hit"
                 continue
 
             try:
-                profile = self.fmp_client.fetch_company_profile(symbol)
+                profile = None
+                if company_cik and self.fmp_client.config.lookup_mode == "cik_primary_symbol_fallback":
+                    profile = self.fmp_client.fetch_company_profile_by_cik(str(company_cik))
+                if not profile and symbol:
+                    profile = self.fmp_client.fetch_company_profile(symbol)
             except Exception:
                 LOGGER.exception("Profilabruf fehlgeschlagen für %s", symbol)
-                trade["gate_status"] = GATE_PROFILE_FETCH_FAILED
+                trade["profile_status"] = "FAILED"
+                trade["profile_reason"] = "request_failed"
                 continue
 
             if not profile:
-                trade["gate_status"] = GATE_PROFILE_FETCH_FAILED
+                trade["profile_status"] = "FAILED"
+                trade["profile_reason"] = "empty_response"
                 continue
 
-            company = self._normalize_company_profile(profile, fetched_at)
+            company = self._normalize_company_profile(profile, trade=trade, fetched_at=fetched_at)
             self.company_mongo_repo.upsert_profile(company)
             self.company_mysql_repo.upsert_company(company)
-            trade["gate_status"] = GATE_PROFILE_FETCHED
+            trade["profile_status"] = "FETCHED"
+            trade["profile_reason"] = "api_fetch"
             fetched_profiles += 1
 
         self.trade_mysql_repo.upsert_trades(normalized)
@@ -122,7 +136,7 @@ class ImportService:
         )
 
     @staticmethod
-    def _normalize_company_profile(profile: dict, fetched_at: datetime) -> dict:
+    def _normalize_company_profile(profile: dict, trade: dict[str, Any], fetched_at: datetime) -> dict:
         """Überführt FMP-Profilfelder in das Projektschema."""
         
         # Defensive Typ-Konvertierung für MySQL-Zielsäulen
@@ -146,16 +160,21 @@ class ImportService:
             return None
 
         return {
-            "symbol": str(profile.get("symbol", "")).strip().upper(),
-            "company_name": profile.get("companyName"),
+            "company_key": trade.get("company_key"),
+            "company_cik": profile.get("cik") or trade.get("company_cik"),
+            "current_symbol": str(profile.get("symbol") or trade.get("symbol") or "").strip().upper() or None,
+            "company_name": profile.get("companyName") or trade.get("raw_payload", {}).get("companyName"),
+            "profile_status": "FETCHED",
+            "profile_reason": None,
+            "first_seen_at": trade.get("first_seen_at"),
+            "last_seen_at": fetched_at,
             "market_cap": market_cap,
             "price": profile.get("price"),
             "currency": profile.get("currency"),
-            "cik": profile.get("cik"),
             "isin": profile.get("isin"),
             "cusip": profile.get("cusip"),
-            "exchange": profile.get("exchangeShortName"),
-            "exchange_full_name": profile.get("exchange"),
+            "exchange": profile.get("exchangeShortName") or profile.get("exchange"),
+            "exchange_full_name": profile.get("exchangeFullName") or profile.get("exchange"),
             "industry": profile.get("industry"),
             "sector": profile.get("sector"),
             "country": profile.get("country"),
@@ -171,3 +190,21 @@ class ImportService:
             "profile_updated_at": fetched_at,
             "profile_payload": profile,
         }
+
+    def _upsert_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> None:
+        company_key = trade.get("company_key")
+        if not company_key:
+            return
+        company_stub = {
+            "company_key": company_key,
+            "company_cik": trade.get("company_cik"),
+            "current_symbol": trade.get("symbol"),
+            "company_name": None,
+            "profile_status": "NOT_REQUESTED",
+            "profile_reason": None,
+            "first_seen_at": trade.get("first_seen_at") or fetched_at,
+            "last_seen_at": fetched_at,
+            "profile_updated_at": None,
+        }
+        self.company_mongo_repo.upsert_profile(company_stub)
+        self.company_mysql_repo.upsert_company(company_stub)

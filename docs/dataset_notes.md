@@ -1,4 +1,4 @@
-# Datensatz-Notizen: FinanzPort Academic
+# Datensatz-Notizen: Mercator
 
 ## Datenquelle
 Wir nutzen die **Financial Modeling Prep (FMP) Stable API** mit Fokus auf folgende Endpunkte:

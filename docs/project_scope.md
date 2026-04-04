@@ -1,7 +1,7 @@
-# Projekt-Scope: FinanzPort Academic
+# Projekt-Scope: Mercator
 
 ## Zielsetzung
-Das Projekt "FinanzPort Academic" dient als interaktive Datenanwendung zur Analyse öffentlich verfügbarer Insider-Trading-Daten im Rahmen des Moduls **Datenbanken 2**. 
+Das Projekt "Mercator" dient als interaktive Datenanwendung zur Analyse öffentlich verfügbarer Insider-Trading-Daten im Rahmen des Moduls **Datenbanken 2**. 
 
 ## Funktionaler Scope (MVP)
 - **Dashboard:** Überblick über KPIs und Datenverteilung.

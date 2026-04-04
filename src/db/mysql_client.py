@@ -67,11 +67,47 @@ class MySqlClient:
             with conn.cursor() as cursor:
                 for statement in MYSQL_SCHEMA_STATEMENTS:
                     cursor.execute(statement)
-                
-                # Einfache Migration fuer gate_reason (falls noch nicht vorhanden)
-                cursor.execute("SHOW COLUMNS FROM insider_trades LIKE 'gate_reason'")
-                if not cursor.fetchone():
-                    cursor.execute("ALTER TABLE insider_trades ADD COLUMN gate_reason VARCHAR(255) NULL AFTER gate_status")
+
+                # Konservative Schema-Migrationen für ältere Installationen.
+                cursor.execute(
+                    "ALTER TABLE companies "
+                    "ADD COLUMN IF NOT EXISTS company_key VARCHAR(64) NULL PRIMARY KEY"
+                )
+                cursor.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_cik VARCHAR(32) NULL UNIQUE")
+                cursor.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS current_symbol VARCHAR(20) NULL")
+                cursor.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS profile_status VARCHAR(32) NOT NULL DEFAULT 'NOT_REQUESTED'")
+                cursor.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS profile_reason VARCHAR(255) NULL")
+                cursor.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS first_seen_at DATETIME NULL")
+                cursor.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_seen_at DATETIME NULL")
+
+                cursor.execute("ALTER TABLE insider_trades ADD COLUMN IF NOT EXISTS company_key VARCHAR(64) NULL")
+                cursor.execute("ALTER TABLE insider_trades ADD COLUMN IF NOT EXISTS symbol_at_trade VARCHAR(20) NULL")
+                cursor.execute("ALTER TABLE insider_trades ADD COLUMN IF NOT EXISTS profile_status VARCHAR(32) NOT NULL DEFAULT 'NOT_REQUESTED'")
+                cursor.execute("ALTER TABLE insider_trades ADD COLUMN IF NOT EXISTS profile_reason VARCHAR(255) NULL")
+
+                cursor.execute("SHOW COLUMNS FROM companies LIKE 'symbol'")
+                companies_has_legacy_symbol = cursor.fetchone() is not None
+                cursor.execute("SHOW COLUMNS FROM insider_trades LIKE 'symbol'")
+                trades_has_legacy_symbol = cursor.fetchone() is not None
+
+                company_symbol_expr = "COALESCE(current_symbol, symbol, '')" if companies_has_legacy_symbol else "COALESCE(current_symbol, '')"
+                cursor.execute(
+                    "UPDATE companies SET company_key = "
+                    "CASE WHEN COALESCE(company_cik,'') <> '' THEN CONCAT('CIK:', company_cik) "
+                    f"ELSE CONCAT('SYM:', UPPER({company_symbol_expr})) END "
+                    "WHERE company_key IS NULL OR company_key = ''"
+                )
+                if trades_has_legacy_symbol:
+                    cursor.execute(
+                        "UPDATE insider_trades SET symbol_at_trade = COALESCE(symbol_at_trade, symbol) "
+                        "WHERE symbol_at_trade IS NULL"
+                    )
+                cursor.execute(
+                    "UPDATE insider_trades SET company_key = "
+                    "CASE WHEN COALESCE(company_cik,'') <> '' THEN CONCAT('CIK:', company_cik) "
+                    f"ELSE CONCAT('SYM:', UPPER(COALESCE(symbol_at_trade{', symbol' if trades_has_legacy_symbol else ''}, ''))) END "
+                    "WHERE company_key IS NULL OR company_key = ''"
+                )
             conn.commit()
 
     def _create_database_if_requested(self) -> None:

@@ -48,19 +48,19 @@ class CompanyMongoRepository:
 
     def __init__(self, client: MongoClientWrapper) -> None:
         self.collection: Collection = client.get_database()["companies"]
-        self.collection.create_index("symbol", unique=True)
+        self.collection.create_index("company_key", unique=True)
 
-    def get_recent_profile(self, symbol: str, ttl_days: int) -> dict[str, Any] | None:
+    def get_recent_profile(self, company_key: str, ttl_days: int) -> dict[str, Any] | None:
         """Lädt ein Profil, sofern es jünger als TTL-Tage ist."""
         threshold = datetime.now(timezone.utc) - timedelta(days=ttl_days)
         return self.collection.find_one(
-            {"symbol": symbol.upper(), "profile_updated_at": {"$gte": threshold}}
+            {"company_key": company_key, "profile_updated_at": {"$gte": threshold}}
         )
 
     def upsert_profile(self, company: dict[str, Any]) -> None:
         """Speichert oder aktualisiert ein Profil nach Symbol."""
         self.collection.update_one(
-            {"symbol": company["symbol"]},
+            {"company_key": company["company_key"]},
             {"$set": company},
             upsert=True,
         )
@@ -68,3 +68,25 @@ class CompanyMongoRepository:
     def count_all(self) -> int:
         """Liefert Anzahl der gespeicherten Profile."""
         return self.collection.count_documents({})
+
+
+class AppSettingsMongoRepository:
+    """Persistiert App-Einstellungen in MongoDB."""
+
+    SETTINGS_ID = "runtime_gate_settings"
+
+    def __init__(self, client: MongoClientWrapper) -> None:
+        self.collection: Collection = client.get_database()["app_settings"]
+
+    def load(self) -> dict[str, Any] | None:
+        return self.collection.find_one({"_id": self.SETTINGS_ID})
+
+    def save(self, payload: dict[str, Any]) -> None:
+        self.collection.update_one(
+            {"_id": self.SETTINGS_ID},
+            {"$set": payload},
+            upsert=True,
+        )
+
+    def reset(self) -> None:
+        self.collection.delete_one({"_id": self.SETTINGS_ID})

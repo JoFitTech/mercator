@@ -23,10 +23,10 @@ class AnalysisService:
         """Lädt bereinigte Trades mit optionalen Filtern."""
         return self.trade_repo.fetch_trades(filters=filters, limit=limit)
 
-    def get_ticker_detail(self, symbol: str) -> AnalysisResult:
-        """Liefert Profil, letzte Trades und Basiskennzahlen für ein Symbol."""
-        trades = self.trade_repo.fetch_trades(filters={"symbol": symbol}, limit=50)
-        profile_df = self.company_repo.fetch_company(symbol)
+    def get_ticker_detail(self, company_key: str) -> AnalysisResult:
+        """Liefert Profil, letzte Trades und Basiskennzahlen für einen Company-Key."""
+        trades = self.trade_repo.fetch_trades(filters={"company_key": company_key}, limit=50)
+        profile_df = self.company_repo.fetch_company(company_key)
 
         metrics = {
             "trade_count": int(len(trades)),
@@ -37,7 +37,7 @@ class AnalysisService:
         profile = profile_df.iloc[0].to_dict() if not profile_df.empty else {}
         note = "Keine Profildaten gefunden." if profile_df.empty else "Profildaten verfügbar."
         return AnalysisResult(
-            title=f"Ticker-Detail {symbol}",
+            title=f"Ticker-Detail {company_key}",
             metrics=metrics,
             rows=rows,
             company_profile=profile,

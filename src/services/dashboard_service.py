@@ -36,9 +36,9 @@ class DashboardService:
                 # TODO: Logging ergänzen, sobald zentrales UI-Logging definiert ist.
                 raw_records = 0
         
-        # Gate-PASS berechnen (PASS, PROFILE_FETCHED, PROFILE_FETCH_FAILED)
+        # Gate-PASS berechnen
         if not trades_df.empty:
-            pass_statuses = {"PASS", "PROFILE_FETCHED", "PROFILE_FETCH_FAILED"}
+            pass_statuses = {"PASS"}
             gate_pass_records = trades_df[trades_df["gate_status"].str.upper().isin(pass_statuses)].shape[0]
 
         payload = {

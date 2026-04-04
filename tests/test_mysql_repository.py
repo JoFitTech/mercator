@@ -52,12 +52,13 @@ def test_upsert_company_ignores_non_sql_fields() -> None:
     client = _DummyClient()
     repo = CompanyRepository(cast(Any, client))
     company = {
-        "symbol": "AAPL",
+        "company_key": "CIK:0000320193",
+        "current_symbol": "AAPL",
+        "company_cik": "0000320193",
         "company_name": "Apple Inc.",
         "market_cap": 1,
         "price": 1.0,
         "currency": "USD",
-        "cik": "0000320193",
         "isin": "US0378331005",
         "cusip": "037833100",
         "exchange": "NASDAQ",
@@ -83,5 +84,4 @@ def test_upsert_company_ignores_non_sql_fields() -> None:
     assert client.conn.committed is True
     assert client.conn.cursor_instance.params is not None
     assert "profile_payload" not in client.conn.cursor_instance.params
-    assert client.conn.cursor_instance.params["symbol"] == "AAPL"
-
+    assert client.conn.cursor_instance.params["company_key"] == "CIK:0000320193"

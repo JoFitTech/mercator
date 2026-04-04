@@ -7,7 +7,7 @@ import streamlit as st
 
 def render_methodology_page() -> None:
     """Rendert die methodische Einordnung für das Uni-Projekt."""
-    st.title("FinanzPort Academic")
+    st.title("Mercator")
     st.markdown("### Methodik & Architektur")
     st.write(
         "Diese Anwendung liest einen öffentlich verfügbaren Datensatz ein, verarbeitet ihn mit Pandas, "
@@ -43,7 +43,13 @@ def render_methodology_page() -> None:
 
     st.markdown("---")
     st.subheader("Verwendete FMP-Endpunkte (MVP-Scope)")
-    st.code("GET /insider-trading/latest?page={page}&limit={limit}\nGET /profile?symbol={SYMBOL}", language="text")
+    st.code(
+        "GET /insider-trading/latest?page={page}&limit={limit}\n"
+        "GET /profile-cik?cik={CIK}\n"
+        "GET /profile?symbol={SYMBOL}  # Fallback\n"
+        "GET /insider-trading/search?symbol={SYMBOL}  # optionaler Backfill",
+        language="text",
+    )
 
     st.markdown("---")
     st.subheader("Einschränkungen (MVP-Grenzen)")

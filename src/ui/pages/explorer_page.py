@@ -9,7 +9,7 @@ from src.services.analysis_service import AnalysisService
 
 def render_explorer_page(service: AnalysisService) -> None:
     """Rendert Filter und Tabelle für bereinigte MySQL-Daten."""
-    st.title("FinanzPort Academic")
+    st.title("Mercator")
     st.markdown("### Datenexplorer")
     st.caption("Interaktive Filter- und Tabellenansicht für bereinigte Finanzdaten.")
 
@@ -19,7 +19,7 @@ def render_explorer_page(service: AnalysisService) -> None:
         c1, c2, c3 = st.columns(3)
         symbol = c1.text_input("Börsensymbol", placeholder="z.B. AAPL")
         transaction_type = c2.text_input("Transaktionstyp", placeholder="z.B. P-Purchase")
-        gate_status = c3.selectbox("Gate-Status", ["Alle", "PASS", "PENDING", "FAIL", "PROFILE_FETCHED", "PROFILE_FETCH_FAILED"])
+        gate_status = c3.selectbox("Gate-Status", ["Alle", "PASS", "PENDING", "FAIL"])
 
         if advanced_mode:
             c4, c5 = st.columns(2)
@@ -47,7 +47,7 @@ def render_explorer_page(service: AnalysisService) -> None:
     
     # Fachliche Spaltenreihenfolge
     core_cols = [
-        "symbol", "transaction_date", "reporting_name", "transaction_type",
+        "symbol_at_trade", "company_key", "transaction_date", "reporting_name", "transaction_type",
         "qty", "price", "trade_value_estimated", "gate_status"
     ]
     
@@ -76,7 +76,7 @@ def render_explorer_page(service: AnalysisService) -> None:
         st.download_button(
             label="Export CSV",
             data=data.to_csv(index=False).encode("utf-8"),
-            file_name="finanzport_export.csv",
+            file_name="mercator_export.csv",
             mime="text/csv",
             use_container_width=True
         )

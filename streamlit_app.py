@@ -1,13 +1,15 @@
-"""Einstiegspunkt der Streamlit-Anwendung FinanzPort Academic."""
+"""Einstiegspunkt der Streamlit-Anwendung Mercator."""
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import streamlit as st
 
 from src.config.settings import AppSettings, load_settings
 from src.data_sources.fmp_client import FmpClient
 from src.db.mongo_client import MongoClientWrapper
-from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
+from src.db.mongo_repository import AppSettingsMongoRepository, CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.mysql_client_factory import build_mysql_client_for_target
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.db.mysql_target_resolver import MySqlResolutionResult
@@ -15,6 +17,7 @@ from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatusService
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
+from src.services.app_settings_service import AppSettingsService
 from src.services.mysql_sync_service import MySqlSyncService
 from src.preprocessing import GateEvaluator, GateRules
 from src.ui.pages.dashboard_page import render_dashboard_page
@@ -68,7 +71,7 @@ def _render_database_sidebar_status(
 
 def _build_services(
     settings: AppSettings, mysql_resolution: MySqlResolutionResult
-) -> tuple[DashboardService, AnalysisService, ImportService | None]:
+) -> tuple[DashboardService, AnalysisService, ImportService | None, AppSettingsService]:
     """Initialisiert Repositories und Services für die UI."""
     mongo_client = MongoClientWrapper(settings.mongo)
     mysql_client = mysql_resolution.client
@@ -79,23 +82,35 @@ def _build_services(
     try:
         raw_repo = InsiderTradeMongoRepository(mongo_client)
         company_mongo_repo = CompanyMongoRepository(mongo_client)
+        runtime_settings_repo = AppSettingsMongoRepository(mongo_client)
     except Exception:
         raw_repo = None
         company_mongo_repo = None
+        runtime_settings_repo = None
 
     trade_repo = InsiderTradeMySqlRepository(mysql_client)
     company_repo = CompanyMySqlRepository(mysql_client)
 
+    runtime_settings_service = AppSettingsService(runtime_settings_repo, settings)
+    runtime_settings = runtime_settings_service.load()
     import_service: ImportService | None = None
     try:
         gate_evaluator = GateEvaluator(
             GateRules(
-                min_trade_value=settings.gate.min_trade_value,
-                require_purchase_event=settings.gate.require_purchase_event,
-                require_common_stock=settings.gate.require_common_stock,
+                min_trade_value=runtime_settings.min_trade_value,
+                require_purchase_event=runtime_settings.require_purchase_event,
+                require_common_stock=runtime_settings.require_common_stock,
+                allowed_acquisition_or_disposition=runtime_settings.allowed_acquisition_or_disposition,
+                allowed_transaction_types=runtime_settings.allowed_transaction_types,
             )
         )
-        fmp_client = FmpClient(settings.fmp)
+        fmp_client = FmpClient(
+            replace(
+                settings.fmp,
+                profile_ttl_days=runtime_settings.profile_ttl_days,
+                lookup_mode=runtime_settings.lookup_mode,
+            )
+        )
         if raw_repo is not None and company_mongo_repo is not None:
             import_service = ImportService(
                 fmp_client=fmp_client,
@@ -104,7 +119,7 @@ def _build_services(
                 company_mongo_repo=company_mongo_repo,
                 trade_mysql_repo=trade_repo,
                 company_mysql_repo=company_repo,
-                profile_fetch_statuses=settings.fmp.profile_gate_filter_statuses,
+                profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
             )
         else:
             st.session_state["import_service_error"] = (
@@ -121,6 +136,7 @@ def _build_services(
         DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo),
         AnalysisService(trade_repo, company_repo),
         import_service,
+        runtime_settings_service,
     )
 
 
@@ -171,8 +187,8 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
 
 def main() -> None:
     """Konfiguriert Navigation und rendert die gewählte Seite."""
-    st.set_page_config(page_title="FinanzPort Academic", layout="wide")
-    st.sidebar.title("FinanzPort Academic")
+    st.set_page_config(page_title="Mercator", layout="wide")
+    st.sidebar.title("Mercator")
     st.sidebar.caption("Interaktive Datenanwendung für das Modul Datenbanken 2")
 
     st.sidebar.markdown("### App-Konfiguration")
@@ -191,14 +207,14 @@ def main() -> None:
         return
 
     try:
-        dashboard_service, analysis_service, import_service = _build_services(settings, mysql_resolution)
+        dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(settings, mysql_resolution)
     except Exception as exc:
         st.sidebar.error(f"MySQL-Initialisierung fehlgeschlagen: {exc}")
         render_methodology_page()
         return
 
     def _dashboard() -> None:
-        render_dashboard_page(dashboard_service, import_service, settings)
+        render_dashboard_page(dashboard_service, import_service, settings, runtime_settings_service)
 
     def _explorer() -> None:
         render_explorer_page(analysis_service)
