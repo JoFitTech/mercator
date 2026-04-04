@@ -1,4 +1,4 @@
-"""Schlanke Repository-Schicht für MySQL-Zugriffe in Mercator."""
+"""Schlanke Repository-Schicht für MySQL-Zugriffe in FinanzPort Academic."""
 
 from __future__ import annotations
 
@@ -432,3 +432,12 @@ class CompanyMySqlRepository(CompanyRepository):
 
 class InsiderTradeMySqlRepository(InsiderTradeRepository):
     """Kompatibilitätsklasse für bestehende Aufrufe im Projekt."""
+
+    def fetch_all_symbols(self) -> list[str]:
+        """Liefert alle verfügbaren Symbole für bestehende Aufrufe."""
+
+        query = "SELECT DISTINCT symbol FROM insider_trades ORDER BY symbol"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                return [row[0] for row in cursor.fetchall()]

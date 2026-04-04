@@ -1,4 +1,4 @@
-"""Zentrale Konfiguration für Mercator.
+"""Zentrale Konfiguration für FinanzPort Academic.
 
 Dieses Modul lädt Umgebungsvariablen und stellt typsichere Settings bereit.
 """
@@ -277,7 +277,7 @@ class Settings:
                 name="local",
                 host=_read_string_env("LOCAL_MYSQL_HOST", default=_read_string_env("MYSQL_HOST", default="localhost")),
                 port=_read_int_env("LOCAL_MYSQL_PORT", default=_read_int_env("MYSQL_PORT", default=3306)),
-                database=_read_string_env("LOCAL_MYSQL_DATABASE", default=_read_string_env("MYSQL_DATABASE", default="mercator_local")),
+                database=_read_string_env("LOCAL_MYSQL_DATABASE", default=_read_string_env("MYSQL_DATABASE", default="finanzport_local")),
                 user=_read_string_env("LOCAL_MYSQL_USER", default=_read_string_env("MYSQL_USER", default="root")),
                 password=_read_string_env("LOCAL_MYSQL_PASSWORD", default=_read_string_env("MYSQL_PASSWORD", default="change_me")),
                 connect_timeout=_read_int_env("LOCAL_MYSQL_CONNECT_TIMEOUT", default=_read_int_env("MYSQL_CONNECT_TIMEOUT", default=10)),
@@ -404,13 +404,13 @@ def load_settings() -> AppSettings:
     project_root = Path(__file__).resolve().parents[2]
     return AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
-        app_title=os.getenv("APP_TITLE", "Mercator"),
+        app_title=os.getenv("APP_TITLE", "FinanzPort Academic"),
         dataset_path=os.getenv("DATASET_PATH", "data/raw/"),
         project_root=project_root,
         mysql=Settings.from_env(),
         mongo=MongoConfig(
             uri=os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
-            database=os.getenv("MONGO_DATABASE", "mercator"),
+            database=os.getenv("MONGO_DATABASE", "finanzport"),
         ),
         fmp=FmpConfig(
             base_url=FMP_BASE_URL,

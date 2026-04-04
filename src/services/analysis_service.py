@@ -30,8 +30,8 @@ class AnalysisService:
 
         metrics = {
             "trade_count": int(len(trades)),
-            "avg_price": float(trades["price"].dropna().mean()) if not trades.empty else 0.0,
-            "total_qty": float(trades["qty"].dropna().sum()) if not trades.empty else 0.0,
+            "avg_price": float(trades["price"].dropna().mean()) if not trades.empty and not trades["price"].dropna().empty else None,
+            "total_qty": float(trades["qty"].dropna().sum()) if not trades.empty and not trades["qty"].dropna().empty else None,
         }
         rows = trades.to_dict(orient="records")
         profile = profile_df.iloc[0].to_dict() if not profile_df.empty else {}

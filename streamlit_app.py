@@ -1,4 +1,4 @@
-"""Einstiegspunkt der Streamlit-Anwendung Mercator."""
+"""Einstiegspunkt der Streamlit-Anwendung FinanzPort Academic."""
 
 from __future__ import annotations
 
@@ -25,7 +25,9 @@ from src.ui.pages.ticker_detail_page import render_ticker_detail_page
 MYSQL_TARGET_STATE_KEY = "mysql_runtime_target"
 
 
-def _render_database_sidebar_status(status_service: DatabaseStatusService, settings: AppSettings) -> MySqlResolutionResult | None:
+def _render_database_sidebar_status(
+    status_service: DatabaseStatusService, settings: AppSettings, advanced_mode: bool = False
+) -> MySqlResolutionResult | None:
     """Rendert Sidebar-Steuerung und Status für Datenbanken getrennt."""
 
     configured_target = settings.mysql.mysql_active_target
@@ -43,23 +45,23 @@ def _render_database_sidebar_status(status_service: DatabaseStatusService, setti
         requested_target=selected_target,
     )
 
-    st.sidebar.markdown("### Datenbankstatus")
-    if status.mysql.is_connected and status.mysql.active_target is not None:
-        mysql_text = f"MySQL: verbunden mit `{status.mysql.active_target}`"
-        if status.mysql.used_fallback:
-            mysql_text += " (Fallback aktiv)"
-        st.sidebar.success(mysql_text)
-    else:
-        st.sidebar.error(f"MySQL: aktive Verbindung fehlgeschlagen (`{status.mysql.requested_target}`).")
+    with st.sidebar.expander("Datenbank-Status", expanded=advanced_mode):
+        if status.mysql.is_connected and status.mysql.active_target is not None:
+            mysql_text = f"MySQL: verbunden mit `{status.mysql.active_target}`"
+            if status.mysql.used_fallback:
+                mysql_text += " (Fallback aktiv)"
+            st.success(mysql_text)
+        else:
+            st.error(f"MySQL: aktive Verbindung fehlgeschlagen (`{status.mysql.requested_target}`).")
 
-    for message in status.mysql.messages:
-        st.sidebar.caption(message)
+        for message in status.mysql.messages:
+            st.caption(message)
 
-    if status.mongo.is_connected:
-        st.sidebar.success("MongoDB: verbunden")
-    else:
-        st.sidebar.warning("MongoDB: nicht erreichbar, Rohdatenspeicherung eingeschränkt.")
-        st.sidebar.caption(status.mongo.message)
+        if status.mongo.is_connected:
+            st.success("MongoDB: verbunden")
+        else:
+            st.warning("MongoDB: nicht erreichbar, Rohdatenspeicherung eingeschränkt.")
+            st.caption(status.mongo.message)
 
     return mysql_resolution
 
@@ -173,15 +175,15 @@ def main() -> None:
     st.sidebar.title("FinanzPort Academic")
     st.sidebar.caption("Interaktive Datenanwendung für das Modul Datenbanken 2")
 
-    settings = load_settings()
-    status_service = DatabaseStatusService()
-    mysql_resolution = _render_database_sidebar_status(status_service, settings)
-    _render_sync_controls(settings, mysql_resolution)
-
-    st.sidebar.markdown("---")
     st.sidebar.markdown("### App-Konfiguration")
     advanced_mode = st.sidebar.toggle("Erweiterte Ansicht (Advanced Mode)", value=False)
     st.session_state["advanced_mode"] = advanced_mode
+    st.sidebar.markdown("---")
+
+    settings = load_settings()
+    status_service = DatabaseStatusService()
+    mysql_resolution = _render_database_sidebar_status(status_service, settings, advanced_mode)
+    _render_sync_controls(settings, mysql_resolution)
 
     if mysql_resolution is None:
         st.error("MySQL: aktive Datenbank nicht erreichbar. Bitte Einstellungen prüfen.")

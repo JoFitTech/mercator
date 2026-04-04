@@ -1,1 +1,1 @@
-"""Paketinitialisierung für Mercator."""
+"""Paketinitialisierung für FinanzPort Academic."""

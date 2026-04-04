@@ -1,4 +1,4 @@
-name: mercator
+name: finanzport
 
 services:
   app:
@@ -12,7 +12,7 @@ services:
       MYSQL_ACTIVE_TARGET: local
       LOCAL_MYSQL_HOST: mysql
       LOCAL_MYSQL_PORT: 3306
-      LOCAL_MYSQL_DATABASE: mercator_local
+      LOCAL_MYSQL_DATABASE: finanzport_local
       LOCAL_MYSQL_USER: root
       LOCAL_MYSQL_PASSWORD: change_me
     volumes:
@@ -30,7 +30,7 @@ services:
 
   mongo:
     image: mongo:7
-    container_name: mercator-mongo
+    container_name: finanzport-mongo
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -44,12 +44,12 @@ services:
 
   mysql:
     image: mysql:8.4
-    container_name: mercator-mysql
+    container_name: finanzport-mysql
     restart: unless-stopped
     command: --mysql-native-password=ON --authentication-policy=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: change_me
-      MYSQL_DATABASE: mercator_local
+      MYSQL_DATABASE: finanzport_local
     ports:
       - "3306:3306"
     volumes:

@@ -11,10 +11,11 @@ FinanzPort Academic ist eine interaktive Datenanwendung für das Modul **Datenba
 5. Methodik und Datenfluss für akademische Zwecke transparent machen
 
 ## Uni-Kontext und Scope
-Mercator ist bewusst als akademisches MVP ausgelegt:
+FinanzPort Academic ist bewusst als akademisches MVP ausgelegt:
 - Fokus auf nachvollziehbaren Datenfluss
 - klare Trennung von Roh- und Zieldaten
 - keine Produkt-/Enterprise-Nebenziele
+- Skripte und Konfigurationen nutzen teilweise noch den ursprünglichen Projektnamen `mercator` zur technischen Kompatibilität (z.B. Dateinamen, Environment-Präfixe).
 
 ## Verwendete Technologien
 - Python
@@ -40,6 +41,10 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - `docs/` – Scope, Architektur, Datensatznotizen
 - `tests/` – robuste Basistests
 - `legacy/` – geordnete Altbestände
+
+## Dokumentation
+- [Methodik & Architektur](src/ui/pages/methodology_page.py) (UI-Seite)
+- [Technischer Ablauf & Datenfluss](Ablauf.md) (Markdown-Übersicht)
 
 ## Datenfluss
 1. `ImportService` lädt `Latest Insider Trading` von FMP (`page=0`, `limit=100`).
@@ -154,11 +159,12 @@ Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
 Verfuegbare Aktionen:
 - `start` - startet App + Mongo + lokale MySQL per Compose
 - `stop` - stoppt den Stack
-- `restart` - startet den Stack neu
+- `restart` - startet den Stack neu (inkl. Cleanup alter Container)
 - `status` - zeigt Containerstatus
 - `logs` - streamt Logs (default Service `app`)
 - `init-db` - fuehrt MySQL-Schema-Init im App-Container aus
 - `open` - oeffnet `http://localhost:8501`
+- `cleanup` - entfernt verwaiste Container (mit Namen `mercator-*`)
 
 Beispiele:
 
@@ -208,12 +214,25 @@ Wenn du Container sowie lokale MongoDB- und MySQL-Daten frisch neu aufsetzen wil
 
 ```powershell
 docker compose -f mercator-compose.yml down -v
-docker compose -f mercator-compose.yml up -d
+# Oder via Skript fuer gezielte Bereinigung von Altlasten:
+.\mercator.ps1 cleanup
+```
+
+### Fehlerbehandlung: Port-Konflikte
+Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung wie `Bind for 0.0.0.0:3306 failed: port is already allocated` fehlschlägt:
+1. Pruefe, ob noch alte Container (`mercator-mysql`, `mercator-mongo`, `mercator-app-1`) laufen.
+2. Fuehre `.\mercator.ps1 cleanup` aus, um diese gezielt zu entfernen.
+3. Starte den Stack danach erneut mit `.\mercator.ps1 start`.
+```powershell
+.\mercator.ps1 start
 ```
 
 Danach kannst du den Status prüfen oder die App öffnen:
 
 ```powershell
+.\mercator.ps1 status
+.\mercator.ps1 open
+```
 .\mercator.ps1 status
 .\mercator.ps1 open
 ```

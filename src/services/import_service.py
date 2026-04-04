@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from src.config.settings import DEFAULT_FEED_LIMIT, DEFAULT_FEED_PAGE
 from src.data_sources.fmp_client import FmpClient
@@ -123,10 +124,31 @@ class ImportService:
     @staticmethod
     def _normalize_company_profile(profile: dict, fetched_at: datetime) -> dict:
         """Überführt FMP-Profilfelder in das Projektschema."""
+        
+        # Defensive Typ-Konvertierung für MySQL-Zielsäulen
+        mkt_cap = profile.get("mktCap")
+        try:
+            market_cap = int(float(mkt_cap)) if mkt_cap is not None else None
+        except (ValueError, TypeError):
+            market_cap = None
+
+        def _to_bool(val: Any) -> bool | None:
+            if val is None or val == "":
+                return None
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, (int, float)):
+                return bool(val)
+            if str(val).lower() in ("true", "1", "yes"):
+                return True
+            if str(val).lower() in ("false", "0", "no"):
+                return False
+            return None
+
         return {
             "symbol": str(profile.get("symbol", "")).strip().upper(),
             "company_name": profile.get("companyName"),
-            "market_cap": profile.get("mktCap"),
+            "market_cap": market_cap,
             "price": profile.get("price"),
             "currency": profile.get("currency"),
             "cik": profile.get("cik"),
@@ -140,12 +162,12 @@ class ImportService:
             "website": profile.get("website"),
             "description": profile.get("description"),
             "ceo": profile.get("ceo"),
-            "full_time_employees": profile.get("fullTimeEmployees"),
+            "full_time_employees": str(profile.get("fullTimeEmployees") or "")[:32] or None,
             "ipo_date": profile.get("ipoDate"),
-            "is_etf": profile.get("isEtf"),
-            "is_actively_trading": profile.get("isActivelyTrading"),
-            "is_adr": profile.get("isAdr"),
-            "is_fund": profile.get("isFund"),
+            "is_etf": _to_bool(profile.get("isEtf")),
+            "is_actively_trading": _to_bool(profile.get("isActivelyTrading")),
+            "is_adr": _to_bool(profile.get("isAdr")),
+            "is_fund": _to_bool(profile.get("isFund")),
             "profile_updated_at": fetched_at,
             "profile_payload": profile,
         }

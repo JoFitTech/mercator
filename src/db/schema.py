@@ -1,4 +1,4 @@
-"""MySQL-DDL für die relationale Zieldatenhaltung von Mercator."""
+"""MySQL-DDL für die relationale Zieldatenhaltung von FinanzPort Academic."""
 
 MYSQL_SCHEMA_STATEMENTS: list[str] = [
     """

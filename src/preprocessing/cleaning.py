@@ -41,7 +41,7 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
         "securities_owned": parse_float(raw_trade.get("securitiesOwned"), "securitiesOwned"),
         "reporting_name": raw_trade.get("reportingName"),
         "type_of_owner": raw_trade.get("typeOfOwner"),
-        "acquisition_or_disposition": raw_trade.get("acquistionOrDisposition"),
+        "acquisition_or_disposition": str(raw_trade.get("acquisitionOrDisposition") or "")[:1].upper() or None,
         "direct_or_indirect": raw_trade.get("directOrIndirect"),
         "form_type": raw_trade.get("formType"),
         "qty": qty,

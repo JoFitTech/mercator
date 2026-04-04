@@ -4,8 +4,29 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from typing import Any
 
 from src.services.analysis_service import AnalysisService
+
+
+def format_mcap(value: Any, currency: str = "USD") -> str:
+    """Sichere Formatierung der Marktkapitalisierung."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return f"- {currency}"
+    try:
+        return f"{float(value):,.0f} {currency}"
+    except (ValueError, TypeError):
+        return f"- {currency}"
+
+
+def format_number(value: Any, format_spec: str = "{:,.2f}", na_rep: str = "-") -> str:
+    """Sicherer Formatter für Kennzahlen in der UI."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return na_rep
+    try:
+        return format_spec.format(float(value))
+    except (ValueError, TypeError):
+        return na_rep
 
 
 def render_ticker_detail_page(service: AnalysisService) -> None:
@@ -18,13 +39,19 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
 
     advanced_mode = st.session_state.get("advanced_mode", False)
 
-    # Symbole für Auswahl laden
-    all_symbols = service.company_repo.fetch_all_symbols()
+    # Symbole aus Trades und Profilen kombinieren für bessere Auswahl
+    try:
+        trade_symbols = set(service.trade_repo.fetch_all_symbols())
+        profile_symbols = set(service.company_repo.fetch_all_symbols())
+        all_symbols = sorted(list(trade_symbols | profile_symbols))
+    except Exception:
+        all_symbols = sorted(list(service.company_repo.fetch_all_symbols()))
+
     if not all_symbols:
         st.info("Es sind aktuell noch keine verarbeiteten Daten verfügbar. Lade zunächst einen Datensatz.")
         return
 
-    selected_symbol = st.selectbox("Unternehmen auswählen", sorted(all_symbols))
+    selected_symbol = st.selectbox("Unternehmen auswählen", all_symbols)
 
     if not selected_symbol:
         return
@@ -38,20 +65,20 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     if profile:
         c1, c2 = st.columns([0.7, 0.3])
         with c1:
-            st.subheader(f"{profile.get('company_name', selected_symbol)} ({selected_symbol})")
-            st.write(f"**Sektor:** {profile.get('sector', '-')} | **Branche:** {profile.get('industry', '-')}")
-            st.write(f"**Land:** {profile.get('country', '-')} | **Börse:** {profile.get('exchange_full_name', '-')}")
+            st.subheader(f"{profile.get('company_name') or selected_symbol} ({selected_symbol})")
+            st.write(f"**Sektor:** {profile.get('sector') or '-'} | **Branche:** {profile.get('industry') or '-'}")
+            st.write(f"**Land:** {profile.get('country') or '-'} | **Börse:** {profile.get('exchange_full_name') or '-'}")
         with c2:
             if profile.get('website'):
                 st.link_button("Website besuchen", profile['website'], use_container_width=True)
-            st.metric("Marktkapitalisierung", f"{profile.get('market_cap', 0):,.0f} {profile.get('currency', 'USD')}")
+            st.metric("Marktkapitalisierung", format_mcap(profile.get('market_cap'), profile.get('currency', 'USD')))
 
         with st.expander("Unternehmensbeschreibung", expanded=False):
-            st.write(profile.get('description', 'Keine Beschreibung verfügbar.'))
+            st.write(profile.get('description') or 'Keine Beschreibung verfügbar.')
             if advanced_mode:
                 st.markdown("**Management:**")
-                st.write(f"CEO: {profile.get('ceo', '-')}")
-                st.write(f"Mitarbeiter: {profile.get('full_time_employees', '-')}")
+                st.write(f"CEO: {profile.get('ceo') or '-'}")
+                st.write(f"Mitarbeiter: {profile.get('full_time_employees') or '-'}")
     else:
         st.warning(f"Kein Firmenprofil für {selected_symbol} gefunden. Eventuell wurde noch kein Gate-PASS erreicht.")
 
@@ -59,9 +86,9 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     st.subheader("Insider-Analyse")
     
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Anzahl Trades", result.metrics.get("trade_count", 0))
-    m2.metric("Ø Preis", f"{result.metrics.get('avg_price', 0):.2f}")
-    m3.metric("Gesamtmenge (Qty)", f"{result.metrics.get('total_qty', 0):,.0f}")
+    m1.metric("Anzahl Trades", format_number(result.metrics.get("trade_count"), "{:,.0f}"))
+    m2.metric("Ø Preis", format_number(result.metrics.get("avg_price")))
+    m3.metric("Gesamtmenge (Qty)", format_number(result.metrics.get("total_qty"), "{:,.0f}"))
     
     # Ein fiktiver Score als Platzhalter
     m4.metric("Analyse-Score", "Vorbereitet", help="Platzhalter für zukünftige Score-Erweiterung.")

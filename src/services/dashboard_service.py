@@ -27,17 +27,25 @@ class DashboardService:
         """Liefert KPIs und vorbereitete DataFrames für Charts."""
         trades_df = self.trade_repo.fetch_trades(limit=2000)
         raw_records = 0
+        gate_pass_records = 0
+        
         if self.raw_repo is not None:
             try:
                 raw_records = self.raw_repo.count_all()
             except Exception:
                 # TODO: Logging ergänzen, sobald zentrales UI-Logging definiert ist.
                 raw_records = 0
+        
+        # Gate-PASS berechnen (PASS, PROFILE_FETCHED, PROFILE_FETCH_FAILED)
+        if not trades_df.empty:
+            pass_statuses = {"PASS", "PROFILE_FETCHED", "PROFILE_FETCH_FAILED"}
+            gate_pass_records = trades_df[trades_df["gate_status"].str.upper().isin(pass_statuses)].shape[0]
 
         payload = {
             "raw_records": raw_records,
             "clean_records": self.trade_repo.count_all(),
             "company_profiles": self.company_repo.count_all(),
+            "gate_pass_records": gate_pass_records,
             "transaction_type_distribution": pd.DataFrame(),
             "sector_distribution": pd.DataFrame(),
             "timeline_distribution": pd.DataFrame(),
