@@ -130,17 +130,35 @@ def render_dashboard_page(
     c4.metric("Gate-PASS", f"{pass_count:,}")
 
     st.markdown("---")
+    st.subheader("Markttrends & Volumen")
+    
+    # 1. Chart: Kumuliertes Volumen BUY vs SELL über Zeit
+    if not payload["buy_sell_volume"].empty:
+        st.write("**Handelsvolumen pro Tag (Akkumuliert)**")
+        # Line Chart für Buy/Sell Volumen
+        chart_df = payload["buy_sell_volume"].set_index("event_date")
+        st.area_chart(chart_df, height=300)
+
+    st.markdown("---")
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.subheader("Transaktionstypen")
-        st.bar_chart(payload["transaction_type_distribution"].set_index("transaction_type"))
+        st.subheader("Sektoren-Verteilung")
+        if not payload["sector_distribution"].empty:
+            # Bar chart horizontal
+            st.bar_chart(payload["sector_distribution"].set_index("sector"), horizontal=True)
 
     with col_right:
-        st.subheader("Sektoren-Verteilung")
-        st.bar_chart(payload["sector_distribution"].set_index("sector"))
+        st.subheader("Verhältnis Buy vs. Sell")
+        # Donut Chart Ersatz (Pie ist in Streamlit nicht nativ, wir nehmen Bar oder Metrics)
+        if not payload["trades"].empty:
+            counts = payload["trades"]["direction"].value_counts()
+            buy_c = counts.get("BUY", 0)
+            sell_c = counts.get("SELL", 0)
+            st.write(f"Transaktionen: **{buy_c} BUYS** vs **{sell_c} SELLS**")
+            st.progress(buy_c / (buy_c + sell_c) if (buy_c + sell_c) > 0 else 0, text="Buy Ratio")
 
     if advanced_mode:
         st.markdown("---")
-        st.subheader("Zeitliche Verteilung (Filing Date)")
-        st.line_chart(payload["timeline_distribution"].set_index("event_date"))
+        st.subheader("Import-Historie")
+        st.line_chart(payload["timeline_distribution"].set_index("e_date"))

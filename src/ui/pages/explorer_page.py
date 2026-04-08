@@ -3,90 +3,148 @@
 from __future__ import annotations
 
 import streamlit as st
+import pandas as pd
+from typing import Any
 
 from src.services.analysis_service import AnalysisService
+from src.ui.pages.ticker_detail_page import format_number
+
+
+def format_currency_compact(value: Any) -> str:
+    """Formatiert Währungswerte kompakt (z.B. 1.25M, 842k)."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "-"
+    val = float(value)
+    if abs(val) >= 1_000_000:
+        return f"{val / 1_000_000:.2f}M"
+    if abs(val) >= 1_000:
+        return f"{val / 1_000:.1f}k"
+    return f"{val:.2f}"
 
 
 def render_explorer_page(service: AnalysisService) -> None:
-    """Rendert Filter und Tabelle für bereinigte MySQL-Daten."""
-    st.title("Mercator")
-    st.markdown("### Datenexplorer")
-    st.caption("Interaktive Filter- und Tabellenansicht für bereinigte Finanzdaten.")
+    """Rendert Filter und kompakte Screener-Tabelle für Insider-Trades."""
+    st.title("FinanzPort Academic")
+    st.markdown("### Insider Trades Screener")
+    
+    # Session State für Filter
+    if "explorer_filters" not in st.session_state:
+        st.session_state.explorer_filters = {
+            "symbol": "",
+            "reporting_name": "",
+            "direction": "Alle",
+            "min_value": 0,
+            "accumulate": True,
+            "show_raw": False
+        }
 
-    advanced_mode = st.session_state.get("advanced_mode", False)
+    # Filterleiste
+    with st.expander("Filter & Optionen", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        symbol = c1.text_input("Ticker", value=st.session_state.explorer_filters["symbol"], placeholder="z.B. AAPL")
+        reporting = c2.text_input("Insider", value=st.session_state.explorer_filters["reporting_name"], placeholder="Name...")
+        direction = c3.selectbox("Richtung", ["Alle", "BUY", "SELL"], 
+                               index=["Alle", "BUY", "SELL"].index(st.session_state.explorer_filters["direction"]))
+        min_value = c4.number_input("Min. Wert ($)", value=st.session_state.explorer_filters["min_value"], step=10000)
 
-    with st.expander("Filter-Optionen", expanded=True):
-        c1, c2, c3 = st.columns(3)
-        symbol = c1.text_input("Börsensymbol", placeholder="z.B. AAPL")
-        transaction_type = c2.text_input("Transaktionstyp", placeholder="z.B. P-Purchase")
-        gate_status = c3.selectbox("Gate-Status", ["Alle", "PASS", "PENDING", "FAIL"])
+        c5, c6, c7 = st.columns(3)
+        accumulate = c5.toggle("Trades akkumulieren", value=st.session_state.explorer_filters["accumulate"])
+        show_raw = c6.toggle("Rohdaten zeigen", value=st.session_state.explorer_filters["show_raw"])
+        
+        # State aktualisieren
+        st.session_state.explorer_filters.update({
+            "symbol": symbol.strip().upper(),
+            "reporting_name": reporting.strip(),
+            "direction": direction,
+            "min_value": min_value,
+            "accumulate": accumulate,
+            "show_raw": show_raw
+        })
 
-        if advanced_mode:
-            c4, c5 = st.columns(2)
-            sector = c4.text_input("Sektor", placeholder="z.B. Technology")
-            country = c5.text_input("Land", placeholder="z.B. US")
-        else:
-            sector = ""
-            country = ""
+    # Daten laden
+    api_direction = None
+    if direction == "BUY": api_direction = "A"
+    elif direction == "SELL": api_direction = "D"
 
     filters = {
         "symbol": symbol.strip().upper() or None,
-        "transaction_type": transaction_type.strip() or None,
-        "gate_status": None if gate_status == "Alle" else gate_status,
-        "sector": sector.strip() or None,
-        "country": country.strip() or None,
+        "reporting_name": reporting.strip() or None,
+        "acquisition_or_disposition": api_direction,
     }
-
-    data = service.get_filtered_trades(filters=filters, limit=500)
+    
+    # AnalysisService aufrufen
+    data = service.get_filtered_trades(
+        filters=filters, 
+        limit=1000, 
+        accumulate=accumulate and not show_raw,
+        min_value=float(min_value)
+    )
     
     if data.empty:
-        st.info("Es sind aktuell keine verarbeiteten Daten verfügbar, die den Filtern entsprechen.")
+        st.info("Keine Daten gefunden, die den Filtern entsprechen.")
         return
 
-    st.markdown("---")
-    
-    # Fachliche Spaltenreihenfolge
-    core_cols = [
-        "symbol_at_trade", "company_key", "transaction_date", "reporting_name", "transaction_type",
-        "qty", "price", "trade_value_estimated", "gate_status"
-    ]
-    
-    company_cols = ["company_name", "sector", "country"]
-    
-    technical_cols = [
-        "gate_reason", "filing_date", "reporting_cik", "company_cik", 
-        "type_of_owner", "acquisition_or_disposition", "direct_or_indirect", 
-        "form_type", "security_name", "source_url", "dedupe_key", "fetched_at"
-    ]
+    st.subheader(f"{len(data)} Ergebnisse")
 
-    # Dynamische Spaltenauswahl
-    display_cols = core_cols + company_cols
-    if advanced_mode:
-        display_cols = display_cols + technical_cols
-
-    # Nur existierende Spalten nehmen
-    final_cols = [c for c in display_cols if c in data.columns]
-    
-    # UI-Anzeige
-    st.subheader(f"Ergebnisse ({len(data)} Datensätze)")
-    
-    # Download Button oben rechts (simuliert durch Spalten)
-    col_text, col_btn = st.columns([0.8, 0.2])
-    with col_btn:
-        st.download_button(
-            label="Export CSV",
-            data=data.to_csv(index=False).encode("utf-8"),
-            file_name="mercator_export.csv",
-            mime="text/csv",
-            use_container_width=True
+    # Styling & Spaltenlogik
+    # Pflichtspalten laut Anforderung
+    if accumulate and not show_raw:
+        # Wir behalten die numerischen Spalten für korrektes Sorting im st.dataframe
+        display_df = data[[
+            "transaction_date", "symbol_at_trade", "company_name", "reporting_name",
+            "direction", "accumulated_qty", "accumulated_avg_price_weighted", 
+            "accumulated_trade_value_estimated", "is_accumulated", "accumulated_trade_count"
+        ]].copy()
+        
+        display_df["Type"] = display_df.apply(
+            lambda r: f"ACC x{r['accumulated_trade_count']}" if r['is_accumulated'] else "Single", axis=1
         )
+        
+        final_cols = [
+            "transaction_date", "symbol_at_trade", "company_name", "reporting_name", 
+            "direction", "accumulated_qty", "accumulated_avg_price_weighted", 
+            "accumulated_trade_value_estimated", "Type"
+        ]
+        
+        col_config = {
+            "transaction_date": st.column_config.DateColumn("Datum"),
+            "symbol_at_trade": st.column_config.TextColumn("Ticker"),
+            "company_name": st.column_config.TextColumn("Firma"),
+            "reporting_name": st.column_config.TextColumn("Insider"),
+            "direction": st.column_config.TextColumn("Richtung"),
+            "accumulated_qty": st.column_config.NumberColumn("Stückzahl", format="%d"),
+            "accumulated_avg_price_weighted": st.column_config.NumberColumn("Preis", format="$%.2f"),
+            "accumulated_trade_value_estimated": st.column_config.NumberColumn("Wert ($)", format="$%.2f"),
+            "Type": st.column_config.TextColumn("Typ")
+        }
+    else:
+        display_df = data[[
+            "transaction_date", "symbol_at_trade", "company_name", "reporting_name",
+            "direction", "qty", "price", "trade_value_estimated"
+        ]].copy()
+        
+        final_cols = [
+            "transaction_date", "symbol_at_trade", "company_name", "reporting_name", 
+            "direction", "qty", "price", "trade_value_estimated"
+        ]
+        
+        col_config = {
+            "transaction_date": st.column_config.DateColumn("Datum"),
+            "symbol_at_trade": st.column_config.TextColumn("Ticker"),
+            "company_name": st.column_config.TextColumn("Firma"),
+            "reporting_name": st.column_config.TextColumn("Insider"),
+            "direction": st.column_config.TextColumn("Richtung"),
+            "qty": st.column_config.NumberColumn("Stückzahl", format="%d"),
+            "price": st.column_config.NumberColumn("Preis", format="$%.2f"),
+            "trade_value_estimated": st.column_config.NumberColumn("Wert ($)", format="$%.2f")
+        }
 
+    # Anzeige als Tabelle
     st.dataframe(
-        data[final_cols].style.format({
-            "price": "{:,.2f}",
-            "qty": "{:,.0f}",
-            "trade_value_estimated": "{:,.2f}"
-        }, na_rep="-"),
+        display_df[final_cols],
+        column_config=col_config,
         use_container_width=True,
         hide_index=True
     )
+    
+    st.info("Klicken Sie auf 'Ticker-Detailansicht' in der Sidebar für tiefergehende Analysen eines einzelnen Wertpapiers.")

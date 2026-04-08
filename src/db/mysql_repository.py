@@ -396,6 +396,12 @@ class InsiderTradeRepository:
         if filters.get("company_key"):
             clauses.append("t.company_key = %s")
             params.append(filters["company_key"])
+        if filters.get("reporting_name"):
+            clauses.append("t.reporting_name LIKE %s")
+            params.append(f"%{filters['reporting_name']}%")
+        if filters.get("acquisition_or_disposition"):
+            clauses.append("t.acquisition_or_disposition = %s")
+            params.append(filters["acquisition_or_disposition"])
         if filters.get("transaction_type"):
             clauses.append("t.transaction_type = %s")
             params.append(filters["transaction_type"])

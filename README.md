@@ -52,7 +52,22 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 3. Rohdaten landen in MongoDB (`insider_trades_raw`).
 4. Gate-Pass-Kandidaten lösen optionalen Profilabruf aus (`/profile-cik` primär, `/profile` als Fallback), inkl. TTL-Cache.
 5. Bereinigte Trades und Profile werden in MySQL gespeichert.
-6. Streamlit-Seiten lesen über Services aus den Repositories.
+6. `AccumulationService` aggregiert Trades in der UI-Schicht (Explorer, Ticker-Detail) nach fachlichen Regeln:
+    - Gleiche Person (Reporting CIK/Name)
+    - Gleiche Firma (Company CIK/Ticker)
+    - Gleiche Richtung (Buy/Sell) und Wertpapierart
+    - Zeitlicher Abstand maximal 1 Kalendertag
+7. Streamlit-Seiten lesen über `AnalysisService` aus den Repositories.
+
+## UI & Features
+- **Dashboard**: Zentrale Kennzahlen, Sektoren-Verteilung, Volumen-Trends (Buy vs. Sell) und Zeitverläufe.
+- **Explorer (Screener)**: Kompakte, eckige Tabellenansicht mit Fokus auf Scanbarkeit.
+    - Akkumulations-Toggle: Zusammenfassung konsekutiver Trades einer Person.
+    - Filter für Ticker, Insider, Richtung und Mindestwert.
+- **Ticker-Detailansicht (Deep Dive)**: 
+    - Strukturierte Tabs für Übersicht, Firmenkontext und Rohdaten.
+    - Detaillierte Auflistung von Akkumulationsgruppen und deren Einzeltrades.
+    - Sichere Formatierung von Kennzahlen (Kompaktwerte wie 1.25M).
 
 ## Lokale Einrichtung
 ### Windows PowerShell (empfohlen)

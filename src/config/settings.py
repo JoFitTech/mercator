@@ -354,8 +354,35 @@ class Settings:
 class MongoConfig:
     """Konfiguration für MongoDB-Verbindungen."""
 
+    active_target: str
     uri: str
     database: str
+
+    @classmethod
+    def from_env(cls) -> MongoConfig:
+        """Erstellt die MongoDB-Konfiguration aus der Umgebung.
+
+        Wählt basierend auf MONGO_ACTIVE_TARGET (local/uni) die passenden Daten aus.
+        """
+
+        active_target = _read_string_env("MONGO_ACTIVE_TARGET", default="local").lower()
+
+        if active_target == "uni":
+            uri = _read_string_env(
+                "UNI_MONGO_URI", default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/")
+            )
+            database = _read_string_env(
+                "UNI_MONGO_DATABASE", default=_read_string_env("MONGO_DATABASE", default="mercator")
+            )
+        else:
+            uri = _read_string_env(
+                "LOCAL_MONGO_URI", default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/")
+            )
+            database = _read_string_env(
+                "LOCAL_MONGO_DATABASE", default=_read_string_env("MONGO_DATABASE", default="mercator")
+            )
+
+        return cls(active_target=active_target, uri=uri, database=database)
 
 
 @dataclass(frozen=True)
@@ -411,10 +438,7 @@ def load_settings() -> AppSettings:
         dataset_path=os.getenv("DATASET_PATH", "data/raw/"),
         project_root=project_root,
         mysql=Settings.from_env(),
-        mongo=MongoConfig(
-            uri=os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
-            database=os.getenv("MONGO_DATABASE", "mercator"),
-        ),
+        mongo=MongoConfig.from_env(),
         fmp=FmpConfig(
             base_url=FMP_BASE_URL,
             api_key=os.getenv("FMP_API_KEY", ""),

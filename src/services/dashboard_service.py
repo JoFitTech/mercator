@@ -25,7 +25,7 @@ class DashboardService:
 
     def build_dashboard_payload(self) -> dict:
         """Liefert KPIs und vorbereitete DataFrames für Charts."""
-        trades_df = self.trade_repo.fetch_trades(limit=2000)
+        trades_df = self.trade_repo.fetch_trades(limit=5000)
         raw_records = 0
         gate_pass_records = 0
         
@@ -33,13 +33,11 @@ class DashboardService:
             try:
                 raw_records = self.raw_repo.count_all()
             except Exception:
-                # TODO: Logging ergänzen, sobald zentrales UI-Logging definiert ist.
                 raw_records = 0
         
         # Gate-PASS berechnen
         if not trades_df.empty:
-            pass_statuses = {"PASS"}
-            gate_pass_records = trades_df[trades_df["gate_status"].str.upper().isin(pass_statuses)].shape[0]
+            gate_pass_records = trades_df[trades_df["gate_status"].str.upper() == "PASS"].shape[0]
 
         payload = {
             "raw_records": raw_records,
@@ -49,23 +47,42 @@ class DashboardService:
             "transaction_type_distribution": pd.DataFrame(),
             "sector_distribution": pd.DataFrame(),
             "timeline_distribution": pd.DataFrame(),
+            "buy_sell_volume": pd.DataFrame(),
             "trades": trades_df,
         }
 
         if trades_df.empty:
             return payload
 
+        # Vorbereitungen für Charts
+        trades_df["event_date"] = pd.to_datetime(trades_df["transaction_date"], errors="coerce").dt.date
+        trades_df["direction"] = trades_df["acquisition_or_disposition"].apply(lambda x: "BUY" if x == "A" else ("SELL" if x == "D" else "UNKNOWN"))
+
+        # 1. Transaktionstypen
         payload["transaction_type_distribution"] = (
             trades_df.groupby("transaction_type", dropna=False).size().reset_index(name="count")
         )
+        # 2. Sektoren
         payload["sector_distribution"] = (
             trades_df.groupby("sector", dropna=False).size().reset_index(name="count")
         )
+        # 3. Zeitverlauf nach Typ (Akkumuliertes Volumen pro Tag)
+        payload["buy_sell_volume"] = (
+            trades_df.groupby(["event_date", "direction"])["trade_value_estimated"]
+            .sum()
+            .reset_index()
+            .pivot(index="event_date", columns="direction", values="trade_value_estimated")
+            .fillna(0)
+            .reset_index()
+        )
+        
+        # 4. Zeitverlauf Anzahl (Filing Date oder Transaction Date)
         timeline_col = "filing_date" if "filing_date" in trades_df.columns else "transaction_date"
         payload["timeline_distribution"] = (
-            trades_df.assign(event_date=pd.to_datetime(trades_df[timeline_col], errors="coerce").dt.date)
-            .groupby("event_date", dropna=False)
+            trades_df.assign(e_date=pd.to_datetime(trades_df[timeline_col], errors="coerce").dt.date)
+            .groupby("e_date", dropna=False)
             .size()
             .reset_index(name="count")
         )
+        
         return payload

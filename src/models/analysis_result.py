@@ -13,5 +13,6 @@ class AnalysisResult:
     title: str
     metrics: dict[str, Any] = field(default_factory=dict)
     rows: list[dict[str, Any]] = field(default_factory=list)
+    raw_rows: list[dict[str, Any]] = field(default_factory=list)
     company_profile: dict[str, Any] = field(default_factory=dict)
     note: str = ""

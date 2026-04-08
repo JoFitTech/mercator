@@ -16,6 +16,7 @@ venv/
 # Local runtime data
 node_modules/
 *.log
+data/
 
 # Streamlit / build artifacts
 dist/
