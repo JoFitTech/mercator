@@ -1,4 +1,4 @@
-# FinanzPort Academic: Ablauf und Datenfluss
+# Mercator: Ablauf und Datenfluss
 
 Diese Dokumentation beschreibt den technischen Ablauf der Datenverarbeitung, die Speicherstrategie und das Verhalten bei wiederholten API-Aufrufen.
 

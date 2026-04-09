@@ -11,10 +11,19 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Den Rest kopieren wir per Volume in der Compose-Datei für die Entwicklung,
-# aber wir können ihn auch hierher kopieren für ein fertiges Image.
+# App-User anlegen fuer mehr Sicherheit (kein Root)
+RUN useradd -m -u 1000 mercatoruser
+RUN chown -R mercatoruser:mercatoruser /app
+
+# Den Rest kopieren wir ins Image
 COPY . .
+RUN chown -R mercatoruser:mercatoruser /app
+
+USER mercatoruser
 
 EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
 CMD ["streamlit", "run", "streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]

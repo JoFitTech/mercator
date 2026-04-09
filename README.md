@@ -15,7 +15,7 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - Fokus auf nachvollziehbaren Datenfluss
 - klare Trennung von Roh- und Zieldaten
 - keine Produkt-/Enterprise-Nebenziele
-- Skripte und Konfigurationen nutzen teilweise noch den ursprünglichen Projektnamen `mercator` zur technischen Kompatibilität (z.B. Dateinamen, Environment-Präfixe).
+- Alle Komponenten wurden konsequent auf den Projektnamen `mercator` umgestellt (Docker-Container, UI-Branding, Datenbanken). Altbestände (`finanzport-*`) werden automatisch bereinigt.
 
 ## Verwendete Technologien
 - Python
@@ -171,15 +171,16 @@ Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
 .\mercator.ps1 start
 ```
 
-Verfuegbare Aktionen:
-- `start` - startet App + Mongo + lokale MySQL per Compose
+Verfuegbare Aktionen (PowerShell Skript):
+- `start` - startet das Projekt (Uni-DB bevorzugt, sonst lokal)
 - `stop` - stoppt den Stack
 - `restart` - startet den Stack neu (inkl. Cleanup alter Container)
 - `status` - zeigt Containerstatus
 - `logs` - streamt Logs (default Service `app`)
-- `init-db` - fuehrt MySQL-Schema-Init im App-Container aus
+- `init-db` - initialisiert das MySQL-Schema für **alle** Ziele (local + uni)
+- `doctor` - führt einen detaillierten Schema-Check und Reparaturen durch
 - `open` - oeffnet `http://localhost:8501`
-- `cleanup` - entfernt verwaiste Container (mit Namen `mercator-*`)
+- `cleanup` - entfernt verwaiste Container (Präfix `mercator-*` oder `finanzport-*`)
 
 Beispiele:
 

@@ -19,6 +19,7 @@ from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.services.app_settings_service import AppSettingsService
 from src.services.mysql_sync_service import MySqlSyncService
+from src.services.factory import ServiceFactory
 from src.preprocessing import GateEvaluator, GateRules
 from src.ui.pages.dashboard_page import render_dashboard_page
 from src.ui.pages.explorer_page import render_explorer_page
@@ -73,75 +74,16 @@ def _build_services(
     settings: AppSettings, mysql_resolution: MySqlResolutionResult
 ) -> tuple[DashboardService, AnalysisService, ImportService | None, AppSettingsService]:
     """Initialisiert Repositories und Services für die UI."""
-    mongo_client = MongoClientWrapper(settings.mongo)
-    mysql_client = mysql_resolution.client
-    mysql_client.initialize_schema()
-
-    raw_repo: InsiderTradeMongoRepository | None = None
-    company_mongo_repo: CompanyMongoRepository | None = None
     try:
-        raw_repo = InsiderTradeMongoRepository(mongo_client)
-        company_mongo_repo = CompanyMongoRepository(mongo_client)
-        runtime_settings_repo = AppSettingsMongoRepository(mongo_client)
-    except Exception:
-        raw_repo = None
-        company_mongo_repo = None
-        runtime_settings_repo = None
-
-    trade_repo = InsiderTradeMySqlRepository(mysql_client)
-    company_repo = CompanyMySqlRepository(mysql_client)
-
-    runtime_settings_service = AppSettingsService(runtime_settings_repo, settings)
-    runtime_settings = runtime_settings_service.load()
-    import_service: ImportService | None = None
-    try:
-        gate_evaluator = GateEvaluator(
-            GateRules(
-                min_trade_value=runtime_settings.min_trade_value,
-                require_purchase_event=runtime_settings.require_purchase_event,
-                require_common_stock=runtime_settings.require_common_stock,
-                allowed_acquisition_or_disposition=runtime_settings.allowed_acquisition_or_disposition,
-                allowed_transaction_types=runtime_settings.allowed_transaction_types,
-            )
-        )
-        fmp_client = FmpClient(
-            replace(
-                settings.fmp,
-                profile_ttl_days=runtime_settings.profile_ttl_days,
-                lookup_mode=runtime_settings.lookup_mode,
-            )
-        )
-        if raw_repo is not None and company_mongo_repo is not None:
-            import_service = ImportService(
-                fmp_client=fmp_client,
-                gate_evaluator=gate_evaluator,
-                raw_repo=raw_repo,
-                company_mongo_repo=company_mongo_repo,
-                trade_mysql_repo=trade_repo,
-                company_mysql_repo=company_repo,
-                profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
-            )
-        else:
-            st.session_state["import_service_error"] = (
-                "MongoDB ist nicht erreichbar. Import wurde in diesem Lauf deaktiviert."
-            )
+        return ServiceFactory.build_all(settings, mysql_resolution.client)
     except Exception as exc:
-        st.session_state["import_service_error"] = str(exc)
-        import_service = None
-    else:
-        if import_service is not None:
-            st.session_state.pop("import_service_error", None)
-
-    return (
-        DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo),
-        AnalysisService(trade_repo, company_repo),
-        import_service,
-        runtime_settings_service,
-    )
+        st.session_state["import_service_error"] = f"Fehler bei Service-Initialisierung: {exc}"
+        # Fallback-Build ohne MongoDB-Abhängigkeit falls möglich oder einfach Re-raise
+        raise exc
 
 
 def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResolutionResult | None) -> None:
-    """Rendert den kontrollierten Sync-Button für local -> uni."""
+    """Rendert den kontrollierten Sync-Button für local <-> uni."""
 
     if not settings.mysql.mysql_sync_enabled:
         st.sidebar.info("MySQL-Sync ist per Konfiguration deaktiviert.")
@@ -151,36 +93,53 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
         st.sidebar.warning("Sync nicht verfügbar: kein aktives MySQL-Ziel erreichbar.")
         return
 
-    if mysql_resolution.active_target != "uni":
-        st.sidebar.info("Sync-Button ist nur aktiv, wenn das Ziel `uni` erreichbar ist.")
-        return
+    st.sidebar.markdown("### MySQL-Sync (Bidirektional)")
 
-    st.sidebar.markdown("### MySQL-Sync")
-    st.sidebar.caption("Richtung: `local -> uni` (explizit per Klick).")
-    if st.sidebar.button("Lokale Daten zur Uni-DB synchronisieren", type="primary"):
+    direction = st.sidebar.radio(
+        "Sync-Richtung",
+        options=["auto", "local -> uni", "uni -> local"],
+        index=0,
+        help="Wählt aus, in welche Richtung die Daten abgeglichen werden sollen. 'auto' nutzt den neuesten Zeitstempel.",
+    )
+
+    dir_map = {
+        "auto": "auto",
+        "local -> uni": "local_to_uni",
+        "uni -> local": "uni_to_local",
+    }
+
+    if st.sidebar.button("Synchronisierung jetzt starten", type="primary"):
         try:
-            source_client = build_mysql_client_for_target(settings.mysql, "local")
-            target_client = build_mysql_client_for_target(settings.mysql, "uni")
-            source_ok, source_message = source_client.test_connection()
-            target_ok, target_message = target_client.test_connection()
-            if not source_ok or not target_ok:
-                st.sidebar.error("Sync abgebrochen: Quell- oder Zielverbindung fehlgeschlagen.")
-                st.sidebar.caption(source_message)
-                st.sidebar.caption(target_message)
+            local_client = build_mysql_client_for_target(settings.mysql, "local")
+            uni_client = build_mysql_client_for_target(settings.mysql, "uni")
+
+            # Beides muss erreichbar sein fuer Sync
+            local_ok, local_msg = local_client.test_connection()
+            uni_ok, uni_msg = uni_client.test_connection()
+
+            if not local_ok or not uni_ok:
+                st.sidebar.error("Sync abgebrochen: Beide Datenbanken müssen erreichbar sein.")
+                if not local_ok:
+                    st.sidebar.caption(f"Lokal: {local_msg}")
+                if not uni_ok:
+                    st.sidebar.caption(f"Uni: {uni_msg}")
                 return
 
-            summary = MySqlSyncService().sync_all(source_client=source_client, target_client=target_client)
-            st.sidebar.success("Sync erfolgreich abgeschlossen.")
-            st.sidebar.write(
-                f"Companies: gelesen={summary.company_result.read_count}, "
-                f"geschrieben={summary.company_result.written_count}, "
-                f"übersprungen={summary.company_result.skipped_count}"
-            )
-            st.sidebar.write(
-                f"Insider-Trades: gelesen={summary.insider_trade_result.read_count}, "
-                f"geschrieben={summary.insider_trade_result.written_count}, "
-                f"übersprungen={summary.insider_trade_result.skipped_count}"
-            )
+            with st.spinner("Synchronisiere Daten..."):
+                summary = MySqlSyncService().sync_all(
+                    local_client=local_client,
+                    uni_client=uni_client,
+                    direction=dir_map[direction],
+                )
+
+            st.sidebar.success(f"Sync ({summary.direction}) abgeschlossen.")
+            st.sidebar.write(f"**Companies:** {summary.company_result.written_count} aktualisiert")
+            st.sidebar.write(f"**Trades:** {summary.insider_trade_result.written_count} aktualisiert")
+
+            if summary.company_result.written_count > 0 or summary.insider_trade_result.written_count > 0:
+                st.toast("Daten wurden erfolgreich synchronisiert!", icon="🔄")
+                st.rerun()
+
         except Exception as exc:
             st.sidebar.error(f"Sync fehlgeschlagen: {exc}")
 
@@ -199,6 +158,29 @@ def main() -> None:
     settings = load_settings()
     status_service = DatabaseStatusService()
     mysql_resolution = _render_database_sidebar_status(status_service, settings, advanced_mode)
+    
+    if advanced_mode:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### DB-Doctor")
+        if st.sidebar.button("Schema-Check & Reparatur (Alle Ziele)", help="Analysiert und repariert das Schema auf local und uni."):
+            try:
+                from src.scripts.init_mysql_schema import initialize_all_targets
+                with st.spinner("DB-Doctor analysiert..."):
+                    results = initialize_all_targets()
+                
+                for target, actions in results.items():
+                    if not actions:
+                        st.sidebar.success(f"{target}: Aktuell")
+                    elif any(a.startswith("FAILED") for a in actions):
+                        st.sidebar.error(f"{target}: Fehlerhaft")
+                        for a in actions: st.sidebar.caption(a)
+                    else:
+                        st.sidebar.warning(f"{target}: {len(actions)} Fixes")
+                        with st.sidebar.expander(f"Details {target}"):
+                            for a in actions: st.sidebar.write(f"- {a}")
+            except Exception as e:
+                st.sidebar.error(f"Doctor-Lauf fehlgeschlagen: {e}")
+
     _render_sync_controls(settings, mysql_resolution)
 
     if mysql_resolution is None:

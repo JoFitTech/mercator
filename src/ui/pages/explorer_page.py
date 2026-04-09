@@ -24,7 +24,7 @@ def format_currency_compact(value: Any) -> str:
 
 def render_explorer_page(service: AnalysisService) -> None:
     """Rendert Filter und kompakte Screener-Tabelle für Insider-Trades."""
-    st.title("FinanzPort Academic")
+    st.title("Mercator")
     st.markdown("### Insider Trades Screener")
     
     # Session State für Filter

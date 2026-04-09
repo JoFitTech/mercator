@@ -163,6 +163,14 @@ class CompanyRepository:
                 result = cursor.fetchone()
                 return int(result[0]) if result else 0
 
+    def get_max_updated_at(self) -> str | None:
+        """Liefert den neuesten Zeitstempel aus der Spalte ``updated_at``."""
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT MAX(updated_at) FROM companies")
+                result = cursor.fetchone()
+                return result[0] if result and result[0] else None
+
 
 class InsiderTradeRepository:
     """Kapselt CRUD-nahe Zugriffe auf die Tabelle ``insider_trades``."""
@@ -437,6 +445,14 @@ class InsiderTradeRepository:
                 cursor.execute("SELECT COUNT(*) FROM insider_trades")
                 result = cursor.fetchone()
                 return int(result[0]) if result else 0
+
+    def get_max_updated_at(self) -> str | None:
+        """Liefert den neuesten Zeitstempel aus der Spalte ``updated_at``."""
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT MAX(updated_at) FROM insider_trades")
+                result = cursor.fetchone()
+                return result[0] if result and result[0] else None
 
 
 class CompanyMySqlRepository(CompanyRepository):

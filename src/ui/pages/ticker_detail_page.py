@@ -43,7 +43,7 @@ def format_currency_compact(value: Any) -> str:
 
 def render_ticker_detail_page(service: AnalysisService) -> None:
     """Rendert die Detailansicht für ein ausgewähltes Symbol."""
-    st.title("FinanzPort Academic")
+    st.title("Mercator")
     st.markdown("### Deep Dive Analysis")
     
     advanced_mode = st.session_state.get("advanced_mode", False)

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status", "logs", "init-db", "open", "cleanup")]
+    [ValidateSet("start", "stop", "restart", "status", "logs", "init-db", "open", "cleanup", "doctor")]
     [string]$Action = "status",
     [string]$Service = "app"
 )
@@ -9,17 +9,68 @@ $composeFile = Join-Path $PSScriptRoot "mercator-compose.yml"
 
 Set-Location -Path $PSScriptRoot
 
+# Hilfsfunktionen zum Lesen von .env und Prüfen der Uni-DB-Erreichbarkeit
+function Get-DotEnvValue {
+    param([Parameter(Mandatory=$true)][string]$Key)
+    $envPath = Join-Path $PSScriptRoot ".env"
+    if (-not (Test-Path $envPath)) { return $null }
+    $line = Select-String -Path $envPath -Pattern "^\s*$Key\s*=" | Select-Object -First 1
+    if (-not $line) { return $null }
+    $value = ($line.Line -split "=",2)[1].Trim()
+    if ($value.StartsWith('"') -and $value.EndsWith('"')) { $value = $value.Trim('"') }
+    if ($value.StartsWith("'") -and $value.EndsWith("'")) { $value = $value.Trim("'") }
+    return $value
+}
+
+function Get-MongoHostPortFromUri {
+    param([string]$Uri)
+    if (-not $Uri) { return @{ Host = $null; Port = $null } }
+    $pattern = 'mongodb://(?:[^@/]+@)?([^:/]+)(?::(\d+))?'
+    $m = [regex]::Match($Uri, $pattern)
+    if ($m.Success) {
+        $mHost = $m.Groups[1].Value
+        $mPort = if ($m.Groups[2].Success) { [int]$m.Groups[2].Value } else { 27017 }
+        return @{ Host = $mHost; Port = $mPort }
+    }
+    return @{ Host = $null; Port = $null }
+}
+
+function Test-UniDatabaseConnectivity {
+    $mysqlHost = Get-DotEnvValue "UNI_MYSQL_HOST"
+    $mysqlPort = (Get-DotEnvValue "UNI_MYSQL_PORT")
+    if (-not $mysqlPort) { $mysqlPort = "3306" }
+    $mongoUri = Get-DotEnvValue "UNI_MONGO_URI"
+    if (-not $mongoUri) { $mongoUri = Get-DotEnvValue "MONGO_URI" }
+    $mongo = Get-MongoHostPortFromUri -Uri $mongoUri
+
+    $mysqlOk = $false
+    $mongoOk = $false
+
+    if ($mysqlHost) {
+        try {
+            $mysqlOk = Test-NetConnection -ComputerName $mysqlHost -Port ([int]$mysqlPort) -InformationLevel Quiet
+        } catch { $mysqlOk = $false }
+    }
+    if ($mongo.Host) {
+        try {
+            $mongoOk = Test-NetConnection -ComputerName $mongo.Host -Port ([int]$mongo.Port) -InformationLevel Quiet
+        } catch { $mongoOk = $false }
+    }
+
+    return @{ MySql = $mysqlOk; Mongo = $mongoOk }
+}
+
 # Hilfsfunktion zum Bereinigen von verwaisten Containern
 function Remove-Legacy-Containers {
-    Write-Host "Suche nach alten Mercator-Containern..." -ForegroundColor Cyan
-    $legacyContainers = docker ps -a --filter "name=mercator-" --format "{{.Names}}"
+    Write-Host "Suche nach alten Mercator- oder FinanzPort-Containern..." -ForegroundColor Cyan
+    $legacyContainers = docker ps -a --filter "name=mercator-" --filter "name=finanzport-" --format "{{.Names}}"
     if ($legacyContainers) {
         Write-Host "Gefundene alte Container: $legacyContainers" -ForegroundColor Yellow
         docker stop $legacyContainers 2>$null
         docker rm $legacyContainers 2>$null
         Write-Host "Alte Container entfernt." -ForegroundColor Green
     } else {
-        Write-Host "Keine alten Mercator-Container gefunden." -ForegroundColor Gray
+        Write-Host "Keine alten Mercator/FinanzPort-Container gefunden." -ForegroundColor Gray
     }
 }
 
@@ -75,19 +126,34 @@ function Invoke-ComposeQuiet {
 
 switch ($Action) {
     "start" {
-        # Startet den Stack still im Hintergrund; Details erscheinen nur im Fehlerfall.
-        Invoke-ComposeQuiet up -d --wait
-        Write-Host "FinanzPort Academic gestartet. App: http://localhost:8501" -ForegroundColor Green
+        # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
+        $uni = Test-UniDatabaseConnectivity
+        if ($uni.MySql -and $uni.Mongo) {
+            Write-Host "Uni-Datenbanken erreichbar. Starte nur die App (ohne lokale DB-Services)..." -ForegroundColor Cyan
+            Invoke-ComposeQuiet up -d --wait --no-deps app
+        } else {
+            Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
+            Invoke-ComposeQuiet up -d --wait
+        }
+        Write-Host "Mercator gestartet. App: http://localhost:8501" -ForegroundColor Green
     }
     "stop" {
         Invoke-Compose down
-        Write-Host "FinanzPort Academic gestoppt." -ForegroundColor Yellow
+        Write-Host "Mercator gestoppt." -ForegroundColor Yellow
     }
     "restart" {
         Invoke-ComposeQuiet down
         Remove-Legacy-Containers
-        Invoke-ComposeQuiet up -d --wait
-        Write-Host "FinanzPort Academic neu gestartet. App: http://localhost:8501" -ForegroundColor Green
+        # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
+        $uni = Test-UniDatabaseConnectivity
+        if ($uni.MySql -and $uni.Mongo) {
+            Write-Host "Uni-Datenbanken erreichbar. Starte nur die App (ohne lokale DB-Services)..." -ForegroundColor Cyan
+            Invoke-ComposeQuiet up -d --wait --no-deps app
+        } else {
+            Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
+            Invoke-ComposeQuiet up -d --wait
+        }
+        Write-Host "Mercator neu gestartet. App: http://localhost:8501" -ForegroundColor Green
     }
     "status" {
         Invoke-Compose ps
@@ -98,8 +164,14 @@ switch ($Action) {
     "init-db" {
         # Stellt sicher, dass App und lokale Datenbanken laufen, bevor das Schema initialisiert wird.
         Invoke-ComposeQuiet up -d --wait app mysql mongo
-        # Fuehrt den MySQL-Schema-Init innerhalb des App-Containers aus.
+        # Fuehrt die MySQL-Schema-Init fuer ALLE Ziele innerhalb des App-Containers aus.
         Invoke-Compose exec app python -m src.scripts.init_mysql_schema
+    }
+    "doctor" {
+        # Stellt sicher, dass App läuft
+        Invoke-ComposeQuiet up -d --wait app
+        # Startet den DB-Doctor im App-Container
+        Invoke-Compose exec app python -m src.scripts.db_doctor
     }
     "open" {
         Start-Process "http://localhost:8501"
