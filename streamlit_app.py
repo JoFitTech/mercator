@@ -2,36 +2,52 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from typing import Literal
+
 
 import streamlit as st
 
 from src.config.settings import AppSettings, load_settings
-from src.data_sources.fmp_client import FmpClient
 from src.db.mongo_client import MongoClientWrapper
-from src.db.mongo_repository import AppSettingsMongoRepository, CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.mysql_client_factory import build_mysql_client_for_target
-from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.db.mysql_target_resolver import MySqlResolutionResult
 from src.services.analysis_service import AnalysisService
-from src.services.database_status_service import DatabaseStatusService
+from src.services.database_status_service import DatabaseStatus, DatabaseStatusService
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.services.app_settings_service import AppSettingsService
 from src.services.mysql_sync_service import MySqlSyncService
 from src.services.factory import ServiceFactory
-from src.preprocessing import GateEvaluator, GateRules
 from src.ui.pages.dashboard_page import render_dashboard_page
 from src.ui.pages.explorer_page import render_explorer_page
 from src.ui.pages.methodology_page import render_methodology_page
 from src.ui.pages.ticker_detail_page import render_ticker_detail_page
+from src.utils.logging_utils import get_logger
 
 MYSQL_TARGET_STATE_KEY = "mysql_runtime_target"
+LOGGER = get_logger(__name__)
+
+
+def _mask_mongo_uri(uri: str) -> str:
+    if "://" in uri and "@" in uri:
+        scheme, rest = uri.split("://", 1)
+        credentials, host_part = rest.split("@", 1)
+        if ":" in credentials:
+            username = credentials.split(":", 1)[0]
+            return f"{scheme}://{username}:***@{host_part}"
+    return uri
+
+
+def _docker_hint_if_needed(settings: AppSettings) -> str | None:
+    compose_path = settings.project_root / "mercator-compose.yml"
+    if compose_path.exists():
+        return "Did you start MySQL / MongoDB?"
+    return None
 
 
 def _render_database_sidebar_status(
     status_service: DatabaseStatusService, settings: AppSettings, advanced_mode: bool = False
-) -> MySqlResolutionResult | None:
+) -> tuple[MySqlResolutionResult | None, DatabaseStatus]:
     """Rendert Sidebar-Steuerung und Status für Datenbanken getrennt."""
 
     configured_target = settings.mysql.mysql_active_target
@@ -50,36 +66,66 @@ def _render_database_sidebar_status(
     )
 
     with st.sidebar.expander("Datenbank-Status", expanded=advanced_mode):
-        if status.mysql.is_connected and status.mysql.active_target is not None:
+        if status.mysql.is_connected:
             mysql_text = f"MySQL: verbunden mit `{status.mysql.active_target}`"
             if status.mysql.used_fallback:
                 mysql_text += " (Fallback aktiv)"
             st.success(mysql_text)
         else:
-            st.error(f"MySQL: aktive Verbindung fehlgeschlagen (`{status.mysql.requested_target}`).")
-
-        for message in status.mysql.messages:
-            st.caption(message)
+            st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
 
         if status.mongo.is_connected:
             st.success("MongoDB: verbunden")
         else:
-            st.warning("MongoDB: nicht erreichbar, Rohdatenspeicherung eingeschränkt.")
-            st.caption(status.mongo.message)
+            st.warning("MongoDB nicht erreichbar. Rohdatenspeicherung deaktiviert.")
 
-    return mysql_resolution
+        if not status.mysql.is_connected and not status.mongo.is_connected:
+            st.error("Keine Datenbankverbindung verfügbar.")
+
+        docker_hint = _docker_hint_if_needed(settings)
+        if docker_hint and (not status.mysql.is_connected or not status.mongo.is_connected):
+            st.caption(docker_hint)
+
+    with st.sidebar.expander("Debug: DB-Status", expanded=advanced_mode):
+        st.write(f"MySQL Status: {'connected' if status.mysql.is_connected else 'failed'}")
+        st.write(f"MongoDB Status: {'connected' if status.mongo.is_connected else 'failed'}")
+        st.write(f"MySQL Host: `{settings.mysql.get_mysql_target(selected_target).host}`")
+        st.write(f"MySQL Port: `{settings.mysql.get_mysql_target(selected_target).port}`")
+        st.write(f"Mongo URI: `{_mask_mongo_uri(settings.mongo.uri)}`")
+        if advanced_mode:
+            for message in status.mysql.messages:
+                st.caption(f"MySQL Detail: {message}")
+            st.caption(f"Mongo Detail: {status.mongo.message}")
+
+    LOGGER.info(
+        "runtime_db_status mysql_connected=%s mongo_connected=%s requested_mysql_target=%s",
+        status.mysql.is_connected,
+        status.mongo.is_connected,
+        status.mysql.requested_target,
+    )
+    return mysql_resolution, status
 
 
 def _build_services(
-    settings: AppSettings, mysql_resolution: MySqlResolutionResult
-) -> tuple[DashboardService, AnalysisService, ImportService | None, AppSettingsService]:
+    settings: AppSettings,
+    mysql_resolution: MySqlResolutionResult | None,
+    db_status: DatabaseStatus,
+) -> tuple[DashboardService | None, AnalysisService | None, ImportService | None, AppSettingsService]:
     """Initialisiert Repositories und Services für die UI."""
-    try:
-        return ServiceFactory.build_all(settings, mysql_resolution.client)
-    except Exception as exc:
-        st.session_state["import_service_error"] = f"Fehler bei Service-Initialisierung: {exc}"
-        # Fallback-Build ohne MongoDB-Abhängigkeit falls möglich oder einfach Re-raise
-        raise exc
+    if mysql_resolution is not None:
+        return ServiceFactory.build_all(
+            settings,
+            mysql_resolution.client,
+            mongo_available=db_status.mongo.is_connected,
+        )
+
+    # Degraded Mode: Mongo ok / MySQL fail -> nur Ingestion.
+    if db_status.mongo.is_connected:
+        import_service, runtime_settings_service = ServiceFactory.build_ingestion_only(settings)
+        return None, None, import_service, runtime_settings_service
+
+    # Beide DBs down -> nur UI ohne Datenoperationen.
+    return None, None, None, AppSettingsService(repo=None, defaults=settings)
 
 
 def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResolutionResult | None) -> None:
@@ -102,7 +148,7 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
         help="Wählt aus, in welche Richtung die Daten abgeglichen werden sollen. 'auto' nutzt den neuesten Zeitstempel.",
     )
 
-    dir_map = {
+    dir_map: dict[str, Literal["auto", "local_to_uni", "uni_to_local"]] = {
         "auto": "auto",
         "local -> uni": "local_to_uni",
         "uni -> local": "uni_to_local",
@@ -157,8 +203,8 @@ def main() -> None:
 
     settings = load_settings()
     status_service = DatabaseStatusService()
-    mysql_resolution = _render_database_sidebar_status(status_service, settings, advanced_mode)
-    
+    mysql_resolution, db_status = _render_database_sidebar_status(status_service, settings, advanced_mode)
+
     if advanced_mode:
         st.sidebar.markdown("---")
         st.sidebar.markdown("### DB-Doctor")
@@ -181,17 +227,17 @@ def main() -> None:
             except Exception as e:
                 st.sidebar.error(f"Doctor-Lauf fehlgeschlagen: {e}")
 
-    _render_sync_controls(settings, mysql_resolution)
+    if db_status.mysql.is_connected:
+        _render_sync_controls(settings, mysql_resolution)
 
-    if mysql_resolution is None:
-        st.error("MySQL: aktive Datenbank nicht erreichbar. Bitte Einstellungen prüfen.")
-        render_methodology_page()
-        return
+    dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+        settings,
+        mysql_resolution,
+        db_status,
+    )
 
-    try:
-        dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(settings, mysql_resolution)
-    except Exception as exc:
-        st.sidebar.error(f"MySQL-Initialisierung fehlgeschlagen: {exc}")
+    if not db_status.mysql.is_connected and not db_status.mongo.is_connected:
+        st.error("Keine Datenbankverbindung verfügbar.")
         render_methodology_page()
         return
 
@@ -199,17 +245,26 @@ def main() -> None:
         render_dashboard_page(dashboard_service, import_service, settings, runtime_settings_service)
 
     def _explorer() -> None:
+        if analysis_service is None:
+            st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
+            return
         render_explorer_page(analysis_service)
 
     def _ticker_detail() -> None:
+        if analysis_service is None:
+            st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
+            return
         render_ticker_detail_page(analysis_service)
 
-    pages = [
-        st.Page(_dashboard, title="Dashboard", icon=":material/dashboard:", default=True),
-        st.Page(_explorer, title="Explorer", icon=":material/table_view:"),
-        st.Page(_ticker_detail, title="Ticker-Detailansicht", icon=":material/insights:"),
-        st.Page(render_methodology_page, title="Methodik", icon=":material/schema:"),
-    ]
+    pages = [st.Page(_dashboard, title="Dashboard", icon=":material/dashboard:", default=True)]
+    if analysis_service is not None:
+        pages.extend(
+            [
+                st.Page(_explorer, title="Explorer", icon=":material/table_view:"),
+                st.Page(_ticker_detail, title="Ticker-Detailansicht", icon=":material/insights:"),
+            ]
+        )
+    pages.append(st.Page(render_methodology_page, title="Methodik", icon=":material/schema:"))
     nav = st.navigation(pages)
     nav.run()
 

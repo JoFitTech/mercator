@@ -7,6 +7,9 @@ from dataclasses import dataclass, field
 from src.config.settings import Settings
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_target_resolver import MySqlResolutionResult, resolve_active_mysql_target
+from src.utils.logging_utils import get_logger
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,9 +38,44 @@ class DatabaseStatus:
     mysql: MySqlStatus
     mongo: MongoStatus
 
+    @property
+    def is_analysis_available(self) -> bool:
+        return self.mysql.is_connected
+
+    @property
+    def is_ingestion_available(self) -> bool:
+        # Ingestion nutzt Rohdatenspeicherung in Mongo als Pflichtkanal.
+        return self.mongo.is_connected
+
+    @property
+    def is_any_database_available(self) -> bool:
+        return self.mysql.is_connected or self.mongo.is_connected
+
 
 class DatabaseStatusService:
     """Ermittelt getrennte Statusinformationen für MySQL und MongoDB."""
+
+    def check_mysql_connection(self, mysql_settings: Settings, requested_target: str) -> bool:
+        """Prüft die Erreichbarkeit des gewünschten MySQL-Ziels."""
+
+        try:
+            resolve_active_mysql_target(settings=mysql_settings, requested_target=requested_target)
+            LOGGER.info("db_check mysql connected target=%s", requested_target)
+            return True
+        except Exception as exc:
+            LOGGER.error("db_check mysql failed target=%s error=%s", requested_target, exc)
+            return False
+
+    def check_mongo_connection(self, mongo_client: MongoClientWrapper) -> bool:
+        """Prüft die Erreichbarkeit von MongoDB."""
+
+        try:
+            mongo_client.get_database().command("ping")
+            LOGGER.info("db_check mongo connected")
+            return True
+        except Exception as exc:
+            LOGGER.error("db_check mongo failed error=%s", exc)
+            return False
 
     def evaluate(
         self,
@@ -57,6 +95,7 @@ class DatabaseStatusService:
         """
 
         mysql_resolution: MySqlResolutionResult | None = None
+        LOGGER.info("db_check start requested_mysql_target=%s", requested_target)
         try:
             mysql_resolution = resolve_active_mysql_target(
                 settings=mysql_settings,
@@ -69,23 +108,40 @@ class DatabaseStatusService:
                 used_fallback=mysql_resolution.used_fallback,
                 messages=mysql_resolution.messages,
             )
+            LOGGER.info(
+                "db_check mysql ok requested=%s active=%s fallback=%s",
+                mysql_status.requested_target,
+                mysql_status.active_target,
+                mysql_status.used_fallback,
+            )
         except Exception as exc:
             mysql_status = MySqlStatus(
                 requested_target=requested_target,
                 active_target=None,
                 is_connected=False,
                 used_fallback=False,
-                messages=[f"MySQL-Verbindung fehlgeschlagen: {exc}"],
+                messages=["MySQL-Verbindung fehlgeschlagen."],
             )
+            LOGGER.error("db_check mysql failed requested=%s error=%s", requested_target, exc)
 
         try:
             mongo_db = mongo_client.get_database()
             mongo_db.command("ping")
             mongo_status = MongoStatus(is_connected=True, message="MongoDB-Verbindung erfolgreich.")
+            LOGGER.info("db_check mongo ok")
         except Exception as exc:
             mongo_status = MongoStatus(
                 is_connected=False,
-                message=f"MongoDB aktuell nicht erreichbar: {exc}",
+                message="MongoDB aktuell nicht erreichbar.",
             )
+            LOGGER.error("db_check mongo failed error=%s", exc)
+
+        LOGGER.info(
+            "db_check result mysql=%s mongo=%s analysis=%s ingestion=%s",
+            mysql_status.is_connected,
+            mongo_status.is_connected,
+            mysql_status.is_connected,
+            mongo_status.is_connected,
+        )
 
         return DatabaseStatus(mysql=mysql_status, mongo=mongo_status), mysql_resolution

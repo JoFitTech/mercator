@@ -18,7 +18,7 @@ EMPTY_DATA_MESSAGE = (
 
 
 def render_dashboard_page(
-    service: DashboardService,
+    service: DashboardService | None,
     import_service: ImportService | None = None,
     settings: AppSettings | None = None,
     runtime_settings_service: AppSettingsService | None = None,
@@ -56,7 +56,7 @@ def render_dashboard_page(
                         allowed_acquisition_or_disposition=tuple(v.strip().upper() for v in allowed_aod.split(",") if v.strip()),
                         allowed_transaction_types=tuple(v.strip() for v in allowed_tt.split(",") if v.strip()),
                         profile_gate_filter_statuses=tuple(filter_statuses),
-                        profile_ttl_days=int(ttl_days),
+                        profile_ttl_days=int(ttl_days or 1),
                         lookup_mode=lookup_mode,
                     )
                 )
@@ -96,7 +96,7 @@ def render_dashboard_page(
 
             if st.button("Datenimport jetzt starten", type="primary", use_container_width=True):
                 if import_service is None:
-                    st.error("ImportService ist nicht aktiv. Bitte FMP_API_KEY in .env prüfen.")
+                    st.warning("MongoDB nicht erreichbar. Rohdatenspeicherung deaktiviert.")
                     error_detail = st.session_state.get("import_service_error")
                     if error_detail:
                         st.caption(f"Technischer Hinweis: {error_detail}")
@@ -111,6 +111,12 @@ def render_dashboard_page(
                         "Import erfolgreich abgeschlossen: %s Rohdatensätze, %s Profile geladen."
                         % (summary.fetched_feed_records, summary.fetched_profiles)
                     )
+
+    if service is None:
+        st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
+        if import_service is None:
+            st.info("Keine Datenverarbeitung verfügbar. Bitte Datenbankverbindungen prüfen.")
+        return
 
     payload = service.build_dashboard_payload()
 

@@ -39,8 +39,8 @@ class ImportService:
         gate_evaluator: GateEvaluator,
         raw_repo: InsiderTradeMongoRepository,
         company_mongo_repo: CompanyMongoRepository,
-        trade_mysql_repo: InsiderTradeMySqlRepository,
-        company_mysql_repo: CompanyMySqlRepository,
+        trade_mysql_repo: InsiderTradeMySqlRepository | None,
+        company_mysql_repo: CompanyMySqlRepository | None,
         profile_fetch_statuses: tuple[str, ...] = (GATE_PASS,),
     ) -> None:
         self.fmp_client = fmp_client
@@ -62,7 +62,8 @@ class ImportService:
         raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
         normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]
         effective_profile_fetch_statuses = {
-            status.upper() for status in (profile_fetch_statuses or self.profile_fetch_statuses)
+            status.upper()
+            for status in (profile_fetch_statuses if profile_fetch_statuses is not None else self.profile_fetch_statuses)
         }
 
         for item in normalized:
@@ -79,15 +80,17 @@ class ImportService:
                 continue
 
             company_key = trade.get("company_key")
-            symbol = trade.get("symbol")
-            company_cik = trade.get("company_cik")
+            symbol = str(trade.get("symbol") or "").strip().upper() or None
+            company_cik_raw = trade.get("company_cik")
             if not company_key:
                 trade["profile_status"] = "FAILED"
                 trade["profile_reason"] = "company_key fehlt"
                 continue
+            company_key_str = str(company_key)
+            company_cik_value: str = self._to_text(company_cik_raw).strip()
 
             cached = self.company_mongo_repo.get_recent_profile(
-                company_key=company_key,
+                company_key=company_key_str,
                 ttl_days=self.fmp_client.config.profile_ttl_days,
             )
             if cached:
@@ -97,8 +100,9 @@ class ImportService:
 
             try:
                 profile = None
-                if company_cik and self.fmp_client.config.lookup_mode == "cik_primary_symbol_fallback":
-                    profile = self.fmp_client.fetch_company_profile_by_cik(str(company_cik))
+                lookup_mode: str = self._to_text(self.fmp_client.config.lookup_mode)
+                if lookup_mode == "cik_primary_symbol_fallback" and len(company_cik_value) > 0:
+                    profile = self.fmp_client.fetch_company_profile_by_cik(company_cik_value)
                 if not profile and symbol:
                     profile = self.fmp_client.fetch_company_profile(symbol)
             except Exception:
@@ -114,24 +118,30 @@ class ImportService:
 
             company = self._normalize_company_profile(profile, trade=trade, fetched_at=fetched_at)
             self.company_mongo_repo.upsert_profile(company)
-            self.company_mysql_repo.upsert_company(company)
+            if self.company_mysql_repo is not None:
+                self.company_mysql_repo.upsert_company(company)
             trade["profile_status"] = "FETCHED"
             trade["profile_reason"] = "api_fetch"
             fetched_profiles += 1
 
-        self.trade_mysql_repo.upsert_trades(normalized)
+        if self.trade_mysql_repo is not None:
+            self.trade_mysql_repo.upsert_trades(normalized)
+            upserted_clean_records = len(normalized)
+        else:
+            upserted_clean_records = 0
+            LOGGER.warning("Import läuft im Degraded-Mode ohne MySQL-Upsert.")
 
         LOGGER.info(
             "Import abgeschlossen: feed=%s raw_inserted=%s clean_upserted=%s profiles=%s",
             len(raw_feed),
             inserted_raw,
-            len(normalized),
+            upserted_clean_records,
             fetched_profiles,
         )
         return ImportSummary(
             fetched_feed_records=len(raw_feed),
             inserted_raw_records=inserted_raw,
-            upserted_clean_records=len(normalized),
+            upserted_clean_records=upserted_clean_records,
             fetched_profiles=fetched_profiles,
         )
 
@@ -142,7 +152,7 @@ class ImportService:
         # Defensive Typ-Konvertierung für MySQL-Zielsäulen
         mkt_cap = profile.get("mktCap")
         try:
-            market_cap = int(float(mkt_cap)) if mkt_cap is not None else None
+            market_cap = int(float(str(mkt_cap))) if mkt_cap is not None else None
         except (ValueError, TypeError):
             market_cap = None
 
@@ -191,6 +201,12 @@ class ImportService:
             "profile_payload": profile,
         }
 
+    @staticmethod
+    def _to_text(value: Any) -> str:
+        """Konvertiert optionale/heterogene Werte defensiv in String."""
+
+        return "" if value is None else str(value)
+
     def _upsert_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> None:
         company_key = trade.get("company_key")
         if not company_key:
@@ -207,4 +223,5 @@ class ImportService:
             "profile_updated_at": None,
         }
         self.company_mongo_repo.upsert_profile(company_stub)
-        self.company_mysql_repo.upsert_company(company_stub)
+        if self.company_mysql_repo is not None:
+            self.company_mysql_repo.upsert_company(company_stub)

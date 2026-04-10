@@ -11,8 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from src.utils.logging_utils import get_logger
 
 load_dotenv()
+
+LOGGER = get_logger(__name__)
+_SETTINGS_DEBUG_LOGGED = False
 
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 LATEST_INSIDER_ENDPOINT = "/insider-trading/latest"
@@ -431,8 +435,10 @@ def load_settings() -> AppSettings:
         Vollständige AppSettings inklusive Datenbank- und API-Konfiguration.
     """
 
+    global _SETTINGS_DEBUG_LOGGED
+
     project_root = Path(__file__).resolve().parents[2]
-    return AppSettings(
+    app_settings = AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
         app_title=os.getenv("APP_TITLE", "Mercator"),
         dataset_path=os.getenv("DATASET_PATH", "data/raw/"),
@@ -463,6 +469,28 @@ def load_settings() -> AppSettings:
             ),
         ),
     )
+
+    if not _SETTINGS_DEBUG_LOGGED:
+        # DB-relevante Env-Werte einmalig beim Start protokollieren.
+        mysql_host_debug = _read_string_env("MYSQL_HOST", default=app_settings.mysql.local_mysql.host)
+        mysql_port_debug = _read_int_env("MYSQL_PORT", default=app_settings.mysql.local_mysql.port)
+        mongo_uri_debug = _read_string_env("MONGO_URI", default=app_settings.mongo.uri)
+        masked_mongo_uri = mongo_uri_debug
+        if "://" in mongo_uri_debug and "@" in mongo_uri_debug:
+            scheme, rest = mongo_uri_debug.split("://", 1)
+            credentials, host_part = rest.split("@", 1)
+            if ":" in credentials:
+                username = credentials.split(":", 1)[0]
+                masked_mongo_uri = f"{scheme}://{username}:***@{host_part}"
+        LOGGER.info(
+            "ENV geladen: MYSQL_HOST=%s MYSQL_PORT=%s MONGO_URI=%s",
+            mysql_host_debug,
+            mysql_port_debug,
+            masked_mongo_uri,
+        )
+        _SETTINGS_DEBUG_LOGGED = True
+
+    return app_settings
 
 
 def validate_fmp_api_key(api_key: str) -> None:
