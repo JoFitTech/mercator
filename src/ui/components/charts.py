@@ -1,7 +1,6 @@
 """Chart-Helfer für die Streamlit-Oberfläche."""
 
 from __future__ import annotations
-
 import pandas as pd
 import streamlit as st
 
