@@ -6,6 +6,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .venv/
+.venv-wsl/
+.venv-wsl-old*/
 venv/
 
 # Environment variables
@@ -32,4 +34,5 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+*.pid
 app.tar.gz
