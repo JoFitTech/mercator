@@ -125,11 +125,11 @@ class AnalysisService:
         if df.empty:
             return df
 
-        # Datentypen sicherstellen
-        df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce")
-        df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
-        df["price"] = pd.to_numeric(df["price"], errors="coerce")
-        df["market_cap"] = pd.to_numeric(df["market_cap"], errors="coerce")
+        # Datentypen sicherstellen (fehlende Felder defensiv ergänzen).
+        for numeric_col in ["trade_value_estimated", "qty", "price", "market_cap"]:
+            if numeric_col not in df.columns:
+                df[numeric_col] = pd.NA
+            df[numeric_col] = pd.to_numeric(df[numeric_col], errors="coerce")
 
         # Richtung mappen (A -> BUY, D -> SELL)
         if "direction" not in df.columns and "acquisition_or_disposition" in df.columns:
@@ -166,7 +166,8 @@ class AnalysisService:
                 )
             
             # Tagging der Rohdaten für Detail-Matching ( Progressive Disclosure)
-            trades = AccumulationService.tag_trades_with_groups(trades)
+            if "transaction_date" in trades.columns:
+                trades = AccumulationService.tag_trades_with_groups(trades)
 
         if accumulate and not trades.empty:
             display_trades = AccumulationService.accumulate_trades(trades)

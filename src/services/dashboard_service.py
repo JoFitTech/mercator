@@ -36,8 +36,8 @@ class DashboardService:
                 raw_records = 0
         
         # Gate-PASS berechnen
-        if not trades_df.empty:
-            gate_pass_records = trades_df[trades_df["gate_status"].str.upper() == "PASS"].shape[0]
+        if not trades_df.empty and "gate_status" in trades_df.columns:
+            gate_pass_records = trades_df[trades_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
 
         payload = {
             "raw_records": raw_records,
@@ -55,8 +55,21 @@ class DashboardService:
             return payload
 
         # Vorbereitungen für Charts
-        trades_df["event_date"] = pd.to_datetime(trades_df["transaction_date"], errors="coerce").dt.date
-        trades_df["direction"] = trades_df["acquisition_or_disposition"].apply(lambda x: "BUY" if x == "A" else ("SELL" if x == "D" else "UNKNOWN"))
+        date_col = "transaction_date" if "transaction_date" in trades_df.columns else "filing_date"
+        if date_col not in trades_df.columns:
+            trades_df["event_date"] = pd.NaT
+        else:
+            trades_df["event_date"] = pd.to_datetime(trades_df[date_col], errors="coerce").dt.date
+
+        if "acquisition_or_disposition" in trades_df.columns:
+            trades_df["direction"] = trades_df["acquisition_or_disposition"].apply(
+                lambda x: "BUY" if x == "A" else ("SELL" if x == "D" else "UNKNOWN")
+            )
+        else:
+            trades_df["direction"] = "UNKNOWN"
+
+        if "trade_value_estimated" not in trades_df.columns:
+            trades_df["trade_value_estimated"] = 0
 
         # 1. Transaktionstypen
         payload["transaction_type_distribution"] = (
@@ -77,7 +90,7 @@ class DashboardService:
         )
         
         # 4. Zeitverlauf Anzahl (Filing Date oder Transaction Date)
-        timeline_col = "filing_date" if "filing_date" in trades_df.columns else "transaction_date"
+        timeline_col = "filing_date" if "filing_date" in trades_df.columns else date_col
         payload["timeline_distribution"] = (
             trades_df.assign(e_date=pd.to_datetime(trades_df[timeline_col], errors="coerce").dt.date)
             .groupby("e_date", dropna=False)
