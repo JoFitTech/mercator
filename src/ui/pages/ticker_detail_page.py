@@ -94,7 +94,19 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
 
             # Wir nutzen st.dataframe mit NumberColumn für korrektes Sorting
             st.dataframe(
-                df_display[["Range", "reporting_name", "direction", "accumulated_qty", "accumulated_avg_price_weighted", "accumulated_trade_value_estimated", "Type"]],
+                df_display[[
+                    "Range",
+                    "reporting_name",
+                    "direction",
+                    "accumulated_qty",
+                    "accumulated_avg_price_weighted",
+                    "accumulated_trade_value_estimated",
+                    "score",
+                    "score_class",
+                    "gate_status",
+                    "validation_status",
+                    "Type",
+                ]],
                 column_config={
                     "Range": st.column_config.TextColumn("Zeitraum/Datum"),
                     "reporting_name": st.column_config.TextColumn("Insider"),
@@ -102,6 +114,10 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
                     "accumulated_qty": st.column_config.NumberColumn("Stückzahl", format="%d"),
                     "accumulated_avg_price_weighted": st.column_config.NumberColumn("Preis", format="$%.2f"),
                     "accumulated_trade_value_estimated": st.column_config.NumberColumn("Wert ($)", format="$%.2f"),
+                    "score": st.column_config.NumberColumn("Score", format="%.2f"),
+                    "score_class": st.column_config.TextColumn("Score Klasse"),
+                    "gate_status": st.column_config.TextColumn("Gate"),
+                    "validation_status": st.column_config.TextColumn("Validation"),
                     "Type": st.column_config.TextColumn("Typ")
                 },
                 use_container_width=True,

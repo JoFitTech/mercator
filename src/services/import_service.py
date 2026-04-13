@@ -61,15 +61,18 @@ class ImportService:
         fetched_at = datetime.now(timezone.utc)
         raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
         normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]
-        effective_profile_fetch_statuses = {
-            status.upper()
-            for status in (profile_fetch_statuses if profile_fetch_statuses is not None else self.profile_fetch_statuses)
-        }
+
+        # Fachregel: API-2-Abfrage nur für Pre-Gate PASS.
+        effective_profile_fetch_statuses = {GATE_PASS}
 
         for item in normalized:
             decision = self.gate_evaluator.evaluate(item)
             item["gate_status"] = decision.status
             item["gate_reason"] = decision.reason
+            score_value, score_class = self._compute_trade_score(item)
+            item["score"] = score_value
+            item["score_value"] = score_value
+            item["score_class"] = score_class
             self._upsert_company_stub(item, fetched_at)
 
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
@@ -124,6 +127,13 @@ class ImportService:
             trade["profile_reason"] = "api_fetch"
             fetched_profiles += 1
 
+        # Score nach Profilanreicherung neu berechnen (MarketCap/Validity kann sich ändern)
+        for item in normalized:
+            score_value, score_class = self._compute_trade_score(item)
+            item["score"] = score_value
+            item["score_value"] = score_value
+            item["score_class"] = score_class
+
         if self.trade_mysql_repo is not None:
             self.trade_mysql_repo.upsert_trades(normalized)
             upserted_clean_records = len(normalized)
@@ -148,7 +158,7 @@ class ImportService:
     @staticmethod
     def _normalize_company_profile(profile: dict, trade: dict[str, Any], fetched_at: datetime) -> dict:
         """Überführt FMP-Profilfelder in das Projektschema."""
-        
+
         # Defensive Typ-Konvertierung für MySQL-Zielsäulen
         mkt_cap = profile.get("mktCap")
         try:
@@ -198,6 +208,10 @@ class ImportService:
             "is_adr": _to_bool(profile.get("isAdr")),
             "is_fund": _to_bool(profile.get("isFund")),
             "profile_updated_at": fetched_at,
+            "source_system": "fmp",
+            "sync_version": 1,
+            "created_at": trade.get("first_seen_at") or fetched_at,
+            "updated_at": fetched_at,
             "profile_payload": profile,
         }
 
@@ -206,6 +220,29 @@ class ImportService:
         """Konvertiert optionale/heterogene Werte defensiv in String."""
 
         return "" if value is None else str(value)
+
+    @staticmethod
+    def _compute_trade_score(trade: dict[str, Any]) -> tuple[float | None, str | None]:
+        """Berechnet Score und Klasse für Persistenzfelder score/score_class."""
+        try:
+            trade_value = float(trade.get("trade_value_estimated") or 0)
+            acquisition = str(trade.get("acquisition_or_disposition") or "").upper()
+            validation_status = str(trade.get("validation_status") or "VALID").upper()
+            profile_status = str(trade.get("profile_status") or "NOT_REQUESTED").upper()
+            owner = str(trade.get("type_of_owner") or "").lower()
+            market_cap = float(trade.get("market_cap") or 0)
+
+            value_score = min(1.0, max(0.0, (trade_value - 100_000) / (10_000_000 - 100_000)))
+            direction_score = 1.0 if acquisition == "A" else (0.5 if acquisition == "D" else 0.0)
+            mcap_score = min(1.0, max(0.0, (market_cap - 100_000_000) / (500_000_000_000 - 100_000_000)))
+            validity_score = (0.5 if validation_status == "VALID" else 0.0) + (0.5 if profile_status == "FETCHED" else 0.0)
+            role_score = 1.0 if any(token in owner for token in ("officer", "director", "ceo", "cfo")) else 0.5
+
+            score = round((value_score * 0.35 + direction_score * 0.20 + mcap_score * 0.15 + validity_score * 0.15 + role_score * 0.15) * 100, 2)
+            score_class = "A" if score >= 80 else "B" if score >= 60 else "C" if score >= 40 else "D" if score >= 20 else "E"
+            return score, score_class
+        except (TypeError, ValueError):
+            return None, None
 
     def _upsert_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> None:
         company_key = trade.get("company_key")
@@ -221,6 +258,10 @@ class ImportService:
             "first_seen_at": trade.get("first_seen_at") or fetched_at,
             "last_seen_at": fetched_at,
             "profile_updated_at": None,
+            "source_system": "fmp",
+            "sync_version": 1,
+            "created_at": trade.get("first_seen_at") or fetched_at,
+            "updated_at": fetched_at,
         }
         self.company_mongo_repo.upsert_profile(company_stub)
         if self.company_mysql_repo is not None:

@@ -132,11 +132,20 @@ class MySqlClient:
                     ("is_adr", "BOOLEAN NULL"),
                     ("is_fund", "BOOLEAN NULL"),
                     ("profile_updated_at", "DATETIME NULL"),
+                    ("source_system", "VARCHAR(32) NOT NULL DEFAULT 'fmp'"),
+                    ("sync_version", "BIGINT NOT NULL DEFAULT 1"),
+                    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                    ("updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
                 ]
                 for col_name, col_def in cols_to_check_companies:
                     if not self._column_exists(cursor, "companies", col_name):
                         cursor.execute(f"ALTER TABLE companies ADD COLUMN {col_name} {col_def}")
                         actions.append(f"companies: Added `{col_name}`.")
+
+                cursor.execute("SHOW KEYS FROM companies WHERE Key_name = 'uq_companies_current_symbol'")
+                if cursor.fetchone() is None:
+                    cursor.execute("ALTER TABLE companies ADD UNIQUE INDEX uq_companies_current_symbol (current_symbol)")
+                    actions.append("companies: Added Unique Index `uq_companies_current_symbol`.")
 
                 # --- insider_trades ---
                 cols_to_check_trades = [
@@ -161,6 +170,9 @@ class MySqlClient:
                     ("gate_status", "VARCHAR(32) NOT NULL DEFAULT 'PENDING'"),
                     ("gate_reason", "VARCHAR(255) NULL"),
                     ("trade_value_estimated", "DECIMAL(20,4) NULL"),
+                    ("validation_status", "VARCHAR(32) NOT NULL DEFAULT 'VALID'"),
+                    ("score", "DECIMAL(6,2) NULL"),
+                    ("score_class", "CHAR(1) NULL"),
                     ("source_url", "VARCHAR(512) NULL"),
                     ("dedupe_key", "CHAR(64) NOT NULL"),
                 ]
@@ -168,6 +180,47 @@ class MySqlClient:
                     if not self._column_exists(cursor, "insider_trades", col_name):
                         cursor.execute(f"ALTER TABLE insider_trades ADD COLUMN {col_name} {col_def}")
                         actions.append(f"insider_trades: Added `{col_name}`.")
+
+                # --- app_filter_settings ---
+                filter_cols = [
+                    ("setting_scope", "VARCHAR(64) NOT NULL"),
+                    ("setting_key", "VARCHAR(128) NOT NULL"),
+                    ("setting_value_json", "JSON NOT NULL"),
+                    ("source_system", "VARCHAR(32) NOT NULL DEFAULT 'app'"),
+                    ("sync_version", "BIGINT NOT NULL DEFAULT 1"),
+                    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                    ("updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                ]
+                for col_name, col_def in filter_cols:
+                    if not self._column_exists(cursor, "app_filter_settings", col_name):
+                        cursor.execute(f"ALTER TABLE app_filter_settings ADD COLUMN {col_name} {col_def}")
+                        actions.append(f"app_filter_settings: Added `{col_name}`.")
+                cursor.execute("SHOW KEYS FROM app_filter_settings WHERE Key_name = 'uq_app_filter_settings_scope_key'")
+                if cursor.fetchone() is None:
+                    cursor.execute(
+                        "ALTER TABLE app_filter_settings ADD UNIQUE INDEX uq_app_filter_settings_scope_key (setting_scope, setting_key)"
+                    )
+                    actions.append("app_filter_settings: Added Unique Index `uq_app_filter_settings_scope_key`.")
+
+                # --- app_runtime_preferences ---
+                preference_cols = [
+                    ("preference_key", "VARCHAR(128) NOT NULL"),
+                    ("preference_value_json", "JSON NOT NULL"),
+                    ("source_system", "VARCHAR(32) NOT NULL DEFAULT 'app'"),
+                    ("sync_version", "BIGINT NOT NULL DEFAULT 1"),
+                    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                    ("updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                ]
+                for col_name, col_def in preference_cols:
+                    if not self._column_exists(cursor, "app_runtime_preferences", col_name):
+                        cursor.execute(f"ALTER TABLE app_runtime_preferences ADD COLUMN {col_name} {col_def}")
+                        actions.append(f"app_runtime_preferences: Added `{col_name}`.")
+                cursor.execute("SHOW KEYS FROM app_runtime_preferences WHERE Key_name = 'uq_app_runtime_preferences_key'")
+                if cursor.fetchone() is None:
+                    cursor.execute(
+                        "ALTER TABLE app_runtime_preferences ADD UNIQUE INDEX uq_app_runtime_preferences_key (preference_key)"
+                    )
+                    actions.append("app_runtime_preferences: Added Unique Index `uq_app_runtime_preferences_key`.")
 
                 # 3. Daten-Migration (Keys befüllen)
                 cursor.execute("SHOW COLUMNS FROM companies LIKE 'symbol'")

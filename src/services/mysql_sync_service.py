@@ -1,12 +1,19 @@
 """Service-Schicht für kontrollierte MySQL-Synchronisation zwischen zwei Zielen."""
 
 from __future__ import annotations
+
+import pandas as pd
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 from src.db.mysql_client import MySqlClient
-from src.db.mysql_repository import CompanyRepository, InsiderTradeRepository
+from src.db.mysql_repository import (
+    CompanyRepository,
+    InsiderTradeRepository,
+    AppFilterSettingsRepository,
+    AppRuntimePreferencesRepository,
+)
 
 
 @dataclass(frozen=True)
@@ -32,10 +39,26 @@ class SyncSummary:
 
 
 class MySqlSyncService:
-    """Koordiniert den expliziten Upsert-Sync zwischen zwei MySQL-Zielen."""
+    """Koordiniert den Upsert-Sync zwischen zwei MySQL-Zielen mit last_write_wins-Semantik."""
 
     def __init__(self, batch_size: int = 500) -> None:
         self._batch_size = batch_size
+
+    def _last_write_wins(self, src_row: dict[str, Any], tgt_row: dict[str, Any] | None) -> bool:
+        """Bestimmt, ob die Quell-Zeile aktueller ist als das Ziel über updated_at."""
+        if tgt_row is None:
+            return True
+        src_updated = src_row.get("updated_at")
+        tgt_updated = tgt_row.get("updated_at")
+        if src_updated is None or tgt_updated is None:
+            return True
+        # Quell-updated_at >= Ziel-updated_at bedeutet neuere/gleiche Version
+        try:
+            src_dt = pd.Timestamp(str(src_updated) if src_updated else datetime.min)  # type: ignore
+            tgt_dt = pd.Timestamp(str(tgt_updated) if tgt_updated else datetime.min)  # type: ignore
+            return src_dt >= tgt_dt
+        except (TypeError, ValueError):
+            return True
 
     def sync_companies(self, source_client: MySqlClient, target_client: MySqlClient) -> SyncResult:
         """Synchronisiert Unternehmen von Quelle zu Ziel per Upsert.
@@ -63,7 +86,7 @@ class MySqlSyncService:
 
             for row in batch:
                 read_count += 1
-                symbol = str(row.get("symbol") or "").strip()
+                symbol = str(row.get("current_symbol") or row.get("symbol") or "").strip()
                 if not symbol:
                     skipped_count += 1
                     continue
@@ -123,18 +146,93 @@ class MySqlSyncService:
             skipped_count=skipped_count,
         )
 
+    def sync_app_filter_settings(self, source_client: MySqlClient, target_client: MySqlClient) -> SyncResult:
+        """Synchronisiert App-Filtereinstellungen mit last_write_wins über (setting_scope, setting_key)."""
+
+        source_repo = AppFilterSettingsRepository(source_client)
+        target_repo = AppFilterSettingsRepository(target_client)
+
+        read_count = 0
+        written_count = 0
+        skipped_count = 0
+        offset = 0
+
+        while True:
+            batch = source_repo.list_all(limit=self._batch_size, offset=offset)
+            if not batch:
+                break
+
+            for row in batch:
+                read_count += 1
+                scope = str(row.get("setting_scope") or "").strip()
+                key = str(row.get("setting_key") or "").strip()
+                if not scope or not key:
+                    skipped_count += 1
+                    continue
+
+                target_row = target_repo.get_by_business_key(scope, key)
+                if self._last_write_wins(row, target_row):
+                    target_repo.upsert(row)
+                    written_count += 1
+
+            offset += len(batch)
+
+        return SyncResult(
+            entity="app_filter_settings",
+            read_count=read_count,
+            written_count=written_count,
+            skipped_count=skipped_count,
+        )
+
+    def sync_app_runtime_preferences(self, source_client: MySqlClient, target_client: MySqlClient) -> SyncResult:
+        """Synchronisiert App-Laufzeiteinstellungen mit last_write_wins über preference_key."""
+
+        source_repo = AppRuntimePreferencesRepository(source_client)
+        target_repo = AppRuntimePreferencesRepository(target_client)
+
+        read_count = 0
+        written_count = 0
+        skipped_count = 0
+        offset = 0
+
+        while True:
+            batch = source_repo.list_all(limit=self._batch_size, offset=offset)
+            if not batch:
+                break
+
+            for row in batch:
+                read_count += 1
+                pref_key = str(row.get("preference_key") or "").strip()
+                if not pref_key:
+                    skipped_count += 1
+                    continue
+
+                target_row = target_repo.get_by_business_key(pref_key)
+                if self._last_write_wins(row, target_row):
+                    target_repo.upsert(row)
+                    written_count += 1
+
+            offset += len(batch)
+
+        return SyncResult(
+            entity="app_runtime_preferences",
+            read_count=read_count,
+            written_count=written_count,
+            skipped_count=skipped_count,
+        )
+
     def sync_all(
         self,
         local_client: MySqlClient,
         uni_client: MySqlClient,
-        direction: Literal["local_to_uni", "uni_to_local", "auto"] = "local_to_uni",
+        direction: str = "local_to_uni",
     ) -> SyncSummary:
         """Führt den kontrollierten Sync in die gewünschte Richtung aus.
 
         Args:
             local_client: Lokaler MySQL-Client.
             uni_client: Uni-MySQL-Client.
-            direction: Sync-Richtung oder 'auto' für Heuristik.
+            direction: Sync-Richtung (local_to_uni, uni_to_local, auto).
 
         Returns:
             SyncSummary mit Details zum Lauf.
@@ -153,6 +251,12 @@ class MySqlSyncService:
 
         company_result = self.sync_companies(actual_source, actual_target)
         insider_trade_result = self.sync_insider_trades(actual_source, actual_target)
+        try:
+            _app_filter_settings_result = self.sync_app_filter_settings(actual_source, actual_target)
+            _app_runtime_preferences_result = self.sync_app_runtime_preferences(actual_source, actual_target)
+        except Exception:
+            # Settings-Sync ist ergänzend und darf den Kernsync nicht blockieren.
+            pass
 
         return SyncSummary(
             direction=effective_direction,
@@ -177,8 +281,10 @@ class MySqlSyncService:
 
             # Wir nehmen das Maximum aller Tabellen je Ziel
             def _to_dt(val: Any) -> datetime:
-                if not val: return datetime.min
-                if isinstance(val, datetime): return val
+                if not val:
+                    return datetime.min
+                if isinstance(val, datetime):
+                    return val
                 return datetime.min
 
             l_max = max(_to_dt(l_comp), _to_dt(l_trade))
@@ -189,3 +295,4 @@ class MySqlSyncService:
             return "uni_to_local"
         except Exception:
             return "local_to_uni"  # Fallback
+

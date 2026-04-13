@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
@@ -45,12 +47,12 @@ class CompanyRepository:
                 company_key, company_cik, current_symbol, company_name, profile_status, profile_reason, first_seen_at, last_seen_at, market_cap, price, currency, isin, cusip,
                 exchange, exchange_full_name, industry, sector, country, website,
                 description, ceo, full_time_employees, ipo_date, is_etf,
-                is_actively_trading, is_adr, is_fund, profile_updated_at
+                is_actively_trading, is_adr, is_fund, profile_updated_at, source_system, sync_version, created_at, updated_at
             ) VALUES (
                 %(company_key)s, %(company_cik)s, %(current_symbol)s, %(company_name)s, %(profile_status)s, %(profile_reason)s, %(first_seen_at)s, %(last_seen_at)s, %(market_cap)s, %(price)s, %(currency)s, %(isin)s, %(cusip)s,
                 %(exchange)s, %(exchange_full_name)s, %(industry)s, %(sector)s, %(country)s, %(website)s,
                 %(description)s, %(ceo)s, %(full_time_employees)s, %(ipo_date)s, %(is_etf)s,
-                %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s
+                %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s, %(source_system)s, %(sync_version)s, %(created_at)s, %(updated_at)s
             )
             ON DUPLICATE KEY UPDATE
                 company_cik = COALESCE(VALUES(company_cik), company_cik),
@@ -79,8 +81,25 @@ class CompanyRepository:
                 is_actively_trading = VALUES(is_actively_trading),
                 is_adr = VALUES(is_adr),
                 is_fund = VALUES(is_fund),
-                profile_updated_at = VALUES(profile_updated_at)
+                profile_updated_at = VALUES(profile_updated_at),
+                source_system = VALUES(source_system),
+                sync_version = VALUES(sync_version),
+                created_at = COALESCE(created_at, VALUES(created_at)),
+                updated_at = VALUES(updated_at)
         """
+        inferred_created_at = (
+            company.get("created_at")
+            or company.get("first_seen_at")
+            or company.get("profile_updated_at")
+            or company.get("last_seen_at")
+        )
+        inferred_updated_at = (
+            company.get("updated_at")
+            or company.get("last_seen_at")
+            or company.get("profile_updated_at")
+            or company.get("first_seen_at")
+            or inferred_created_at
+        )
         params = {
             "company_key": company.get("company_key"),
             "company_cik": company.get("company_cik"),
@@ -110,6 +129,10 @@ class CompanyRepository:
             "is_adr": company.get("is_adr"),
             "is_fund": company.get("is_fund"),
             "profile_updated_at": company.get("profile_updated_at"),
+            "source_system": company.get("source_system", "fmp"),
+            "sync_version": int(company.get("sync_version") or 1),
+            "created_at": inferred_created_at,
+            "updated_at": inferred_updated_at,
         }
 
         with self._client.connection() as conn:
@@ -127,10 +150,26 @@ class CompanyRepository:
             Gefundenes Profil oder ``None``.
         """
 
-        query = "SELECT * FROM companies WHERE company_key = %s"
+        normalized = str(symbol or "").strip().upper()
+        query = "SELECT * FROM companies WHERE current_symbol = %s OR company_key = %s LIMIT 1"
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (symbol,))
+                cursor.execute(query, (normalized, normalized))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return self._rows_to_dicts(cursor, [row])[0]
+
+    def get_company_by_current_symbol(self, symbol: str) -> dict[str, Any] | None:
+        """Lädt ein Unternehmensprofil explizit über den fachlichen Business-Key `current_symbol`."""
+
+        normalized = str(symbol or "").strip().upper()
+        if not normalized:
+            return None
+        query = "SELECT * FROM companies WHERE current_symbol = %s LIMIT 1"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (normalized,))
                 row = cursor.fetchone()
                 if row is None:
                     return None
@@ -147,7 +186,7 @@ class CompanyRepository:
             Liste von Unternehmens-Dictionaries.
         """
 
-        query = "SELECT * FROM companies ORDER BY company_key ASC LIMIT %s OFFSET %s"
+        query = "SELECT * FROM companies ORDER BY COALESCE(current_symbol, company_key) ASC LIMIT %s OFFSET %s"
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (limit, offset))
@@ -169,7 +208,7 @@ class CompanyRepository:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT MAX(updated_at) FROM companies")
                 result = cursor.fetchone()
-                return result[0] if result and result[0] else None
+                return str(result[0]) if result and result[0] is not None else None
 
 
 class InsiderTradeRepository:
@@ -208,12 +247,14 @@ class InsiderTradeRepository:
                 company_key, symbol_at_trade, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, gate_status, gate_reason, profile_status, profile_reason, source_url, dedupe_key, fetched_at
+                trade_value_estimated, validation_status, gate_status, gate_reason, score, score_class,
+                profile_status, profile_reason, source_url, dedupe_key, fetched_at
             ) VALUES (
                 %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(trade_value_estimated)s, %(validation_status)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
+                %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
                 company_key = VALUES(company_key),
@@ -231,8 +272,11 @@ class InsiderTradeRepository:
                 qty = VALUES(qty),
                 price = VALUES(price),
                 trade_value_estimated = VALUES(trade_value_estimated),
+                validation_status = VALUES(validation_status),
                 gate_status = VALUES(gate_status),
                 gate_reason = VALUES(gate_reason),
+                score = VALUES(score),
+                score_class = VALUES(score_class),
                 profile_status = VALUES(profile_status),
                 profile_reason = VALUES(profile_reason),
                 source_url = VALUES(source_url),
@@ -242,9 +286,11 @@ class InsiderTradeRepository:
             "company_key", "symbol_at_trade", "filing_date", "transaction_date", "reporting_cik", "company_cik",
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
-            "trade_value_estimated", "gate_status", "gate_reason", "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
+            "trade_value_estimated", "validation_status", "gate_status", "gate_reason", "score", "score_class",
+            "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
         ]
         params = {k: trade.get(k) for k in fields}
+        params["score"] = trade.get("score", trade.get("score_value"))
 
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
@@ -269,12 +315,14 @@ class InsiderTradeRepository:
                 company_key, symbol_at_trade, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, gate_status, gate_reason, profile_status, profile_reason, source_url, dedupe_key, fetched_at
+                trade_value_estimated, validation_status, gate_status, gate_reason, score, score_class,
+                profile_status, profile_reason, source_url, dedupe_key, fetched_at
             ) VALUES (
                 %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(gate_status)s, %(gate_reason)s, %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(trade_value_estimated)s, %(validation_status)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
+                %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
                 company_key = VALUES(company_key),
@@ -293,8 +341,11 @@ class InsiderTradeRepository:
                 qty = VALUES(qty),
                 price = VALUES(price),
                 trade_value_estimated = VALUES(trade_value_estimated),
+                validation_status = VALUES(validation_status),
                 gate_status = VALUES(gate_status),
                 gate_reason = VALUES(gate_reason),
+                score = VALUES(score),
+                score_class = VALUES(score_class),
                 profile_status = VALUES(profile_status),
                 profile_reason = VALUES(profile_reason),
                 source_url = VALUES(source_url),
@@ -304,10 +355,14 @@ class InsiderTradeRepository:
             "company_key", "symbol_at_trade", "filing_date", "transaction_date", "reporting_cik", "company_cik",
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
-            "trade_value_estimated", "gate_status", "gate_reason", "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
+            "trade_value_estimated", "validation_status", "gate_status", "gate_reason", "score", "score_class",
+            "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
         ]
         batch_params = [
-            {k: t.get(k) for k in fields}
+            {
+                **{k: t.get(k) for k in fields},
+                "score": t.get("score", t.get("score_value")),
+            }
             for t in trades
         ]
 
@@ -416,6 +471,9 @@ class InsiderTradeRepository:
         if filters.get("gate_status"):
             clauses.append("t.gate_status = %s")
             params.append(filters["gate_status"])
+        if filters.get("validation_status"):
+            clauses.append("t.validation_status = %s")
+            params.append(filters["validation_status"])
         if filters.get("sector"):
             clauses.append("c.sector = %s")
             params.append(filters["sector"])
@@ -425,7 +483,24 @@ class InsiderTradeRepository:
 
         where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         query = f"""
-            SELECT t.*, c.company_name, c.sector, c.country
+            SELECT
+                t.*,
+                t.score AS score_value,
+                c.company_name,
+                c.sector,
+                c.country,
+                c.market_cap,
+                c.currency,
+                c.exchange,
+                c.exchange_full_name,
+                c.industry,
+                c.is_etf,
+                c.is_actively_trading,
+                c.is_adr,
+                c.is_fund,
+                c.current_symbol,
+                c.source_system AS company_source_system,
+                c.sync_version AS company_sync_version
             FROM insider_trades t
             LEFT JOIN companies c ON c.company_key = t.company_key
             {where_sql}
@@ -452,7 +527,7 @@ class InsiderTradeRepository:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT MAX(updated_at) FROM insider_trades")
                 result = cursor.fetchone()
-                return result[0] if result and result[0] else None
+                return str(result[0]) if result and result[0] is not None else None
 
 
 class CompanyMySqlRepository(CompanyRepository):
@@ -467,7 +542,12 @@ class CompanyMySqlRepository(CompanyRepository):
     def fetch_all_symbols(self) -> list[str]:
         """Liefert alle verfügbaren Symbole für bestehende Aufrufe."""
 
-        return [row["company_key"] for row in self.list_companies(limit=100000)]
+        symbols: list[str] = []
+        for row in self.list_companies(limit=100000):
+            symbol = row.get("current_symbol") or row.get("company_key")
+            if symbol:
+                symbols.append(str(symbol))
+        return symbols
 
 
 class InsiderTradeMySqlRepository(InsiderTradeRepository):
@@ -481,3 +561,187 @@ class InsiderTradeMySqlRepository(InsiderTradeRepository):
             with conn.cursor() as cursor:
                 cursor.execute(query)
                 return [row[0] for row in cursor.fetchall()]
+
+
+class AppFilterSettingsRepository:
+    """Persistiert UI-Filterzustände mit fachlichem Business-Key (scope + key)."""
+
+    def __init__(self, client: MySqlClient) -> None:
+        self._client = client
+
+    @staticmethod
+    def _encode_json(value: Any) -> str:
+        """Serialisiert Werte stabil nach JSON für die JSON-Spalte."""
+
+        return json.dumps(value, ensure_ascii=False, default=str)
+
+    @staticmethod
+    def _decode_json(value: Any) -> Any:
+        """Deserialisiert JSON-Werte defensiv aus MySQL/Pandas/Python-Objekten."""
+
+        if value is None:
+            return None
+        if isinstance(value, (dict, list, int, float, bool)):
+            return value
+        return json.loads(str(value))
+
+    def load(self, setting_scope: str, setting_key: str) -> Any:
+        """Lädt genau einen gespeicherten Filterzustand."""
+
+        query = """
+            SELECT setting_value_json
+            FROM app_filter_settings
+            WHERE setting_scope = %s AND setting_key = %s
+            LIMIT 1
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (setting_scope, setting_key))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return self._decode_json(row[0])
+
+    def list_all(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
+        """Liefert persistierte Filtereinstellungen für Sync und Diagnose."""
+
+        query = "SELECT * FROM app_filter_settings ORDER BY setting_scope, setting_key LIMIT %s OFFSET %s"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (limit, offset))
+                rows = cursor.fetchall()
+                columns = [description[0] for description in cursor.description] if cursor.description else []
+                return [dict(zip(columns, row, strict=False)) for row in rows]
+
+    def get_by_business_key(self, setting_scope: str, setting_key: str) -> dict[str, Any] | None:
+        """Lädt eine Filtereinstellung inklusive Metadaten über den Business-Key."""
+
+        query = "SELECT * FROM app_filter_settings WHERE setting_scope = %s AND setting_key = %s LIMIT 1"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (setting_scope, setting_key))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                columns = [description[0] for description in cursor.description] if cursor.description else []
+                return dict(zip(columns, row, strict=False))
+
+    def upsert(self, payload: dict[str, Any]) -> None:
+        """Speichert einen Filterzustand per Update-statt-Insert-Semantik via Upsert."""
+
+        created_at = payload.get("created_at") or payload.get("updated_at") or datetime.now(timezone.utc)
+        updated_at = payload.get("updated_at") or datetime.now(timezone.utc)
+        sql = """
+            INSERT INTO app_filter_settings (
+                setting_scope, setting_key, setting_value_json, source_system, sync_version, created_at, updated_at
+            ) VALUES (
+                %(setting_scope)s, %(setting_key)s, %(setting_value_json)s, %(source_system)s, %(sync_version)s, %(created_at)s, %(updated_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                setting_value_json = VALUES(setting_value_json),
+                source_system = VALUES(source_system),
+                sync_version = VALUES(sync_version),
+                created_at = COALESCE(created_at, VALUES(created_at)),
+                updated_at = VALUES(updated_at)
+        """
+        params = {
+            "setting_scope": payload.get("setting_scope"),
+            "setting_key": payload.get("setting_key"),
+            "setting_value_json": self._encode_json(payload.get("setting_value_json")),
+            "source_system": payload.get("source_system", "app"),
+            "sync_version": int(payload.get("sync_version") or 1),
+            "created_at": created_at,
+            "updated_at": updated_at,
+        }
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+            conn.commit()
+
+
+class AppRuntimePreferencesRepository:
+    """Persistiert allgemeine Laufzeitpräferenzen mit Business-Key `preference_key`."""
+
+    def __init__(self, client: MySqlClient) -> None:
+        self._client = client
+
+    @staticmethod
+    def _encode_json(value: Any) -> str:
+        return json.dumps(value, ensure_ascii=False, default=str)
+
+    @staticmethod
+    def _decode_json(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (dict, list, int, float, bool)):
+            return value
+        return json.loads(str(value))
+
+    def load(self, preference_key: str) -> Any:
+        """Lädt genau eine gespeicherte Laufzeitpräferenz."""
+
+        query = "SELECT preference_value_json FROM app_runtime_preferences WHERE preference_key = %s LIMIT 1"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (preference_key,))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return self._decode_json(row[0])
+
+    def list_all(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
+        """Liefert alle Preferences für Sync und Diagnose."""
+
+        query = "SELECT * FROM app_runtime_preferences ORDER BY preference_key LIMIT %s OFFSET %s"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (limit, offset))
+                rows = cursor.fetchall()
+                columns = [description[0] for description in cursor.description] if cursor.description else []
+                return [dict(zip(columns, row, strict=False)) for row in rows]
+
+    def get_by_business_key(self, preference_key: str) -> dict[str, Any] | None:
+        """Lädt eine Preference inklusive Metadaten über den Business-Key."""
+
+        query = "SELECT * FROM app_runtime_preferences WHERE preference_key = %s LIMIT 1"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (preference_key,))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                columns = [description[0] for description in cursor.description] if cursor.description else []
+                return dict(zip(columns, row, strict=False))
+
+    def upsert(self, payload: dict[str, Any]) -> None:
+        """Speichert eine Preference per Update-statt-Insert-Semantik via Upsert."""
+
+        created_at = payload.get("created_at") or payload.get("updated_at") or datetime.now(timezone.utc)
+        updated_at = payload.get("updated_at") or datetime.now(timezone.utc)
+        sql = """
+            INSERT INTO app_runtime_preferences (
+                preference_key, preference_value_json, source_system, sync_version, created_at, updated_at
+            ) VALUES (
+                %(preference_key)s, %(preference_value_json)s, %(source_system)s, %(sync_version)s, %(created_at)s, %(updated_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                preference_value_json = VALUES(preference_value_json),
+                source_system = VALUES(source_system),
+                sync_version = VALUES(sync_version),
+                created_at = COALESCE(created_at, VALUES(created_at)),
+                updated_at = VALUES(updated_at)
+        """
+        params = {
+            "preference_key": payload.get("preference_key"),
+            "preference_value_json": self._encode_json(payload.get("preference_value_json")),
+            "source_system": payload.get("source_system", "app"),
+            "sync_version": int(payload.get("sync_version") or 1),
+            "created_at": created_at,
+            "updated_at": updated_at,
+        }
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+            conn.commit()
+
+

@@ -19,13 +19,13 @@ class GateDecision:
 
 @dataclass(slots=True)
 class GateRules:
-    """Konfigurierbare Regeln fuer die lokale Gate-Entscheidung."""
+    """Fachlich fixierte Regeln für die finale lokale Gate-Entscheidung."""
 
-    min_trade_value: int = 10_000
-    require_purchase_event: bool = True
-    require_common_stock: bool = True
-    allowed_acquisition_or_disposition: tuple[str, ...] = ("A",)
-    allowed_transaction_types: tuple[str, ...] = ()
+    min_trade_value: int = 100_000
+    allowed_acquisition_or_disposition: tuple[str, ...] = ("A", "D")
+    excluded_transaction_types: tuple[str, ...] = ("A-Award", "M-Exempt")
+    required_form_type: str = "4"
+    required_security_name: str = "Common Stock"
 
 
 class GateEvaluator:
@@ -45,39 +45,49 @@ class GateEvaluator:
         """
 
         symbol = str(trade.get("symbol", "")).strip().upper()
+        filing_date = trade.get("filing_date")
+        transaction_date = trade.get("transaction_date")
         qty = trade.get("qty") or 0
         price = trade.get("price") or 0
-        transaction_type = str(trade.get("transaction_type", "")).lower()
-        security_name = str(trade.get("security_name", "")).lower()
+        trade_value_raw = trade.get("trade_value_estimated")
+        trade_value: float | None = None
+        try:
+            if trade_value_raw is not None:
+                trade_value = float(trade_value_raw)  # type: ignore
+        except (TypeError, ValueError):
+            trade_value = None
+        validation_status = str(trade.get("validation_status") or "VALID").upper()
+        transaction_type = str(trade.get("transaction_type", "")).strip()
+        security_name = str(trade.get("security_name", "")).strip()
         acquisition = str(trade.get("acquisition_or_disposition", "")).upper()
+        form_type = str(trade.get("form_type", "")).strip()
 
         if not symbol:
             return GateDecision(status=GATE_FAIL, reason="Fehlendes Symbol")
+        if filing_date is None or transaction_date is None:
+            return GateDecision(status=GATE_FAIL, reason="Datum nicht parsebar")
         if qty <= 0:
             return GateDecision(status=GATE_FAIL, reason="Ungültige Stückzahl")
+        if validation_status == "PRICE_INVALID":
+            return GateDecision(status=GATE_FAIL, reason="Preis fachlich ungültig")
         if price <= 0:
-            return GateDecision(status=GATE_PENDING, reason="Preis fehlt oder ist ungültig")
+            return GateDecision(status=GATE_FAIL, reason="Preis fehlt oder ist ungültig")
 
-        # Offene Fachfragen sind zentral in ``docs/todos_offene_fragen.md`` dokumentiert.
-        trade_value = qty * price
-        if trade_value < self.rules.min_trade_value:
+        allowed = {value.upper() for value in self.rules.allowed_acquisition_or_disposition}
+        if acquisition not in allowed:
+            return GateDecision(status=GATE_FAIL, reason="Acquisition/Disposition nicht erlaubt")
+
+        if form_type != self.rules.required_form_type:
+            return GateDecision(status=GATE_FAIL, reason="Form Type nicht zulässig")
+
+        if security_name.casefold() != self.rules.required_security_name.casefold():
+            return GateDecision(status=GATE_FAIL, reason="Security Name nicht zulässig")
+
+        excluded_transaction_types = {value.casefold() for value in self.rules.excluded_transaction_types}
+        if transaction_type.casefold() in excluded_transaction_types:
+            return GateDecision(status=GATE_FAIL, reason="Transaktionstyp ausgeschlossen")
+
+        if trade_value is None or trade_value < self.rules.min_trade_value:
             return GateDecision(status=GATE_FAIL, reason="Transaktionswert unter Mindestschwelle")
-
-        if self.rules.allowed_acquisition_or_disposition:
-            allowed = {value.upper() for value in self.rules.allowed_acquisition_or_disposition}
-            if acquisition and acquisition not in allowed:
-                return GateDecision(status=GATE_FAIL, reason="Acquisition/Disposition nicht erlaubt")
-
-        if self.rules.allowed_transaction_types:
-            allowed_tx = {value.lower() for value in self.rules.allowed_transaction_types}
-            if transaction_type.lower() not in allowed_tx:
-                return GateDecision(status=GATE_FAIL, reason="Transaktionstyp nicht erlaubt")
-
-        is_purchase = acquisition == "A" or "purchase" in transaction_type or "buy" in transaction_type
-        if self.rules.require_purchase_event and not is_purchase:
-            return GateDecision(status=GATE_FAIL, reason="Kein Kaufereignis")
-
-        if self.rules.require_common_stock and security_name and "common stock" not in security_name:
-            return GateDecision(status=GATE_FAIL, reason="Nicht als Common Stock erkennbar")
 
         return GateDecision(status=GATE_PASS, reason="Basisregeln erfüllt")

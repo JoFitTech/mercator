@@ -31,9 +31,12 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         is_adr BOOLEAN NULL,
         is_fund BOOLEAN NULL,
         profile_updated_at DATETIME NULL,
+        source_system VARCHAR(32) NOT NULL DEFAULT 'fmp',
+        sync_version BIGINT NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (company_key),
+        UNIQUE KEY uq_companies_current_symbol (current_symbol),
         INDEX idx_companies_current_symbol (current_symbol),
         INDEX idx_companies_sector (sector),
         INDEX idx_companies_country (country),
@@ -59,8 +62,11 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         qty BIGINT NULL,
         price DECIMAL(18,4) NULL,
         trade_value_estimated DECIMAL(20,4) NULL,
+        validation_status VARCHAR(32) NOT NULL DEFAULT 'VALID',
         gate_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
         gate_reason VARCHAR(255) NULL,
+        score DECIMAL(6,2) NULL,
+        score_class CHAR(1) NULL,
         profile_status VARCHAR(32) NOT NULL DEFAULT 'NOT_REQUESTED',
         profile_reason VARCHAR(255) NULL,
         source_url VARCHAR(512) NULL,
@@ -77,6 +83,33 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         INDEX idx_insider_trades_gate_status (gate_status),
         CONSTRAINT fk_insider_trades_company_key
             FOREIGN KEY (company_key) REFERENCES companies(company_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_filter_settings (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        setting_scope VARCHAR(64) NOT NULL,
+        setting_key VARCHAR(128) NOT NULL,
+        setting_value_json JSON NOT NULL,
+        source_system VARCHAR(32) NOT NULL DEFAULT 'app',
+        sync_version BIGINT NOT NULL DEFAULT 1,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_app_filter_settings_scope_key (setting_scope, setting_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_runtime_preferences (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        preference_key VARCHAR(128) NOT NULL,
+        preference_value_json JSON NOT NULL,
+        source_system VARCHAR(32) NOT NULL DEFAULT 'app',
+        sync_version BIGINT NOT NULL DEFAULT 1,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_app_runtime_preferences_key (preference_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
 ]

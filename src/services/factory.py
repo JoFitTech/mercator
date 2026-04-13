@@ -5,12 +5,16 @@ from src.config.settings import AppSettings
 from src.data_sources.fmp_client import FmpClient
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mongo_repository import (
-    AppSettingsMongoRepository,
     CompanyMongoRepository,
     InsiderTradeMongoRepository,
 )
 from src.db.mysql_client import MySqlClient
-from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
+from src.db.mysql_repository import (
+    CompanyMySqlRepository,
+    InsiderTradeMySqlRepository,
+    AppFilterSettingsRepository,
+    AppRuntimePreferencesRepository,
+)
 from src.preprocessing import GateEvaluator, GateRules
 from src.services.app_settings_service import AppSettingsService
 from src.services.dashboard_service import DashboardService
@@ -33,25 +37,18 @@ class ServiceFactory:
         # Repositories
         raw_repo = InsiderTradeMongoRepository(mongo_client) if mongo_client else None
         company_mongo_repo = CompanyMongoRepository(mongo_client) if mongo_client else None
-        runtime_settings_repo = AppSettingsMongoRepository(mongo_client) if mongo_client else None
 
         trade_repo = InsiderTradeMySqlRepository(mysql_client)
         company_repo = CompanyMySqlRepository(mysql_client)
-        
+        filter_repo = AppFilterSettingsRepository(mysql_client)
+        runtime_settings_repo = AppRuntimePreferencesRepository(mysql_client)
+
         # Services
-        runtime_settings_service = AppSettingsService(runtime_settings_repo, settings)
+        runtime_settings_service = AppSettingsService(runtime_settings_repo, filter_repo, settings)
         runtime_settings = runtime_settings_service.load()
-        
-        gate_evaluator = GateEvaluator(
-            GateRules(
-                min_trade_value=runtime_settings.min_trade_value,
-                require_purchase_event=runtime_settings.require_purchase_event,
-                require_common_stock=runtime_settings.require_common_stock,
-                allowed_acquisition_or_disposition=runtime_settings.allowed_acquisition_or_disposition,
-                allowed_transaction_types=runtime_settings.allowed_transaction_types,
-            )
-        )
-        
+
+        gate_evaluator = GateEvaluator(GateRules())
+
         fmp_client = FmpClient(
             replace(
                 settings.fmp,
@@ -59,7 +56,7 @@ class ServiceFactory:
                 lookup_mode=runtime_settings.lookup_mode,
             )
         )
-        
+
         import_service: ImportService | None = None
         if mongo_client is not None and raw_repo is not None and company_mongo_repo is not None:
             import_service = ImportService(
@@ -86,20 +83,11 @@ class ServiceFactory:
         mongo_client = MongoClientWrapper(settings.mongo)
         raw_repo = InsiderTradeMongoRepository(mongo_client)
         company_mongo_repo = CompanyMongoRepository(mongo_client)
-        runtime_settings_repo = AppSettingsMongoRepository(mongo_client)
 
-        runtime_settings_service = AppSettingsService(runtime_settings_repo, settings)
+        runtime_settings_service = AppSettingsService(runtime_repo=None, filter_repo=None, defaults=settings)
         runtime_settings = runtime_settings_service.load()
 
-        gate_evaluator = GateEvaluator(
-            GateRules(
-                min_trade_value=runtime_settings.min_trade_value,
-                require_purchase_event=runtime_settings.require_purchase_event,
-                require_common_stock=runtime_settings.require_common_stock,
-                allowed_acquisition_or_disposition=runtime_settings.allowed_acquisition_or_disposition,
-                allowed_transaction_types=runtime_settings.allowed_transaction_types,
-            )
-        )
+        gate_evaluator = GateEvaluator(GateRules())
 
         fmp_client = FmpClient(
             replace(

@@ -34,4 +34,8 @@ class Company:
     is_adr: bool | None = None
     is_fund: bool | None = None
     profile_updated_at: datetime | None = None
+    source_system: str = "fmp"
+    sync_version: int = 1
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     profile_payload: dict[str, Any] = field(default_factory=dict)

@@ -25,10 +25,14 @@ class InsiderTrade:
     form_type: str | None = None
     qty: float | None = None
     price: float | None = None
+    trade_value_estimated: float | None = None
     security_name: str | None = None
     source_url: str | None = None
     fetched_at: datetime | None = None
     first_seen_at: datetime | None = None
+    validation_status: str = "VALID"
     gate_status: str = "PENDING"
+    score_value: float | None = None
+    score_class: str | None = None
     dedupe_key: str = ""
     raw_payload: dict[str, Any] = field(default_factory=dict)

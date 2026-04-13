@@ -125,7 +125,7 @@ def _build_services(
         return None, None, import_service, runtime_settings_service
 
     # Beide DBs down -> nur UI ohne Datenoperationen.
-    return None, None, None, AppSettingsService(repo=None, defaults=settings)
+    return None, None, None, AppSettingsService(runtime_repo=None, filter_repo=None, defaults=settings)
 
 
 def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResolutionResult | None) -> None:
@@ -248,7 +248,7 @@ def main() -> None:
         if analysis_service is None:
             st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
             return
-        render_explorer_page(analysis_service)
+        render_explorer_page(analysis_service, runtime_settings_service)
 
     def _ticker_detail() -> None:
         if analysis_service is None:

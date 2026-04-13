@@ -1,66 +1,54 @@
-"""Tests für die MVP-Gate-Evaluierung."""
+"""Tests für die finale Pre-Gate-Evaluierung."""
 
 from src.preprocessing.gate_evaluator import (
     GATE_FAIL,
     GATE_PASS,
-    GATE_PENDING,
     GateEvaluator,
-    GateRules,
 )
 
 
+def _valid_trade() -> dict:
+    return {
+        "symbol": "AAPL",
+        "filing_date": "2026-04-01",
+        "transaction_date": "2026-04-01",
+        "qty": 1000,
+        "price": 120,
+        "trade_value_estimated": 120000,
+        "transaction_type": "P-Purchase",
+        "security_name": "Common Stock",
+        "acquisition_or_disposition": "A",
+        "form_type": "4",
+        "validation_status": "VALID",
+    }
+
+
 def test_gate_evaluator_returns_fail_for_missing_symbol() -> None:
-    """Trades ohne Symbol müssen durchfallen."""
-    decision = GateEvaluator().evaluate({"symbol": "", "qty": 10, "price": 5})
+    decision = GateEvaluator().evaluate({**_valid_trade(), "symbol": ""})
     assert decision.status == GATE_FAIL
 
 
-def test_gate_evaluator_returns_pending_for_missing_price() -> None:
-    """Ohne gültigen Preis bleibt der Trade im Status PENDING."""
-    decision = GateEvaluator().evaluate({"symbol": "AAPL", "qty": 10, "price": None})
-    assert decision.status == GATE_PENDING
+def test_gate_evaluator_returns_fail_for_missing_price() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "price": None})
+    assert decision.status == GATE_FAIL
+
+
+def test_gate_evaluator_returns_fail_for_price_invalid_status() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "validation_status": "PRICE_INVALID"})
+    assert decision.status == GATE_FAIL
+
+
+def test_gate_evaluator_returns_fail_for_excluded_transaction_type() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "transaction_type": "A-Award"})
+    assert decision.status == GATE_FAIL
+
+
+def test_gate_evaluator_returns_fail_for_low_trade_value() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "trade_value_estimated": 99999})
+    assert decision.status == GATE_FAIL
 
 
 def test_gate_evaluator_returns_pass_for_valid_trade() -> None:
-    """Vollständige Basisdaten müssen PASS liefern."""
-    trade = {
-        "symbol": "AAPL",
-        "qty": 500,
-        "price": 100,
-        "transaction_type": "P-Purchase",
-        "security_name": "Common Stock",
-        "acquisition_or_disposition": "A",
-    }
-    decision = GateEvaluator().evaluate(trade)
-    assert decision.status == GATE_PASS
-
-
-def test_gate_evaluator_uses_configured_min_trade_value() -> None:
-    """Ein konfigurierter Mindestwert soll auf die Entscheidung wirken."""
-
-    trade = {
-        "symbol": "AAPL",
-        "qty": 200,
-        "price": 100,
-        "transaction_type": "P-Purchase",
-        "security_name": "Common Stock",
-        "acquisition_or_disposition": "A",
-    }
-    decision = GateEvaluator(GateRules(min_trade_value=25_000)).evaluate(trade)
-    assert decision.status == GATE_FAIL
-
-
-def test_gate_evaluator_can_disable_common_stock_rule() -> None:
-    """Wenn deaktiviert, darf die Common-Stock-Pruefung keinen FAIL erzeugen."""
-
-    trade = {
-        "symbol": "AAPL",
-        "qty": 500,
-        "price": 100,
-        "transaction_type": "P-Purchase",
-        "security_name": "Preferred Stock",
-        "acquisition_or_disposition": "A",
-    }
-    decision = GateEvaluator(GateRules(require_common_stock=False)).evaluate(trade)
+    decision = GateEvaluator().evaluate(_valid_trade())
     assert decision.status == GATE_PASS
 

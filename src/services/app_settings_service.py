@@ -1,4 +1,4 @@
-"""Service für persistente Gate-/Profil-Einstellungen in MongoDB."""
+"""Service für persistente App-Einstellungen und Filter in MySQL."""
 
 from __future__ import annotations
 
@@ -6,7 +6,10 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from src.config.settings import AppSettings
-from src.db.mongo_repository import AppSettingsMongoRepository
+from src.db.mysql_repository import (
+    AppFilterSettingsRepository,
+    AppRuntimePreferencesRepository,
+)
 
 
 @dataclass(slots=True)
@@ -22,10 +25,18 @@ class RuntimeSettings:
 
 
 class AppSettingsService:
-    """Lädt/speichert Laufzeit-Einstellungen mit Env-Defaults."""
+    """Lädt/speichert Laufzeit-Einstellungen und UI-Filter mit Env-Defaults."""
 
-    def __init__(self, repo: AppSettingsMongoRepository | None, defaults: AppSettings) -> None:
-        self.repo = repo
+    RUNTIME_PREFERENCE_KEY = "runtime_settings"
+
+    def __init__(
+        self,
+        runtime_repo: AppRuntimePreferencesRepository | None,
+        filter_repo: AppFilterSettingsRepository | None,
+        defaults: AppSettings,
+    ) -> None:
+        self.runtime_repo = runtime_repo
+        self.filter_repo = filter_repo
         self.defaults = defaults
 
     def defaults_runtime(self) -> RuntimeSettings:
@@ -41,23 +52,47 @@ class AppSettingsService:
         )
 
     def load(self) -> RuntimeSettings:
-        if self.repo is None:
+        if self.runtime_repo is None:
             return self.defaults_runtime()
-        payload = self.repo.load()
-        if not payload:
+        payload = self.runtime_repo.load(self.RUNTIME_PREFERENCE_KEY)
+        if not payload or not isinstance(payload, dict):
             return self.defaults_runtime()
         base = asdict(self.defaults_runtime())
         base.update({k: v for k, v in payload.items() if k in base})
         return RuntimeSettings(**base)
 
     def save(self, runtime: RuntimeSettings) -> None:
-        if self.repo is None:
+        if self.runtime_repo is None:
             return
-        payload: dict[str, Any] = asdict(runtime)
-        payload["_id"] = AppSettingsMongoRepository.SETTINGS_ID
-        self.repo.save(payload)
+        self.runtime_repo.upsert(
+            {
+                "preference_key": self.RUNTIME_PREFERENCE_KEY,
+                "preference_value_json": asdict(runtime),
+            }
+        )
 
     def reset(self) -> RuntimeSettings:
-        if self.repo is not None:
-            self.repo.reset()
-        return self.defaults_runtime()
+        runtime = self.defaults_runtime()
+        self.save(runtime)
+        return runtime
+
+    def load_filter(self, setting_scope: str, setting_key: str, default: Any) -> Any:
+        """Lädt einen gespeicherten Filterwert oder liefert den Default."""
+
+        if self.filter_repo is None:
+            return default
+        payload = self.filter_repo.load(setting_scope, setting_key)
+        return default if payload is None else payload
+
+    def save_filter(self, setting_scope: str, setting_key: str, value: Any) -> None:
+        """Speichert einen Filterwert per Upsert (Update statt Insert)."""
+
+        if self.filter_repo is None:
+            return
+        self.filter_repo.upsert(
+            {
+                "setting_scope": setting_scope,
+                "setting_key": setting_key,
+                "setting_value_json": value,
+            }
+        )

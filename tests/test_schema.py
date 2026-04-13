@@ -13,11 +13,24 @@ def test_mysql_schema_statements_exist() -> None:
 
 
 def test_mysql_schema_contains_required_tables() -> None:
-    """Prüft, dass beide geforderten Tabellen in der DDL vorkommen."""
+    """Prüft, dass alle geforderten Tabellen in der DDL vorkommen."""
 
     ddl_blob = "\n".join(MYSQL_SCHEMA_STATEMENTS).lower()
     assert "create table if not exists companies" in ddl_blob
     assert "create table if not exists insider_trades" in ddl_blob
+    assert "create table if not exists app_filter_settings" in ddl_blob
+    assert "create table if not exists app_runtime_preferences" in ddl_blob
+
+
+def test_mysql_schema_contains_required_fields() -> None:
+    """Prüft, dass Validierung/Score und Sync-Metadaten in der DDL enthalten sind."""
+
+    ddl_blob = "\n".join(MYSQL_SCHEMA_STATEMENTS).lower()
+    assert "validation_status" in ddl_blob
+    assert "score" in ddl_blob
+    assert "score_class" in ddl_blob
+    assert "source_system" in ddl_blob
+    assert "sync_version" in ddl_blob
 
 
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

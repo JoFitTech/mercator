@@ -34,13 +34,16 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
     now = fetched_at or datetime.now(timezone.utc)
     qty = parse_float(raw_trade.get("securitiesTransacted"), "securitiesTransacted")
     price = parse_float(raw_trade.get("price"), "price")
-    
-    # trade_value_estimated = qty * price
-    trade_value_estimated = (qty * price) if qty is not None and price is not None else None
-    
-    # Fachliche Regel: Wenn Preis 0, ist der Schätzwert oft nicht sinnvoll berechenbar (Awards etc.)
-    if trade_value_estimated == 0 and price == 0:
+
+    # Fachliche Entscheidung: Preise <= 0 gelten als explizit ungültig.
+    # Solche Trades bleiben im Datensatz, werden aber weder sinnvoll bewertet
+    # noch in das Pre-Gate übernommen.
+    validation_status = "VALID"
+    if price is not None and price <= 0:
+        validation_status = "PRICE_INVALID"
         trade_value_estimated = None
+    else:
+        trade_value_estimated = (qty * price) if qty is not None and price is not None else None
 
     normalized_symbol = str(raw_trade.get("symbol", "")).strip().upper() or None
     company_cik = raw_trade.get("companyCik")
@@ -60,6 +63,7 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
         "qty": qty,
         "price": price,
         "trade_value_estimated": trade_value_estimated,
+        "validation_status": validation_status,
         "security_name": raw_trade.get("securityName"),
         "source_url": raw_trade.get("url"),
         "fetched_at": now,
@@ -69,6 +73,8 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
         "symbol_at_trade": normalized_symbol,
         "gate_status": "PENDING",
         "gate_reason": None,
+        "score_value": None,
+        "score_class": None,
         "profile_status": "NOT_REQUESTED",
         "profile_reason": None,
         "raw_payload": raw_trade,
