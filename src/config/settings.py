@@ -34,6 +34,16 @@ ALLOWED_GATE_FILTER_STATUSES = {
     "FAIL",
 }
 ALLOWED_MYSQL_TARGETS = {"local", "uni"}
+FMP_API_KEY_PLACEHOLDERS = {
+    "change_me",
+    "changeme",
+    "your_api_key",
+    "your-api-key",
+    "placeholder",
+    "demo",
+    "none",
+    "null",
+}
 
 
 class SettingsError(ValueError):
@@ -79,6 +89,46 @@ def _read_string_env(name: str, default: str = "") -> str:
 
     stripped = value.strip()
     return stripped if stripped else default
+
+
+def _read_streamlit_secret(name: str) -> str | None:
+    """Liest optional einen Wert aus ``st.secrets`` ohne harte Streamlit-Abhaengigkeit."""
+
+    try:
+        import streamlit as st  # Lokaler Import, damit CLI/Tests ohne Streamlit weiterlaufen.
+    except Exception:
+        return None
+
+    try:
+        secret_value = st.secrets.get(name)
+    except Exception:
+        return None
+
+    if secret_value is None:
+        return None
+
+    normalized = str(secret_value).strip()
+    return normalized if normalized else None
+
+
+def _read_secret_first_env_fallback(name: str, default: str = "") -> tuple[str, str]:
+    """Liest Konfiguration bevorzugt aus ENV/.env, optional aus Streamlit-Secrets.
+
+    Reihenfolge:
+        1) Prozess-Umgebung (inkl. via ``load_dotenv`` geladener .env-Werte)
+        2) ``st.secrets``
+        3) Default
+    """
+
+    env_value = _read_string_env(name, default="")
+    if env_value:
+        return env_value, "env"
+
+    secret_value = _read_streamlit_secret(name)
+    if secret_value:
+        return secret_value, "streamlit_secrets"
+
+    return default, "default"
 
 
 def _read_int_env(name: str, default: int | None = None) -> int:
@@ -284,7 +334,7 @@ class Settings:
                 database=_read_string_env("LOCAL_MYSQL_DATABASE", default=_read_string_env("MYSQL_DATABASE", default="mercator_local")),
                 user=_read_string_env("LOCAL_MYSQL_USER", default=_read_string_env("MYSQL_USER", default="root")),
                 password=_read_string_env("LOCAL_MYSQL_PASSWORD", default=_read_string_env("MYSQL_PASSWORD", default="change_me")),
-                connect_timeout=_read_int_env("LOCAL_MYSQL_CONNECT_TIMEOUT", default=_read_int_env("MYSQL_CONNECT_TIMEOUT", default=10)),
+                connect_timeout=_read_int_env("LOCAL_MYSQL_CONNECT_TIMEOUT", default=_read_int_env("MYSQL_CONNECT_TIMEOUT", default=5)),
                 create_database=_read_bool_env("LOCAL_MYSQL_CREATE_DATABASE", default=_read_bool_env("MYSQL_CREATE_DATABASE", default=False)),
                 ssl_disabled=_read_bool_env("LOCAL_MYSQL_SSL_DISABLED", default=_read_bool_env("MYSQL_SSL_DISABLED", default=False)),
                 ssl_ca=os.getenv("LOCAL_MYSQL_SSL_CA") or (os.getenv("MYSQL_SSL_CA") or None),
@@ -401,6 +451,7 @@ class FmpConfig:
     poll_interval_hours: int = POLL_INTERVAL_HOURS
     profile_gate_filter_statuses: tuple[str, ...] = ("PASS",)
     lookup_mode: str = "cik_primary_symbol_fallback"
+    api_key_source: str = "default"
 
 
 @dataclass(frozen=True)
@@ -438,6 +489,8 @@ def load_settings() -> AppSettings:
     global _SETTINGS_DEBUG_LOGGED
 
     project_root = Path(__file__).resolve().parents[2]
+    fmp_api_key, fmp_api_key_source = _read_secret_first_env_fallback("FMP_API_KEY", default="")
+
     app_settings = AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
         app_title=os.getenv("APP_TITLE", "Mercator"),
@@ -447,11 +500,12 @@ def load_settings() -> AppSettings:
         mongo=MongoConfig.from_env(),
         fmp=FmpConfig(
             base_url=FMP_BASE_URL,
-            api_key=os.getenv("FMP_API_KEY", ""),
+            api_key=fmp_api_key,
             profile_gate_filter_statuses=_read_csv_status_env(
                 "PROFILE_GATE_FILTER_STATUSES", default=("PASS",)
             ),
             lookup_mode=_read_string_env("PROFILE_LOOKUP_MODE", default="cik_primary_symbol_fallback"),
+            api_key_source=fmp_api_key_source,
         ),
         gate=GateConfig(
             min_trade_value=_read_int_env("GATE_MIN_TRADE_VALUE", default=DEFAULT_GATE_MIN_TRADE_VALUE),
@@ -503,9 +557,12 @@ def validate_fmp_api_key(api_key: str) -> None:
         ValueError: Falls der Key fehlt oder nur Platzhalter enthält.
     """
 
-    if not api_key or api_key.strip().lower() in {"change_me", "your_api_key"}:
+    normalized = (api_key or "").strip().lower()
+    if not normalized or normalized in FMP_API_KEY_PLACEHOLDERS:
         raise ValueError(
-            "FMP_API_KEY fehlt oder ist ein Platzhalter. Bitte trage einen gültigen Schlüssel in der .env ein."
+            "FMP_API_KEY fehlt oder ist ein Platzhalter. "
+            "Setze einen gueltigen Wert bevorzugt als echte Umgebungsvariable `FMP_API_KEY`, "
+            "alternativ lokal in `.env` oder in Streamlit-Secrets (`FMP_API_KEY`)."
         )
 
 

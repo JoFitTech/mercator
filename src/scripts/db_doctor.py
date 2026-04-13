@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sys
-from typing import Any
 
 from src.config.settings import load_settings
 from src.db.mysql_client_factory import build_mysql_client_for_target
@@ -20,6 +18,12 @@ def run_doctor() -> None:
         print(f"Prüfe Ziel: {target}...")
         try:
             client = build_mysql_client_for_target(settings.mysql, target)
+            target_settings = settings.mysql.get_mysql_target(target)
+            ssl_state = "off" if target_settings.ssl_disabled else "on"
+            print(
+                f"  Host={target_settings.host} Port={target_settings.port} "
+                f"DB={target_settings.database} SSL={ssl_state}"
+            )
             ok, msg = client.test_connection()
             if not ok:
                 print(f"  [!] Verbindung fehlgeschlagen: {msg}")

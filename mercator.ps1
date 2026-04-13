@@ -63,11 +63,16 @@ function Test-UniDatabaseConnectivity {
 # Hilfsfunktion zum Bereinigen von verwaisten Containern
 function Remove-Legacy-Containers {
     Write-Host "Suche nach alten Mercator- oder FinanzPort-Containern..." -ForegroundColor Cyan
-    $legacyContainers = docker ps -a --filter "name=mercator-" --filter "name=finanzport-" --format "{{.Names}}"
-    if ($legacyContainers) {
-        Write-Host "Gefundene alte Container: $legacyContainers" -ForegroundColor Yellow
-        docker stop $legacyContainers 2>$null
-        docker rm $legacyContainers 2>$null
+    # Docker behandelt mehrere name-Filter mit AND – daher separat abfragen und zusammenführen
+    $mercatorContainers = @(docker ps -a --filter "name=mercator-" --format "{{.Names}}" 2>$null) | Where-Object { $_ -match '\S' }
+    $finanzportContainers = @(docker ps -a --filter "name=finanzport-" --format "{{.Names}}" 2>$null) | Where-Object { $_ -match '\S' }
+    $legacyContainers = @($mercatorContainers) + @($finanzportContainers) | Select-Object -Unique | Where-Object { $_ -match '\S' }
+    if ($legacyContainers -and $legacyContainers.Count -gt 0) {
+        Write-Host "Gefundene alte Container: $($legacyContainers -join ', ')" -ForegroundColor Yellow
+        foreach ($container in $legacyContainers) {
+            docker stop $container 2>$null | Out-Null
+            docker rm $container 2>$null | Out-Null
+        }
         Write-Host "Alte Container entfernt." -ForegroundColor Green
     } else {
         Write-Host "Keine alten Mercator/FinanzPort-Container gefunden." -ForegroundColor Gray

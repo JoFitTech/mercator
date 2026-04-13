@@ -96,7 +96,7 @@ def render_dashboard_page(
 
             if st.button("Datenimport jetzt starten", type="primary", use_container_width=True):
                 if import_service is None:
-                    st.warning("MongoDB nicht erreichbar. Rohdatenspeicherung deaktiviert.")
+                    st.warning("Import derzeit nicht verfuegbar. Rohdatenspeicherung deaktiviert.")
                     error_detail = st.session_state.get("import_service_error")
                     if error_detail:
                         st.caption(f"Technischer Hinweis: {error_detail}")

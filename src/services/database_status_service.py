@@ -120,7 +120,7 @@ class DatabaseStatusService:
                 active_target=None,
                 is_connected=False,
                 used_fallback=False,
-                messages=["MySQL-Verbindung fehlgeschlagen."],
+                messages=[f"MySQL-Verbindung fehlgeschlagen: {exc}"],
             )
             LOGGER.error("db_check mysql failed requested=%s error=%s", requested_target, exc)
 

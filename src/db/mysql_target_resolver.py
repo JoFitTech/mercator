@@ -55,7 +55,8 @@ def resolve_active_mysql_target(
     fallback = settings.get_fallback_mysql_target()
     if fallback is None:
         raise SettingsError(
-            f"Active MySQL target '{active_name}' is not reachable and no fallback is configured."
+            f"Active MySQL target '{active_name}' is not reachable and no fallback is configured. "
+            f"Details: {details}"
         )
 
     fallback_client = build_mysql_client_for_target(settings, fallback.name)
@@ -68,7 +69,8 @@ def resolve_active_mysql_target(
     if not fallback_ok:
         raise SettingsError(
             "Neither active nor fallback MySQL target is reachable. "
-            f"Primary: '{active_name}', fallback: '{fallback.name}'."
+            f"Primary: '{active_name}', fallback: '{fallback.name}'. "
+            f"Primary details: {details} | Fallback details: {fallback_details}"
         )
 
     return MySqlResolutionResult(

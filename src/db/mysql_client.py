@@ -7,6 +7,7 @@ from typing import Iterator
 
 import mysql.connector
 from mysql.connector import Error, MySQLConnection
+from mysql.connector import errorcode
 
 from src.config.settings import MySqlTargetSettings
 from src.db.schema import MYSQL_SCHEMA_STATEMENTS
@@ -41,8 +42,22 @@ class MySqlClient:
         try:
             yield conn
         finally:
-            if conn.is_connected():
+            # is_connected() prueft intern auf unread results und kann selbst fehlschlagen.
+            # Beim Cleanup schliessen wir die Verbindung daher direkt defensiv.
+            try:
                 conn.close()
+            except Error:
+                pass
+
+    @staticmethod
+    def _query_has_row(cursor, query: str, params: tuple | None = None) -> bool:
+        """Fuehrt eine Existenzabfrage aus und leert Restzeilen auf unbuffered Cursorn."""
+
+        cursor.execute(query, params or ())
+        row = cursor.fetchone()
+        if getattr(cursor, "with_rows", False):
+            cursor.fetchall()
+        return row is not None
 
     def test_connection(self) -> tuple[bool, str]:
         """Testet die MySQL-Erreichbarkeit mit kurzem Status-Text.
@@ -52,32 +67,92 @@ class MySqlClient:
         """
 
         try:
-            with self.connection(include_database=True):
-                return True, f"Connection to target '{self._settings.name}' successful."
+            with self.connection(include_database=True) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    _ = cursor.fetchone()
+                    if getattr(cursor, "with_rows", False):
+                        cursor.fetchall()
+            return (
+                True,
+                f"MySQL target '{self._settings.name}' reachable "
+                f"(host={self._settings.host}, port={self._settings.port}, "
+                f"db={self._settings.database}, ssl={'off' if self._settings.ssl_disabled else 'on'}).",
+            )
         except Error as exc:
-            return False, f"Connection to target '{self._settings.name}' failed: {exc}"
+            error_type, detail = self._classify_connection_error(exc)
+            return (
+                False,
+                f"MySQL target '{self._settings.name}' connection failed [{error_type}] "
+                f"(host={self._settings.host}, port={self._settings.port}, "
+                f"db={self._settings.database}, ssl={'off' if self._settings.ssl_disabled else 'on'}): {detail}",
+            )
+
+    @staticmethod
+    def _classify_connection_error(exc: Error) -> tuple[str, str]:
+        """Klassifiziert haeufige MySQL-Verbindungsfehler fuer klare Diagnosen."""
+
+        errno = getattr(exc, "errno", None)
+        message = str(exc)
+
+        if errno in {errorcode.ER_ACCESS_DENIED_ERROR, 1045}:
+            return "auth_failed", "Authentication failed (user/password rejected)."
+        if errno in {errorcode.ER_BAD_DB_ERROR, 1049}:
+            return "database_missing", "Configured database does not exist."
+        if errno in {2003, 2002}:
+            return "network_unreachable", "Cannot reach MySQL host/port."
+        if errno in {2005}:
+            return "host_invalid", "MySQL hostname cannot be resolved."
+        if errno in {2026}:
+            return "ssl_error", "SSL/TLS handshake or certificate validation failed."
+        if "timed out" in message.lower():
+            return "timeout", "Connection attempt timed out."
+
+        return "connection_error", message
 
     def _column_exists(self, cursor, table: str, column: str) -> bool:
         """Prüft, ob eine Spalte in einer Tabelle existiert."""
 
-        cursor.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (column,))
-        return cursor.fetchone() is not None
+        return self._query_has_row(
+            cursor,
+            "SELECT 1 FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s "
+            "LIMIT 1",
+            (table, column),
+        )
 
     def _has_primary_key(self, cursor, table: str) -> bool:
         """Prüft, ob eine Tabelle bereits einen Primärschlüssel hat."""
 
-        cursor.execute(f"SHOW KEYS FROM {table} WHERE Key_name = 'PRIMARY'")
-        return cursor.fetchone() is not None
+        return self._query_has_row(
+            cursor,
+            "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS "
+            "WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = %s "
+            "AND CONSTRAINT_TYPE = 'PRIMARY KEY' LIMIT 1",
+            (table,),
+        )
 
     def _constraint_exists(self, cursor, table: str, constraint: str) -> bool:
         """Prüft, ob ein Constraint existiert."""
 
-        cursor.execute(
+        return self._query_has_row(
+            cursor,
             "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS "
-            "WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = %s AND CONSTRAINT_NAME = %s",
-            (table, constraint)
+            "WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = %s AND CONSTRAINT_NAME = %s "
+            "LIMIT 1",
+            (table, constraint),
         )
-        return cursor.fetchone() is not None
+
+    def _index_exists(self, cursor, table: str, index_name: str) -> bool:
+        """Prueft, ob ein Indexname in einer Tabelle existiert."""
+
+        return self._query_has_row(
+            cursor,
+            "SELECT 1 FROM information_schema.STATISTICS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s "
+            "LIMIT 1",
+            (table, index_name),
+        )
 
     def initialize_schema(self) -> list[str]:
         """Initialisiert die Tabellenstruktur und führt Schema-Anpassungen durch.
@@ -142,8 +217,7 @@ class MySqlClient:
                         cursor.execute(f"ALTER TABLE companies ADD COLUMN {col_name} {col_def}")
                         actions.append(f"companies: Added `{col_name}`.")
 
-                cursor.execute("SHOW KEYS FROM companies WHERE Key_name = 'uq_companies_current_symbol'")
-                if cursor.fetchone() is None:
+                if not self._index_exists(cursor, "companies", "uq_companies_current_symbol"):
                     cursor.execute("ALTER TABLE companies ADD UNIQUE INDEX uq_companies_current_symbol (current_symbol)")
                     actions.append("companies: Added Unique Index `uq_companies_current_symbol`.")
 
@@ -195,8 +269,7 @@ class MySqlClient:
                     if not self._column_exists(cursor, "app_filter_settings", col_name):
                         cursor.execute(f"ALTER TABLE app_filter_settings ADD COLUMN {col_name} {col_def}")
                         actions.append(f"app_filter_settings: Added `{col_name}`.")
-                cursor.execute("SHOW KEYS FROM app_filter_settings WHERE Key_name = 'uq_app_filter_settings_scope_key'")
-                if cursor.fetchone() is None:
+                if not self._index_exists(cursor, "app_filter_settings", "uq_app_filter_settings_scope_key"):
                     cursor.execute(
                         "ALTER TABLE app_filter_settings ADD UNIQUE INDEX uq_app_filter_settings_scope_key (setting_scope, setting_key)"
                     )
@@ -215,18 +288,15 @@ class MySqlClient:
                     if not self._column_exists(cursor, "app_runtime_preferences", col_name):
                         cursor.execute(f"ALTER TABLE app_runtime_preferences ADD COLUMN {col_name} {col_def}")
                         actions.append(f"app_runtime_preferences: Added `{col_name}`.")
-                cursor.execute("SHOW KEYS FROM app_runtime_preferences WHERE Key_name = 'uq_app_runtime_preferences_key'")
-                if cursor.fetchone() is None:
+                if not self._index_exists(cursor, "app_runtime_preferences", "uq_app_runtime_preferences_key"):
                     cursor.execute(
                         "ALTER TABLE app_runtime_preferences ADD UNIQUE INDEX uq_app_runtime_preferences_key (preference_key)"
                     )
                     actions.append("app_runtime_preferences: Added Unique Index `uq_app_runtime_preferences_key`.")
 
                 # 3. Daten-Migration (Keys befüllen)
-                cursor.execute("SHOW COLUMNS FROM companies LIKE 'symbol'")
-                companies_has_legacy_symbol = cursor.fetchone() is not None
-                cursor.execute("SHOW COLUMNS FROM insider_trades LIKE 'symbol'")
-                trades_has_legacy_symbol = cursor.fetchone() is not None
+                companies_has_legacy_symbol = self._column_exists(cursor, "companies", "symbol")
+                trades_has_legacy_symbol = self._column_exists(cursor, "insider_trades", "symbol")
 
                 company_symbol_expr = "COALESCE(current_symbol, symbol, '')" if companies_has_legacy_symbol else "COALESCE(current_symbol, '')"
                 cursor.execute(
@@ -248,8 +318,13 @@ class MySqlClient:
                 )
 
                 # 4. PK-Migration für 'companies' abschließen
-                cursor.execute("SHOW KEYS FROM companies WHERE Key_name = 'PRIMARY' AND Column_name = 'company_key'")
-                if cursor.fetchone() is None:
+                if not self._query_has_row(
+                    cursor,
+                    "SELECT 1 FROM information_schema.KEY_COLUMN_USAGE "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s "
+                    "AND CONSTRAINT_NAME = 'PRIMARY' AND COLUMN_NAME = %s LIMIT 1",
+                    ("companies", "company_key"),
+                ):
                     if self._has_primary_key(cursor, "companies"):
                         cursor.execute("ALTER TABLE companies DROP PRIMARY KEY")
                         actions.append("companies: Dropped old Primary Key.")
@@ -281,8 +356,7 @@ class MySqlClient:
                     actions.append("insider_trades: Added Foreign Key `fk_insider_trades_company_key`.")
 
                 # Dedupe-Key Index
-                cursor.execute("SHOW KEYS FROM insider_trades WHERE Key_name = 'uq_insider_trades_dedupe_key'")
-                if cursor.fetchone() is None:
+                if not self._index_exists(cursor, "insider_trades", "uq_insider_trades_dedupe_key"):
                     cursor.execute("ALTER TABLE insider_trades ADD UNIQUE INDEX uq_insider_trades_dedupe_key (dedupe_key)")
                     actions.append("insider_trades: Added Unique Index `uq_insider_trades_dedupe_key`.")
 
@@ -299,8 +373,11 @@ class MySqlClient:
         created = False
         with self.connection(include_database=False) as conn:
             with conn.cursor() as cursor:
-                cursor.execute(f"SHOW DATABASES LIKE '{self._settings.database}'")
-                if not cursor.fetchone():
+                if not self._query_has_row(
+                    cursor,
+                    "SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = %s LIMIT 1",
+                    (self._settings.database,),
+                ):
                     cursor.execute(
                         f"CREATE DATABASE `{self._settings.database}` "
                         "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"

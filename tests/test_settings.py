@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.config.settings import Settings, SettingsError, load_settings
+from src.config import settings as settings_module
+from src.config.settings import Settings, SettingsError, load_settings, validate_fmp_api_key
 
 
 def test_settings_from_env_reads_targets(monkeypatch) -> None:
@@ -130,6 +131,29 @@ def test_settings_raises_on_invalid_boolean(monkeypatch) -> None:
     monkeypatch.setenv("MYSQL_AUTO_FALLBACK_TO_LOCAL", "sometimes")
     with pytest.raises(SettingsError):
         Settings.from_env()
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    ["", "   ", "YOUR_API_KEY", "changeme", "placeholder", "None", "null", "demo"],
+)
+def test_validate_fmp_api_key_rejects_placeholders(bad_key: str) -> None:
+    """Prueft die Erkennung typischer Platzhalterwerte fuer FMP_API_KEY."""
+
+    with pytest.raises(ValueError):
+        validate_fmp_api_key(bad_key)
+
+
+def test_load_settings_reads_fmp_api_key_from_streamlit_secrets(monkeypatch) -> None:
+    """Prueft Fallback auf Streamlit-Secrets, wenn kein ENV-Wert gesetzt ist."""
+
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    monkeypatch.setattr(settings_module, "_read_streamlit_secret", lambda name: "secret_from_streamlit")
+
+    app_settings = load_settings()
+
+    assert app_settings.fmp.api_key == "secret_from_streamlit"
+    assert app_settings.fmp.api_key_source == "streamlit_secrets"
 
 
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

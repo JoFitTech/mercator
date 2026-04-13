@@ -12,7 +12,7 @@ from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_client_factory import build_mysql_client_for_target
 from src.db.mysql_target_resolver import MySqlResolutionResult
 from src.services.analysis_service import AnalysisService
-from src.services.database_status_service import DatabaseStatus, DatabaseStatusService
+from src.services.database_status_service import DatabaseStatus, DatabaseStatusService, MongoStatus, MySqlStatus
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.services.app_settings_service import AppSettingsService
@@ -26,6 +26,57 @@ from src.utils.logging_utils import get_logger
 
 MYSQL_TARGET_STATE_KEY = "mysql_runtime_target"
 LOGGER = get_logger(__name__)
+
+# Kurzer Timeout für schnelle Erreichbarkeitsprüfungen in der UI (Sekunden).
+_DB_STATUS_CHECK_TIMEOUT_S = 3
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_db_status(
+    mysql_uri_local: str,
+    mysql_uri_uni: str,
+    mongo_uri: str,
+    requested_target: str,
+) -> tuple[bool, str | None, bool, bool]:
+    """Gecachter DB-Erreichbarkeits-Check (TTL 30 s).
+
+    Returns:
+        (mysql_connected, active_target, used_fallback, mongo_connected)
+    """
+    from src.config.settings import load_settings
+    from src.db.mongo_client import MongoClientWrapper
+    from src.db.mysql_target_resolver import resolve_active_mysql_target
+
+    settings = load_settings()
+
+    mysql_connected = False
+    active_target: str | None = None
+    used_fallback = False
+
+    # Temporär kürzeren Timeout für Status-Check nutzen
+    # Override timeout on target copies via dataclass replace
+    from dataclasses import replace as dc_replace
+    fast_local = dc_replace(settings.mysql.local_mysql, connect_timeout=_DB_STATUS_CHECK_TIMEOUT_S)
+    fast_uni = dc_replace(settings.mysql.uni_mysql, connect_timeout=_DB_STATUS_CHECK_TIMEOUT_S)
+    fast_mysql_settings = dc_replace(settings.mysql, local_mysql=fast_local, uni_mysql=fast_uni)
+
+    try:
+        result = resolve_active_mysql_target(settings=fast_mysql_settings, requested_target=requested_target)
+        mysql_connected = True
+        active_target = result.active_target
+        used_fallback = result.used_fallback
+    except Exception:
+        pass
+
+    mongo_connected = False
+    try:
+        wrapper = MongoClientWrapper(settings.mongo, server_selection_timeout_ms=2000)
+        wrapper.get_database().command("ping")
+        mongo_connected = True
+    except Exception:
+        pass
+
+    return mysql_connected, active_target, used_fallback, mongo_connected
 
 
 def _mask_mongo_uri(uri: str) -> str:
@@ -59,11 +110,38 @@ def _render_database_sidebar_status(
         horizontal=True,
     )
 
-    status, mysql_resolution = status_service.evaluate(
-        mysql_settings=settings.mysql,
-        mongo_client=MongoClientWrapper(settings.mongo),
+    # Gecachten DB-Check nutzen (verhindert Blockade beim Seitenrender)
+    mysql_connected, active_target, used_fallback, mongo_connected = _cached_db_status(
+        mysql_uri_local=f"{settings.mysql.local_mysql.host}:{settings.mysql.local_mysql.port}",
+        mysql_uri_uni=f"{settings.mysql.uni_mysql.host}:{settings.mysql.uni_mysql.port}",
+        mongo_uri=settings.mongo.uri,
         requested_target=selected_target,
     )
+
+    # Vollständige Auflösung nur wenn tatsächlich verbunden (bereits gecacht / schnell)
+    mysql_resolution: MySqlResolutionResult | None = None
+    if mysql_connected:
+        try:
+            _status_full, mysql_resolution = status_service.evaluate(
+                mysql_settings=settings.mysql,
+                mongo_client=MongoClientWrapper(settings.mongo, server_selection_timeout_ms=2000),
+                requested_target=selected_target,
+            )
+        except Exception:
+            mysql_connected = False
+
+    mysql_status = MySqlStatus(
+        requested_target=selected_target,
+        active_target=active_target if mysql_connected else None,
+        is_connected=mysql_connected,
+        used_fallback=used_fallback,
+        messages=[],
+    )
+    mongo_status = MongoStatus(
+        is_connected=mongo_connected,
+        message="MongoDB-Verbindung erfolgreich." if mongo_connected else "MongoDB aktuell nicht erreichbar.",
+    )
+    status = DatabaseStatus(mysql=mysql_status, mongo=mongo_status)
 
     with st.sidebar.expander("Datenbank-Status", expanded=advanced_mode):
         if status.mysql.is_connected:
@@ -87,14 +165,21 @@ def _render_database_sidebar_status(
             st.caption(docker_hint)
 
     with st.sidebar.expander("Debug: DB-Status", expanded=advanced_mode):
+        selected_mysql = settings.mysql.get_mysql_target(selected_target)
         st.write(f"MySQL Status: {'connected' if status.mysql.is_connected else 'failed'}")
         st.write(f"MongoDB Status: {'connected' if status.mongo.is_connected else 'failed'}")
-        st.write(f"MySQL Host: `{settings.mysql.get_mysql_target(selected_target).host}`")
-        st.write(f"MySQL Port: `{settings.mysql.get_mysql_target(selected_target).port}`")
+        st.write(f"MySQL Host: `{selected_mysql.host}`")
+        st.write(f"MySQL Port: `{selected_mysql.port}`")
+        st.write(f"MySQL Datenbank: `{selected_mysql.database}`")
+        st.write(f"MySQL SSL: `{'deaktiviert' if selected_mysql.ssl_disabled else 'aktiviert'}`")
         st.write(f"Mongo URI: `{_mask_mongo_uri(settings.mongo.uri)}`")
         if advanced_mode:
-            for message in status.mysql.messages:
-                st.caption(f"MySQL Detail: {message}")
+            if mysql_resolution is not None:
+                for message in mysql_resolution.messages:
+                    st.caption(f"MySQL Detail: {message}")
+            elif status.mysql.messages:
+                for message in status.mysql.messages:
+                    st.caption(f"MySQL Detail: {message}")
             st.caption(f"Mongo Detail: {status.mongo.message}")
 
     LOGGER.info(
@@ -235,6 +320,12 @@ def main() -> None:
         mysql_resolution,
         db_status,
     )
+
+    if db_status.mongo.is_connected and import_service is None:
+        detail = ServiceFactory.last_import_issue or "Import-Service konnte nicht initialisiert werden."
+        st.session_state["import_service_error"] = detail
+    else:
+        st.session_state.pop("import_service_error", None)
 
     if not db_status.mysql.is_connected and not db_status.mongo.is_connected:
         st.error("Keine Datenbankverbindung verfügbar.")
