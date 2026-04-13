@@ -82,6 +82,7 @@ class ServiceFactory:
                     trade_mysql_repo=trade_repo,
                     company_mysql_repo=company_repo,
                     profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
+                    allow_write=not (settings.review_mode or settings.disable_import),
                 )
             except ValueError as exc:
                 ServiceFactory.last_import_issue = (
@@ -139,6 +140,7 @@ class ServiceFactory:
                 trade_mysql_repo=None,
                 company_mysql_repo=None,
                 profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
+                allow_write=not (settings.review_mode or settings.disable_import),
             )
         except ValueError as exc:
             import_service = None

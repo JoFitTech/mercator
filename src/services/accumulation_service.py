@@ -6,6 +6,30 @@ import pandas as pd
 import numpy as np
 
 
+def _classify_score(score: float | None) -> str | None:
+    """Leitet die vorhandenen Score-Klassen A-E aus einem numerischen Score ab."""
+    if score is None or pd.isna(score):
+        return None
+    if score >= 80:
+        return "A"
+    if score >= 60:
+        return "B"
+    if score >= 40:
+        return "C"
+    if score >= 20:
+        return "D"
+    return "E"
+
+
+def _normalize_direction(value: object) -> str:
+    normalized = str(value or "").strip().upper()
+    if normalized in {"A", "BUY"}:
+        return "BUY"
+    if normalized in {"D", "SELL"}:
+        return "SELL"
+    return "UNKNOWN"
+
+
 class AccumulationService:
     """Aggregiert Trades basierend auf Person, Firma, Richtung und Zeitnähe."""
 
@@ -36,8 +60,14 @@ class AccumulationService:
         working_df["_group_security"] = working_df.get("security_name", pd.Series(index=working_df.index)).fillna("").astype(str)
         working_df["_group_tx_type"] = working_df.get("transaction_type", pd.Series(index=working_df.index)).fillna("").astype(str)
 
+        if "transaction_date" not in working_df.columns:
+            return working_df
+
         # Sicherstellen, dass Datentypen passen
-        working_df["transaction_date"] = pd.to_datetime(working_df["transaction_date"])
+        working_df["transaction_date"] = pd.to_datetime(working_df["transaction_date"], errors="coerce")
+        working_df = working_df.dropna(subset=["transaction_date"]).copy()
+        if working_df.empty:
+            return working_df
 
         # Sortieren für die Lückenerkennung
         sort_cols = ["_group_symbol", "_group_reporting", "_group_aod", "_group_security", "_group_tx_type", "transaction_date"]
@@ -69,9 +99,52 @@ class AccumulationService:
         Gruppiert Trades zu 3-Tage-Aggregaten mit Score-Durchschnitten.
         """
         if df.empty:
-            return df
+            return pd.DataFrame(
+                columns=[
+                    "accumulation_group_id",
+                    "transaction_date",
+                    "accumulation_start_date",
+                    "accumulation_end_date",
+                    "accumulated_trade_count",
+                    "accumulated_qty",
+                    "accumulated_trade_value_estimated",
+                    "accumulated_avg_price_weighted",
+                    "score",
+                    "score_class",
+                    "direction",
+                ]
+            )
 
-        working_df = AccumulationService.tag_trades_with_groups(df, window_days)
+        working_df = df.copy()
+        if "qty" not in working_df.columns and "securities_transacted" in working_df.columns:
+            working_df["qty"] = working_df["securities_transacted"]
+
+        for numeric_col in ["qty", "trade_value_estimated", "price", "score"]:
+            if numeric_col not in working_df.columns:
+                working_df[numeric_col] = np.nan
+            working_df[numeric_col] = pd.to_numeric(working_df[numeric_col], errors="coerce")
+
+        if "acquisition_or_disposition" not in working_df.columns:
+            working_df["acquisition_or_disposition"] = ""
+        working_df["acquisition_or_disposition"] = working_df["acquisition_or_disposition"].fillna("").astype(str).str.upper()
+
+        working_df = AccumulationService.tag_trades_with_groups(working_df, window_days)
+        if working_df.empty or "accumulation_group_id" not in working_df.columns:
+            return pd.DataFrame(
+                columns=[
+                    "accumulation_group_id",
+                    "transaction_date",
+                    "accumulation_start_date",
+                    "accumulation_end_date",
+                    "accumulated_trade_count",
+                    "accumulated_qty",
+                    "accumulated_trade_value_estimated",
+                    "accumulated_avg_price_weighted",
+                    "score",
+                    "score_class",
+                    "direction",
+                ]
+            )
 
         # Aggregation definieren
         agg_funcs = {
@@ -100,7 +173,10 @@ class AccumulationService:
         grouped = working_df.groupby("accumulation_group_id").agg(existing_agg_cols)
 
         # Flatten MultiIndex Columns
-        grouped.columns = [f"{col}_{stat}" if stat not in ["first", "sum"] else col for col, stat in grouped.columns]
+        grouped.columns = [
+            "score" if (col == "score" and stat == "mean") else (f"{col}_{stat}" if stat not in ["first", "sum"] else col)
+            for col, stat in grouped.columns
+        ]
 
         # Umbenennungen für MVP-Schema
         grouped = grouped.rename(columns={
@@ -112,27 +188,46 @@ class AccumulationService:
             "filing_date_max": "filing_date"
         })
 
+        if "accumulated_trade_count" not in grouped.columns:
+            grouped["accumulated_trade_count"] = 1
+
         grouped["is_accumulated"] = grouped["accumulated_trade_count"] > 1
 
         # Gewichteter Durchschnittspreis
+        if "accumulated_qty" not in grouped.columns:
+            grouped["accumulated_qty"] = np.nan
+        if "accumulated_trade_value_estimated" not in grouped.columns:
+            grouped["accumulated_trade_value_estimated"] = np.nan
+        if "price_mean" not in grouped.columns:
+            grouped["price_mean"] = np.nan
+
         grouped["accumulated_avg_price_weighted"] = np.where(
-            grouped["accumulated_qty"] > 0,
+            grouped["accumulated_qty"].fillna(0) > 0,
             grouped["accumulated_trade_value_estimated"] / grouped["accumulated_qty"],
-            grouped["price_mean"]
+            grouped["price_mean"],
         )
 
         # Prüfe, ob mehrere Preise enthalten sind
-        price_std = working_df.groupby("accumulation_group_id")["price"].std()
-        grouped["contains_multiple_prices"] = (price_std > 0.001).fillna(False)
+        if "price" in working_df.columns:
+            price_std = working_df.groupby("accumulation_group_id")["price"].std()
+            grouped["contains_multiple_prices"] = (price_std > 0.001).fillna(False)
+        else:
+            grouped["contains_multiple_prices"] = False
 
-        grouped["transaction_date"] = grouped["accumulation_start_date"]
+        grouped["transaction_date"] = grouped.get("accumulation_start_date", pd.NaT)
+
+        if "score" not in grouped.columns:
+            grouped["score"] = np.nan
+        grouped["score"] = pd.to_numeric(grouped["score"], errors="coerce")
+        grouped["score_class"] = grouped["score"].apply(_classify_score)
 
         # Richtung mappen
-        grouped["direction"] = grouped["acquisition_or_disposition"].apply(
-            lambda x: "BUY" if x == "A" else ("SELL" if x == "D" else "UNKNOWN")
-        )
+        if "acquisition_or_disposition" not in grouped.columns:
+            grouped["acquisition_or_disposition"] = ""
+        grouped["direction"] = grouped["acquisition_or_disposition"].apply(_normalize_direction)
 
-        grouped = grouped.sort_values("accumulation_start_date", ascending=False)
+        sort_col = "accumulation_start_date" if "accumulation_start_date" in grouped.columns else "transaction_date"
+        grouped = grouped.sort_values(sort_col, ascending=False)
         return grouped.reset_index()
 
     @staticmethod

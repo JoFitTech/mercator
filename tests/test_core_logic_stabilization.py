@@ -71,3 +71,31 @@ def test_dashboard_gate_pass_kpi():
     payload = service.build_dashboard_payload()
     # Nur PASS wird gezählt.
     assert payload["gate_pass_records"] == 2
+
+
+def test_dashboard_sector_normalization_to_unknown():
+    class MockRepo:
+        def fetch_trades(self, limit=2000):
+            return pd.DataFrame(
+                [
+                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": None, "filing_date": "2024-01-01"},
+                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": "", "filing_date": "2024-01-02"},
+                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": "   ", "filing_date": "2024-01-03"},
+                ]
+            )
+
+        def count_all(self):
+            return 3
+
+    service = DashboardService(
+        raw_repo=None,
+        company_mongo_repo=None,
+        trade_repo=MockRepo(),
+        company_repo=MockRepo(),
+    )
+    payload = service.build_dashboard_payload()
+    sectors = set(payload["sector_distribution"]["sector"].astype(str).tolist())
+
+    assert "Unknown" in sectors
+    assert "None" not in sectors
+

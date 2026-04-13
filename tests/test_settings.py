@@ -156,4 +156,18 @@ def test_load_settings_reads_fmp_api_key_from_streamlit_secrets(monkeypatch) -> 
     assert app_settings.fmp.api_key_source == "streamlit_secrets"
 
 
+def test_load_settings_reads_review_mode_flags(monkeypatch) -> None:
+    monkeypatch.setenv("MERCATOR_REVIEW_MODE", "true")
+    monkeypatch.setenv("MERCATOR_DISABLE_IMPORT", "true")
+    monkeypatch.setenv("MERCATOR_DISABLE_ADMIN_DELETE", "true")
+    monkeypatch.setenv("MERCATOR_UI_TEST_MODE", "true")
+
+    settings = load_settings()
+
+    assert settings.review_mode is True
+    assert settings.disable_import is True
+    assert settings.disable_admin_delete is True
+    assert settings.ui_test_mode is True
+
+
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

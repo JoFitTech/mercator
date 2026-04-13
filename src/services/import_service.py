@@ -42,6 +42,7 @@ class ImportService:
         trade_mysql_repo: InsiderTradeMySqlRepository | None,
         company_mysql_repo: CompanyMySqlRepository | None,
         profile_fetch_statuses: tuple[str, ...] = (GATE_PASS,),
+        allow_write: bool = True,
     ) -> None:
         self.fmp_client = fmp_client
         self.gate_evaluator = gate_evaluator
@@ -50,6 +51,7 @@ class ImportService:
         self.trade_mysql_repo = trade_mysql_repo
         self.company_mysql_repo = company_mysql_repo
         self.profile_fetch_statuses = tuple(status.upper() for status in profile_fetch_statuses)
+        self.allow_write = allow_write
 
     def run_hourly_import(
         self,
@@ -58,6 +60,9 @@ class ImportService:
         profile_fetch_statuses: tuple[str, ...] | None = None,
     ) -> ImportSummary:
         """Führt einen vollständigen MVP-Importlauf aus."""
+        if not self.allow_write:
+            raise RuntimeError("Import ist deaktiviert (Review Mode / MERCATOR_DISABLE_IMPORT).")
+
         fetched_at = datetime.now(timezone.utc)
         raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
         normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]

@@ -288,6 +288,12 @@ def main() -> None:
     st.sidebar.markdown("---")
 
     settings = load_settings()
+    if settings.review_mode:
+        st.sidebar.warning("Review Mode: Read Only")
+        st.warning("Review Instance - Read Only")
+    if settings.ui_test_mode:
+        st.sidebar.info("UI Test Mode aktiv")
+
     status_service = DatabaseStatusService()
     mysql_resolution, db_status = _render_database_sidebar_status(status_service, settings, advanced_mode)
 
@@ -313,8 +319,10 @@ def main() -> None:
             except Exception as e:
                 st.sidebar.error(f"Doctor-Lauf fehlgeschlagen: {e}")
 
-    if db_status.mysql.is_connected:
+    if db_status.mysql.is_connected and not (settings.review_mode or settings.disable_import):
         _render_sync_controls(settings, mysql_resolution)
+    elif db_status.mysql.is_connected and settings.review_mode:
+        st.sidebar.info("Sync im Review Mode deaktiviert.")
 
     dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
         settings,

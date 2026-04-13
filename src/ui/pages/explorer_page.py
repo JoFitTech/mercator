@@ -99,10 +99,18 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         st.info("Keine Daten gefunden, die den Filtern entsprechen.")
         return
 
+    def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+        safe_df = frame.copy()
+        for col in columns:
+            if col not in safe_df.columns:
+                safe_df[col] = pd.NA
+        return safe_df[columns]
+
     st.subheader(f"{len(data)} Ergebnisse")
 
     if accumulate and not show_raw:
-        display_df = data[
+        display_df = _safe_select_columns(
+            data,
             [
                 "transaction_date",
                 "symbol_at_trade",
@@ -118,8 +126,11 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 "validation_status",
                 "is_accumulated",
                 "accumulated_trade_count",
-            ]
-        ].copy()
+            ],
+        ).copy()
+
+        display_df["is_accumulated"] = display_df["is_accumulated"].fillna(False).astype(bool)
+        display_df["accumulated_trade_count"] = pd.to_numeric(display_df["accumulated_trade_count"], errors="coerce").fillna(1)
 
         display_df["Type"] = display_df.apply(
             lambda r: f"ACC x{r['accumulated_trade_count']}" if r["is_accumulated"] else "Single", axis=1
@@ -157,7 +168,8 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             "Type": st.column_config.TextColumn("Typ"),
         }
     else:
-        display_df = data[
+        display_df = _safe_select_columns(
+            data,
             [
                 "transaction_date",
                 "symbol_at_trade",
@@ -171,8 +183,8 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 "score_class",
                 "gate_status",
                 "validation_status",
-            ]
-        ].copy()
+            ],
+        ).copy()
 
         final_cols = [
             "transaction_date",

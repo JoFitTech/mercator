@@ -32,6 +32,12 @@ class AdminDashboardService:
                 LOGGER.warning("MongoDB nicht verfügbar: %s", e)
                 self.mongo_available = False
 
+    def _deletes_blocked(self) -> bool:
+        return bool(self.settings.review_mode or self.settings.disable_admin_delete)
+
+    def _blocked_message(self) -> tuple[bool, str]:
+        return False, "❌ Löschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
+
     def get_mysql_stats(self) -> dict:
         """Holt Statistiken für MySQL-Datenbank."""
         try:
@@ -95,9 +101,28 @@ class AdminDashboardService:
 
     def clear_mysql_companies(self) -> tuple[bool, str]:
         """Löscht alle Einträge aus MySQL companies-Tabelle."""
+        if self._deletes_blocked():
+            return self._blocked_message()
+
         try:
             with self.mysql_client.connection(include_database=True) as conn:
-                with conn.cursor() as cursor:
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*) AS ref_count
+                        FROM insider_trades t
+                        INNER JOIN companies c ON c.company_key = t.company_key
+                        """
+                    )
+                    ref_count = int((cursor.fetchone() or {}).get("ref_count", 0))
+                    if ref_count > 0:
+                        return (
+                            False,
+                            "❌ Löschung abgebrochen: companies ist referenziert (%s insider_trades). "
+                            "Lösche zuerst insider_trades oder nutze eine dedizierte Komplettlöschung."
+                            % ref_count,
+                        )
+
                     cursor.execute("DELETE FROM companies")
                     deleted_count = cursor.rowcount
                     conn.commit()
@@ -112,14 +137,14 @@ class AdminDashboardService:
 
     def clear_mysql_trades(self) -> tuple[bool, str]:
         """Löscht alle Einträge aus MySQL insider_trades-Tabelle."""
+        if self._deletes_blocked():
+            return self._blocked_message()
+
         try:
             with self.mysql_client.connection(include_database=True) as conn:
                 with conn.cursor() as cursor:
-                    # Zuerst Foreign Key constraints deaktivieren
-                    cursor.execute("SET FOREIGN_KEY_CHECKS=0")
                     cursor.execute("DELETE FROM insider_trades")
                     deleted_count = cursor.rowcount
-                    cursor.execute("SET FOREIGN_KEY_CHECKS=1")
                     conn.commit()
 
             msg = f"✅ {deleted_count} Insidertrades gelöscht"
@@ -132,12 +157,12 @@ class AdminDashboardService:
 
     def clear_mysql_all(self) -> tuple[bool, str]:
         """Löscht alle Daten aus MySQL-Datenbank."""
+        if self._deletes_blocked():
+            return self._blocked_message()
+
         try:
             with self.mysql_client.connection(include_database=True) as conn:
                 with conn.cursor() as cursor:
-                    # Zuerst Foreign Key constraints deaktivieren
-                    cursor.execute("SET FOREIGN_KEY_CHECKS=0")
-
                     tables_to_clear = [
                         "insider_trades",
                         "companies",
@@ -149,8 +174,6 @@ class AdminDashboardService:
                     for table in tables_to_clear:
                         cursor.execute(f"DELETE FROM {table}")
                         total_deleted += cursor.rowcount
-
-                    cursor.execute("SET FOREIGN_KEY_CHECKS=1")
                     conn.commit()
 
             msg = f"✅ MySQL Datenbank geleert: {total_deleted} Einträge gelöscht"
@@ -163,6 +186,9 @@ class AdminDashboardService:
 
     def clear_mongo_companies(self) -> tuple[bool, str]:
         """Löscht alle Einträge aus MongoDB companies-Collection."""
+        if self._deletes_blocked():
+            return self._blocked_message()
+
         if not self.mongo_available or not self.mongo_client:
             return False, "❌ MongoDB nicht verfügbar"
 
@@ -181,6 +207,9 @@ class AdminDashboardService:
 
     def clear_mongo_trades(self) -> tuple[bool, str]:
         """Löscht alle Einträge aus MongoDB insider_trades_raw-Collection."""
+        if self._deletes_blocked():
+            return self._blocked_message()
+
         if not self.mongo_available or not self.mongo_client:
             return False, "❌ MongoDB nicht verfügbar"
 
@@ -201,6 +230,9 @@ class AdminDashboardService:
 
     def clear_mongo_all(self) -> tuple[bool, str]:
         """Löscht alle Daten aus MongoDB."""
+        if self._deletes_blocked():
+            return self._blocked_message()
+
         if not self.mongo_available or not self.mongo_client:
             return False, "❌ MongoDB nicht verfügbar"
 
@@ -249,6 +281,10 @@ def render_admin_page(
 
     st.markdown("# 🔐 Admin Dashboard")
     st.markdown("---")
+
+    delete_blocked = settings.review_mode or settings.disable_admin_delete
+    if settings.review_mode:
+        st.warning("Review Instance - Read Only: Löschaktionen sind deaktiviert.")
 
     # Initialize service
     admin_service = AdminDashboardService(settings, mysql_client, mongo_available)
@@ -357,6 +393,7 @@ def render_admin_page(
                 "🗑️ Alle Companies löschen",
                 key="delete_mysql_companies",
                 help="Löscht alle Einträge aus der companies-Tabelle",
+                disabled=delete_blocked,
             ):
                 with st.spinner("Lösche companies..."):
                     success, message = admin_service.clear_mysql_companies()
@@ -369,6 +406,7 @@ def render_admin_page(
                 "🗑️ Alle Insider Trades löschen",
                 key="delete_mysql_trades",
                 help="Löscht alle Einträge aus der insider_trades-Tabelle",
+                disabled=delete_blocked,
             ):
                 with st.spinner("Lösche insider_trades..."):
                     success, message = admin_service.clear_mysql_trades()
@@ -384,6 +422,7 @@ def render_admin_page(
                 "⚠️ ALLE Daten löschen (Gefährlich!)",
                 key="delete_mysql_all",
                 help="Löscht ALLE Daten aus der MySQL-Datenbank",
+                disabled=delete_blocked,
             ):
                 st.warning(
                     "⚠️ **Dies ist gefährlich!** Alle Daten werden gelöscht!"
@@ -443,6 +482,7 @@ def render_admin_page(
                     "🗑️ Alle Companies löschen",
                     key="delete_mongo_companies",
                     help="Löscht alle Dokumente aus der companies-Collection",
+                    disabled=delete_blocked,
                 ):
                     with st.spinner("Lösche companies..."):
                         success, message = admin_service.clear_mongo_companies()
@@ -455,6 +495,7 @@ def render_admin_page(
                     "🗑️ Alle Insider Trades löschen",
                     key="delete_mongo_trades",
                     help="Löscht alle Dokumente aus der insider_trades-Collection",
+                    disabled=delete_blocked,
                 ):
                     with st.spinner("Lösche insider_trades..."):
                         success, message = admin_service.clear_mongo_trades()
@@ -470,6 +511,7 @@ def render_admin_page(
                     "⚠️ ALLE Daten löschen (Gefährlich!)",
                     key="delete_mongo_all",
                     help="Löscht ALLE Daten aus MongoDB",
+                    disabled=delete_blocked,
                 ):
                     st.warning(
                         "⚠️ **Dies ist gefährlich!** Alle Daten werden gelöscht!"

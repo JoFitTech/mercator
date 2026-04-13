@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: mercator-review
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: APP_ENV
+        value: review
+      - key: APP_TITLE
+        value: Mercator Review
+      - key: MERCATOR_REVIEW_MODE
+        value: "true"
+      - key: MERCATOR_DISABLE_IMPORT
+        value: "true"
+      - key: MERCATOR_DISABLE_ADMIN_DELETE
+        value: "true"
+      - key: MERCATOR_UI_TEST_MODE
+        value: "true"
+      - key: MYSQL_ACTIVE_TARGET
+        value: local
+      - key: MONGO_ACTIVE_TARGET
+        value: local
+      - key: LOCAL_MYSQL_HOST
+        sync: false
+      - key: LOCAL_MYSQL_PORT
+        value: "3306"
+      - key: LOCAL_MYSQL_DATABASE
+        sync: false
+      - key: LOCAL_MYSQL_USER
+        sync: false
+      - key: LOCAL_MYSQL_PASSWORD
+        sync: false
+      - key: LOCAL_MONGO_URI
+        sync: false
+      - key: LOCAL_MONGO_DATABASE
+        sync: false
+      - key: FMP_API_KEY
+        sync: false
+

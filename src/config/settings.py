@@ -477,6 +477,10 @@ class AppSettings:
     mongo: MongoConfig
     fmp: FmpConfig
     gate: GateConfig
+    review_mode: bool
+    disable_import: bool
+    disable_admin_delete: bool
+    ui_test_mode: bool
 
 
 def load_settings() -> AppSettings:
@@ -522,6 +526,10 @@ def load_settings() -> AppSettings:
                 if item.strip()
             ),
         ),
+        review_mode=_read_bool_env("MERCATOR_REVIEW_MODE", default=False),
+        disable_import=_read_bool_env("MERCATOR_DISABLE_IMPORT", default=False),
+        disable_admin_delete=_read_bool_env("MERCATOR_DISABLE_ADMIN_DELETE", default=False),
+        ui_test_mode=_read_bool_env("MERCATOR_UI_TEST_MODE", default=False),
     )
 
     if not _SETTINGS_DEBUG_LOGGED:

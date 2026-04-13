@@ -28,6 +28,9 @@ def render_dashboard_page(
     st.markdown("### Dashboard")
     st.caption("Überblick über importierte Datensätze, Kennzahlen und erste Analyseergebnisse.")
 
+    if settings is not None and settings.review_mode:
+        st.warning("Review Instance - Read Only (Import und Löschaktionen sind deaktiviert).")
+
     advanced_mode = st.session_state.get("advanced_mode", False)
 
     runtime_settings = runtime_settings_service.load() if runtime_settings_service else None
@@ -94,23 +97,30 @@ def render_dashboard_page(
                     )
                 )
 
-            if st.button("Datenimport jetzt starten", type="primary", use_container_width=True):
+            import_blocked = settings.review_mode or settings.disable_import
+            if import_blocked:
+                st.info("Import ist im Review Mode deaktiviert.")
+
+            if st.button("Datenimport jetzt starten", type="primary", use_container_width=True, disabled=import_blocked):
                 if import_service is None:
                     st.warning("Import derzeit nicht verfuegbar. Rohdatenspeicherung deaktiviert.")
                     error_detail = st.session_state.get("import_service_error")
                     if error_detail:
                         st.caption(f"Technischer Hinweis: {error_detail}")
                 else:
-                    with st.spinner("Import läuft..."):
-                        summary = import_service.run_hourly_import(
-                            page=int(page),
-                            limit=int(limit),
-                            profile_fetch_statuses=tuple(selected_statuses),
+                    try:
+                        with st.spinner("Import läuft..."):
+                            summary = import_service.run_hourly_import(
+                                page=int(page),
+                                limit=int(limit),
+                                profile_fetch_statuses=tuple(selected_statuses),
+                            )
+                        st.success(
+                            "Import erfolgreich abgeschlossen: %s Rohdatensätze, %s Profile geladen."
+                            % (summary.fetched_feed_records, summary.fetched_profiles)
                         )
-                    st.success(
-                        "Import erfolgreich abgeschlossen: %s Rohdatensätze, %s Profile geladen."
-                        % (summary.fetched_feed_records, summary.fetched_profiles)
-                    )
+                    except RuntimeError as exc:
+                        st.warning(str(exc))
 
     if service is None:
         st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")

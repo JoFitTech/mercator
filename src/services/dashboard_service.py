@@ -62,14 +62,25 @@ class DashboardService:
             trades_df["event_date"] = pd.to_datetime(trades_df[date_col], errors="coerce").dt.date
 
         if "acquisition_or_disposition" in trades_df.columns:
-            trades_df["direction"] = trades_df["acquisition_or_disposition"].apply(
-                lambda x: "BUY" if x == "A" else ("SELL" if x == "D" else "UNKNOWN")
+            trades_df["direction"] = (
+                trades_df["acquisition_or_disposition"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
+                .fillna("UNKNOWN")
             )
         else:
             trades_df["direction"] = "UNKNOWN"
 
         if "trade_value_estimated" not in trades_df.columns:
             trades_df["trade_value_estimated"] = 0
+
+        if "sector" not in trades_df.columns:
+            trades_df["sector"] = "Unknown"
+        trades_df["sector"] = trades_df["sector"].fillna("").astype(str)
+        trades_df["sector"] = trades_df["sector"].str.strip().replace("", "Unknown")
 
         # 1. Transaktionstypen
         payload["transaction_type_distribution"] = (

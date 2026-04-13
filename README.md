@@ -225,6 +225,33 @@ Hinweise:
 - Für native Runs außerhalb Docker kann `LOCAL_MYSQL_HOST=localhost` in `.env` unverändert bleiben.
 - Persistenz erfolgt über die Volumes `mongo_data` und `mysql_data`.
 
+## Render Review Deployment
+- Render nutzt das bestehende `Dockerfile` als Docker Web Service (`render.yaml`).
+- Die Review-Instanz ist oeffentlich erreichbar und nutzt den Healthcheck `/_stcore/health`.
+- Setze fuer Review mindestens:
+  - `APP_ENV=review`
+  - `APP_TITLE=Mercator Review`
+  - `MERCATOR_REVIEW_MODE=true`
+  - `MERCATOR_DISABLE_IMPORT=true`
+  - `MERCATOR_DISABLE_ADMIN_DELETE=true`
+  - `MERCATOR_UI_TEST_MODE=true`
+- Setze zusaetzlich externe Ziele/Secrets fuer Datenquellen:
+  - `MYSQL_ACTIVE_TARGET`, `MONGO_ACTIVE_TARGET`
+  - `LOCAL_MYSQL_HOST`, `LOCAL_MYSQL_PORT`, `LOCAL_MYSQL_DATABASE`, `LOCAL_MYSQL_USER`, `LOCAL_MYSQL_PASSWORD`
+  - `LOCAL_MONGO_URI`, `LOCAL_MONGO_DATABASE`
+  - `FMP_API_KEY`
+- In Review Mode sind Import und Delete serverseitig blockiert (read-only Sicherheit).
+- Nach Deploy testen: Healthcheck, Navigation aller Seiten, Explorer/Ticker-Detail ohne Score-KeyError.
+
+Siehe auch: `docs/deployment/render_review.md`.
+
+## UI Testing mit GPT-Agent
+- Verwende die oeffentliche Render-URL ohne Login-Pflicht.
+- Stelle sicher, dass Review Mode aktiv ist (`MERCATOR_REVIEW_MODE=true`).
+- Halte Seitentitel und Navigation stabil (`Dashboard`, `Explorer`, `Ticker-Detailansicht`, `Admin`).
+- Destruktive Aktionen (Import/Delete) muessen deaktiviert bleiben.
+- Falls CDN/WAF vorgeschaltet ist, Agent-Traffic fuer Browser-Navigation zulassen.
+
 ### Docker-Stack komplett zurücksetzen
 Wenn du Container sowie lokale MongoDB- und MySQL-Daten frisch neu aufsetzen willst, entferne den Stack inklusive Volumes und starte danach neu:
 

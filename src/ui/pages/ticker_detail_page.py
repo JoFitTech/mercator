@@ -65,6 +65,13 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     result = service.get_ticker_detail(selected_symbol, accumulate=True)
     profile = result.company_profile
 
+    def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+        safe_df = frame.copy()
+        for col in columns:
+            if col not in safe_df.columns:
+                safe_df[col] = pd.NA
+        return safe_df[columns]
+
     # Layout mit Tabs für bessere Übersicht
     tab1, tab2, tab3 = st.tabs(["Overview & Trades", "Company Context", "Advanced Raw"])
 
@@ -81,10 +88,29 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
         
         if result.rows:
             df_display = pd.DataFrame(result.rows)
+            for col, default in {
+                "is_accumulated": False,
+                "accumulated_trade_count": 1,
+                "accumulation_start_date": pd.NaT,
+                "accumulation_end_date": pd.NaT,
+                "transaction_date": pd.NaT,
+            }.items():
+                if col not in df_display.columns:
+                    df_display[col] = default
+
+            df_display["is_accumulated"] = df_display["is_accumulated"].fillna(False).astype(bool)
+            df_display["accumulated_trade_count"] = pd.to_numeric(df_display["accumulated_trade_count"], errors="coerce").fillna(1)
+            df_display["accumulation_start_date"] = pd.to_datetime(df_display["accumulation_start_date"], errors="coerce")
+            df_display["accumulation_end_date"] = pd.to_datetime(df_display["accumulation_end_date"], errors="coerce")
+            df_display["transaction_date"] = pd.to_datetime(df_display["transaction_date"], errors="coerce")
+
             # Spalten für die Detailansicht aufbereiten
             df_display["Range"] = df_display.apply(
-                lambda r: f"{pd.to_datetime(r['accumulation_start_date']).date()} bis {pd.to_datetime(r['accumulation_end_date']).date()}" 
-                if r['is_accumulated'] else pd.to_datetime(r['transaction_date']).date(), 
+                lambda r: (
+                    f"{r['accumulation_start_date'].date()} bis {r['accumulation_end_date'].date()}"
+                    if r["is_accumulated"] and pd.notna(r["accumulation_start_date"]) and pd.notna(r["accumulation_end_date"])
+                    else (r["transaction_date"].date() if pd.notna(r["transaction_date"]) else "-")
+                ),
                 axis=1
             )
             df_display["Type"] = df_display.apply(
@@ -94,19 +120,22 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
 
             # Wir nutzen st.dataframe mit NumberColumn für korrektes Sorting
             st.dataframe(
-                df_display[[
-                    "Range",
-                    "reporting_name",
-                    "direction",
-                    "accumulated_qty",
-                    "accumulated_avg_price_weighted",
-                    "accumulated_trade_value_estimated",
-                    "score",
-                    "score_class",
-                    "gate_status",
-                    "validation_status",
-                    "Type",
-                ]],
+                _safe_select_columns(
+                    df_display,
+                    [
+                        "Range",
+                        "reporting_name",
+                        "direction",
+                        "accumulated_qty",
+                        "accumulated_avg_price_weighted",
+                        "accumulated_trade_value_estimated",
+                        "score",
+                        "score_class",
+                        "gate_status",
+                        "validation_status",
+                        "Type",
+                    ],
+                ),
                 column_config={
                     "Range": st.column_config.TextColumn("Zeitraum/Datum"),
                     "reporting_name": st.column_config.TextColumn("Insider"),
@@ -130,11 +159,16 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
                 with st.expander("Einzeltrades für Akkumulationen einsehen"):
                     raw_df = pd.DataFrame(result.raw_rows)
                     for acc in accumulated_trades:
-                        st.write(f"**Gruppe {acc['accumulation_group_id']}** ({acc['reporting_name']}, {acc['direction']})")
+                        group_id = acc.get("accumulation_group_id")
+                        reporting_name = acc.get("reporting_name", "-")
+                        direction = acc.get("direction", "UNKNOWN")
+                        st.write(f"**Gruppe {group_id}** ({reporting_name}, {direction})")
                         # Matching über die neue accumulation_group_id
-                        group_trades = raw_df[raw_df["accumulation_group_id"] == acc["accumulation_group_id"]]
-                        
-                        st.table(group_trades[["transaction_date", "qty", "price", "trade_value_estimated", "security_name"]])
+                        if "accumulation_group_id" not in raw_df.columns:
+                            st.caption("Keine Gruppierungsdetails verfügbar.")
+                            continue
+                        group_trades = raw_df[raw_df["accumulation_group_id"] == group_id]
+                        st.table(_safe_select_columns(group_trades, ["transaction_date", "qty", "price", "trade_value_estimated", "security_name"]))
         else:
             st.write("Keine Transaktionen gefunden.")
 

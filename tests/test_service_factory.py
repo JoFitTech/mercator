@@ -64,6 +64,10 @@ def _build_settings() -> AppSettings:
         mongo=MongoConfig(active_target="local", uri="mongodb://localhost:27017/", database="mercator"),
         fmp=FmpConfig(base_url="https://example.test", api_key="placeholder", api_key_source="env"),
         gate=GateConfig(),
+        review_mode=False,
+        disable_import=False,
+        disable_admin_delete=False,
+        ui_test_mode=False,
     )
 
 
