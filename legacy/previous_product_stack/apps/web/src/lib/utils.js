@@ -297,7 +297,7 @@ Asset-Kontext:
 - analysisType: ${analysisType || 'nicht gesetzt'}
 
 Ziel:
-- Standardisierte Analyse für FinanzPort.
+- Standardisierte Analyse für Mercator.
 - Fokus auf Hard Gates, Score-Blöcke, These, Katalysator, Risiko, Management und Regulatorik.
 
 Harte Regeln:
