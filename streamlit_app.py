@@ -22,6 +22,7 @@ from src.ui.pages.dashboard_page import render_dashboard_page
 from src.ui.pages.explorer_page import render_explorer_page
 from src.ui.pages.methodology_page import render_methodology_page
 from src.ui.pages.ticker_detail_page import render_ticker_detail_page
+from src.ui.pages.admin_page import render_admin_page
 from src.utils.logging_utils import get_logger
 
 MYSQL_TARGET_STATE_KEY = "mysql_runtime_target"
@@ -347,6 +348,12 @@ def main() -> None:
             return
         render_ticker_detail_page(analysis_service)
 
+    def _admin() -> None:
+        if mysql_resolution is None:
+            st.error("Admin-Panel benötigt MySQL-Verbindung.")
+            return
+        render_admin_page(settings, mysql_resolution.client, db_status.mongo.is_connected)
+
     pages = [st.Page(_dashboard, title="Dashboard", icon=":material/dashboard:", default=True)]
     if analysis_service is not None:
         pages.extend(
@@ -356,6 +363,7 @@ def main() -> None:
             ]
         )
     pages.append(st.Page(render_methodology_page, title="Methodik", icon=":material/schema:"))
+    pages.append(st.Page(_admin, title="Admin", icon=":material/admin_panel_settings:"))
     nav = st.navigation(pages)
     nav.run()
 
