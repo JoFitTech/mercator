@@ -74,6 +74,44 @@ function Remove-Legacy-Containers {
     }
 }
 
+function Get-AppUrl {
+    """
+    Ermittelt die beste lokale URL fuer die App:
+    1) Docker-Port-Mapping des laufenden `mercator-app` Containers
+    2) Letzte Streamlit-Logdatei (`streamlit_*.log`) und deren `Local URL`
+    3) Fallback auf localhost:8501
+    """
+
+    try {
+        $ports = docker ps --filter "name=^/mercator-app$" --format "{{.Ports}}"
+        if ($ports) {
+            # Beispiel: 127.0.0.1:8501->8501/tcp
+            $m = [regex]::Match(($ports | Out-String), "127\.0\.0\.1:(\d+)->")
+            if ($m.Success) {
+                return "http://localhost:$($m.Groups[1].Value)"
+            }
+        }
+    } catch {
+        # Docker nicht verfuegbar oder kein laufender Container.
+    }
+
+    try {
+        $latestLog = Get-ChildItem -Path $PSScriptRoot -Filter "streamlit_*.log" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($latestLog) {
+            $line = Select-String -Path $latestLog.FullName -Pattern "^\s*Local URL:\s*(http://\S+)" | Select-Object -Last 1
+            if ($line -and $line.Matches.Count -gt 0) {
+                return $line.Matches[0].Groups[1].Value
+            }
+        }
+    } catch {
+        # Keine Logdatei verfuegbar oder nicht parsebar.
+    }
+
+    return "http://localhost:8501"
+}
+
 function Invoke-Compose {
     param(
         [Parameter(ValueFromRemainingArguments = $true)]
@@ -135,7 +173,8 @@ switch ($Action) {
             Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
             Invoke-ComposeQuiet up -d --wait
         }
-        Write-Host "Mercator gestartet. App: http://localhost:8501" -ForegroundColor Green
+        $appUrl = Get-AppUrl
+        Write-Host "Mercator gestartet. App: $appUrl" -ForegroundColor Green
     }
     "stop" {
         Invoke-Compose down
@@ -153,7 +192,8 @@ switch ($Action) {
             Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
             Invoke-ComposeQuiet up -d --wait
         }
-        Write-Host "Mercator neu gestartet. App: http://localhost:8501" -ForegroundColor Green
+        $appUrl = Get-AppUrl
+        Write-Host "Mercator neu gestartet. App: $appUrl" -ForegroundColor Green
     }
     "status" {
         Invoke-Compose ps
@@ -174,7 +214,8 @@ switch ($Action) {
         Invoke-Compose exec app python -m src.scripts.db_doctor
     }
     "open" {
-        Start-Process "http://localhost:8501"
+        $appUrl = Get-AppUrl
+        Start-Process $appUrl
     }
     "cleanup" {
         # Entfernt alte Container, die nicht zum neuen Stack gehoeren (Name 'mercator-*').
