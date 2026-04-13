@@ -58,8 +58,14 @@ class CompanyRepository:
                 company_cik = COALESCE(VALUES(company_cik), company_cik),
                 current_symbol = COALESCE(VALUES(current_symbol), current_symbol),
                 company_name = COALESCE(VALUES(company_name), company_name),
-                profile_status = VALUES(profile_status),
-                profile_reason = VALUES(profile_reason),
+                profile_status = CASE
+                    WHEN VALUES(profile_status) = 'NOT_REQUESTED' AND profile_status = 'FETCHED' THEN profile_status
+                    ELSE VALUES(profile_status)
+                END,
+                profile_reason = CASE
+                    WHEN VALUES(profile_status) = 'NOT_REQUESTED' AND profile_status = 'FETCHED' THEN profile_reason
+                    ELSE VALUES(profile_reason)
+                END,
                 first_seen_at = COALESCE(first_seen_at, VALUES(first_seen_at)),
                 last_seen_at = COALESCE(VALUES(last_seen_at), last_seen_at),
                 market_cap = VALUES(market_cap),

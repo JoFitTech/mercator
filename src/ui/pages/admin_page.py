@@ -3,19 +3,10 @@
 from __future__ import annotations
 
 import streamlit as st
-from datetime import datetime
 
 from src.config.settings import AppSettings
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_client import MySqlClient
-from src.db.mysql_repository import (
-    CompanyMySqlRepository,
-    InsiderTradeMySqlRepository,
-)
-from src.db.mongo_repository import (
-    CompanyMongoRepository,
-    InsiderTradeMongoRepository,
-)
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
@@ -93,7 +84,7 @@ class AdminDashboardService:
             stats = {}
 
             # Collection counts
-            for collection_name in ["companies", "insider_trades"]:
+            for collection_name in ["companies", "insider_trades_raw"]:
                 collection = db[collection_name]
                 stats[f"{collection_name}_count"] = collection.count_documents({})
 
@@ -189,22 +180,22 @@ class AdminDashboardService:
             return False, error_msg
 
     def clear_mongo_trades(self) -> tuple[bool, str]:
-        """Löscht alle Einträge aus MongoDB insider_trades-Collection."""
+        """Löscht alle Einträge aus MongoDB insider_trades_raw-Collection."""
         if not self.mongo_available or not self.mongo_client:
             return False, "❌ MongoDB nicht verfügbar"
 
         try:
             db = self.mongo_client.get_database()
-            collection = db["insider_trades"]
+            collection = db["insider_trades_raw"]
             result = collection.delete_many({})
 
             msg = f"✅ {result.deleted_count} Insidertrades gelöscht"
             LOGGER.info(
-                "MongoDB insider_trades geleert: %d Dokumente", result.deleted_count
+                "MongoDB insider_trades_raw geleert: %d Dokumente", result.deleted_count
             )
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Löschen von MongoDB insider_trades: {e}"
+            error_msg = f"❌ Fehler beim Löschen von MongoDB insider_trades_raw: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
@@ -215,7 +206,7 @@ class AdminDashboardService:
 
         try:
             db = self.mongo_client.get_database()
-            collections_to_clear = ["companies", "insider_trades"]
+            collections_to_clear = ["companies", "insider_trades_raw"]
             total_deleted = 0
 
             for collection_name in collections_to_clear:
@@ -339,7 +330,7 @@ def render_admin_page(
                     with metric_cols[1]:
                         st.metric(
                             "Insidertrades",
-                            mongo_stats.get("insider_trades_count", 0),
+                            mongo_stats.get("insider_trades_raw_count", 0),
                             delta=None,
                         )
 

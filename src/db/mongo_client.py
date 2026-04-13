@@ -14,11 +14,19 @@ class MongoClientWrapper:
     def __init__(self, config: MongoConfig, server_selection_timeout_ms: int = 3000) -> None:
         self.config = config
         self._server_selection_timeout_ms = server_selection_timeout_ms
+        self._client: MongoClient | None = None
 
     def get_database(self) -> Database:
         """Liefert die konfigurierte Datenbankinstanz zurück."""
-        client = MongoClient(
-            self.config.uri,
-            serverSelectionTimeoutMS=self._server_selection_timeout_ms,
-        )
-        return client[self.config.database]
+        if self._client is None:
+            self._client = MongoClient(
+                self.config.uri,
+                serverSelectionTimeoutMS=self._server_selection_timeout_ms,
+            )
+        return self._client[self.config.database]
+
+    def close(self) -> None:
+        """Schließt den internen MongoClient, falls vorhanden."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None

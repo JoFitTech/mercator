@@ -57,7 +57,7 @@ class _FakeCollection:
             result.append(projected)
         return result
 
-    def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
+    def find_one(self, query: dict[str, Any], projection: dict[str, int] | None = None) -> dict[str, Any] | None:
         for doc in self.docs:
             company_key_matches = doc.get("company_key") == query.get("company_key")
             if not company_key_matches:
@@ -66,7 +66,15 @@ class _FakeCollection:
             profile_updated_at = doc.get("profile_updated_at")
             if threshold is not None and (profile_updated_at is None or profile_updated_at < threshold):
                 continue
-            return dict(doc)
+            if projection is None:
+                return dict(doc)
+            projected: dict[str, Any] = {}
+            for field, include in projection.items():
+                if include and field in doc:
+                    projected[field] = doc[field]
+            if "_id" in doc:
+                projected.setdefault("_id", doc["_id"])
+            return projected
         return None
 
     def update_one(self, query: dict[str, Any], update: dict[str, Any], upsert: bool = False) -> _UpdateResult:
@@ -134,4 +142,35 @@ def test_company_repository_repairs_documents_before_unique_index() -> None:
     index_definition = collection.index_information()["company_key_unique"]
     assert index_definition["unique"] is True
     assert index_definition["key"] == [("company_key", 1)]
+
+
+def test_upsert_profile_does_not_downgrade_fetched_status_with_stub() -> None:
+    now = datetime.now(timezone.utc)
+    docs = [
+        {
+            "_id": 1,
+            "company_key": "SYM:ABC",
+            "profile_status": "FETCHED",
+            "profile_reason": "api_fetch",
+            "company_name": "ABC Corp",
+            "updated_at": now,
+        }
+    ]
+    collection = _FakeCollection(docs)
+    repo = CompanyMongoRepository(_FakeMongoClientWrapper(collection))
+
+    repo.upsert_profile(
+        {
+            "company_key": "SYM:ABC",
+            "profile_status": "NOT_REQUESTED",
+            "profile_reason": None,
+            "last_seen_at": now,
+        }
+    )
+
+    updated = next(doc for doc in collection.docs if doc["company_key"] == "SYM:ABC")
+    assert updated["profile_status"] == "FETCHED"
+    assert updated["profile_reason"] == "api_fetch"
+    assert updated["company_name"] == "ABC Corp"
+
 

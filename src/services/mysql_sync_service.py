@@ -86,8 +86,8 @@ class MySqlSyncService:
 
             for row in batch:
                 read_count += 1
-                symbol = str(row.get("current_symbol") or row.get("symbol") or "").strip()
-                if not symbol:
+                company_key = str(row.get("company_key") or "").strip()
+                if not company_key:
                     skipped_count += 1
                     continue
 
@@ -285,7 +285,10 @@ class MySqlSyncService:
                     return datetime.min
                 if isinstance(val, datetime):
                     return val
-                return datetime.min
+                try:
+                    return pd.Timestamp(val).to_pydatetime()
+                except Exception:
+                    return datetime.min
 
             l_max = max(_to_dt(l_comp), _to_dt(l_trade))
             u_max = max(_to_dt(u_comp), _to_dt(u_trade))

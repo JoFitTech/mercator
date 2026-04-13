@@ -49,7 +49,7 @@ UNI_MYSQL_HOST=wi-web.heilbronn.dhbw.de
 UNI_MYSQL_PORT=3306
 UNI_MYSQL_DATABASE=WI24A2_3_DB_User9_DBJosef
 UNI_MYSQL_USER=WI24A2_3_DB_User9
-UNI_MYSQL_PASSWORD=WI2026!InitPwd
+UNI_MYSQL_PASSWORD=<set-via-env>
 UNI_MYSQL_CONNECT_TIMEOUT=5
 UNI_MYSQL_CREATE_DATABASE=false
 UNI_MYSQL_SSL_DISABLED=true
@@ -67,7 +67,7 @@ conn = mysql.connector.connect(
     host="wi-web.heilbronn.dhbw.de",
     port=3306,
     user="WI24A2_3_DB_User9",
-    password="WI2026!InitPwd",
+    password="<read from env>",
     database="WI24A2_3_DB_User9_DBJosef",
     connection_timeout=5,
     ssl_disabled=True
@@ -384,7 +384,7 @@ UNI_MYSQL_HOST=wi-web.heilbronn.dhbw.de
 UNI_MYSQL_PORT=3306
 UNI_MYSQL_DATABASE=WI24A2_3_DB_User9_DBJosef
 UNI_MYSQL_USER=WI24A2_3_DB_User9
-UNI_MYSQL_PASSWORD=WI2026!InitPwd
+UNI_MYSQL_PASSWORD=<set-via-env>
 
 # Active Target (can switch between local and uni)
 MYSQL_ACTIVE_TARGET=uni

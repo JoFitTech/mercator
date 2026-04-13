@@ -202,8 +202,21 @@ class CompanyMongoRepository:
             raise ValueError(
                 "CompanyMongoRepository.upsert_profile requires a non-empty 'company_key'."
             )
-        payload = dict(company)
+        payload = {k: v for k, v in dict(company).items() if v is not None}
         payload["company_key"] = normalized_key
+        existing = self.collection.find_one(
+            {"company_key": normalized_key},
+            {"profile_status": 1, "profile_reason": 1},
+        )
+        # Ein bereits angereichertes Profil darf nicht durch einen Stub zurückgestuft werden.
+        if (
+            existing
+            and str(existing.get("profile_status") or "").upper() == "FETCHED"
+            and str(payload.get("profile_status") or "").upper() == "NOT_REQUESTED"
+        ):
+            payload.pop("profile_status", None)
+            payload.pop("profile_reason", None)
+
         self.collection.update_one(
             {"company_key": normalized_key},
             {"$set": payload},

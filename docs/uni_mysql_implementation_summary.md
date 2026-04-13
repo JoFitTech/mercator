@@ -35,7 +35,7 @@ Die Uni-MySQL-Anbindung ist **vollständig implementiert** und **produktionsbere
 + UNI_MYSQL_USER=WI24A2_3_DB_User9
 
 - UNI_MYSQL_PASSWORD=
-+ UNI_MYSQL_PASSWORD=WI2026!InitPwd
++ UNI_MYSQL_PASSWORD=<set-via-env>
 ```
 
 **Sicherheit:**
