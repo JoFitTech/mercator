@@ -217,11 +217,20 @@ class CompanyMongoRepository:
             payload.pop("profile_status", None)
             payload.pop("profile_reason", None)
 
-        self.collection.update_one(
-            {"company_key": normalized_key},
-            {"$set": payload},
-            upsert=True,
-        )
+        try:
+            self.collection.update_one(
+                {"company_key": normalized_key},
+                {"$set": payload},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            # Race Condition: In der Zeit zwischen find_one und update_one wurde der Key angelegt.
+            # Ein zweiter Versuch als reines Update ist sicher.
+            self.collection.update_one(
+                {"company_key": normalized_key},
+                {"$set": payload},
+                upsert=False,
+            )
 
     def count_all(self) -> int:
         """Liefert Anzahl der gespeicherten Profile."""

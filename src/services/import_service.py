@@ -70,6 +70,9 @@ class ImportService:
         # Fachregel: API-2-Abfrage nur für Pre-Gate PASS.
         effective_profile_fetch_statuses = {GATE_PASS}
 
+        # 1. Schritt: Alle Trades normalisieren, evaluieren und Stubs erstellen
+        unique_company_stubs: dict[str, dict[str, Any]] = {}
+
         for item in normalized:
             decision = self.gate_evaluator.evaluate(item)
             item["gate_status"] = decision.status
@@ -78,6 +81,13 @@ class ImportService:
             item["score"] = score_value
             item["score_value"] = score_value
             item["score_class"] = score_class
+
+            company_key = item.get("company_key")
+            if company_key and company_key not in unique_company_stubs:
+                unique_company_stubs[company_key] = item
+
+        # 2. Schritt: Einmaliges Upsert pro Firma
+        for company_key, item in unique_company_stubs.items():
             self._upsert_company_stub(item, fetched_at)
 
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
