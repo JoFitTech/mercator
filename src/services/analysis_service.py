@@ -58,9 +58,12 @@ class AnalysisService:
         self.fmp_client = fmp_client
 
     def list_ticker_options(self) -> list[str]:
-        """Liefert ausschließlich symbolbasierte, bereinigte Tickeroptionen."""
+        """Liefert ausschließlich symbolbasierte, bereinigte Tickeroptionen.
 
-        symbols = self.trade_repo.fetch_all_symbols() + self.company_repo.fetch_all_symbols()
+        Fokussiert auf Ticker, für die tatsächlich Trades in der MySQL-Datenbank vorliegen.
+        """
+
+        symbols = self.trade_repo.fetch_all_symbols()
         return sanitize_symbol_options(symbols)
 
     @staticmethod
@@ -297,12 +300,30 @@ class AnalysisService:
 
         trades = self.trade_repo.fetch_trades(filters={"symbol": normalized_symbol}, limit=500)
         if trades.empty:
+            # Fallback nur auf SYM, nicht auf CIK für die Symbol-Detailansicht
             trades = self.trade_repo.fetch_trades(filters={"company_key": f"SYM:{normalized_symbol}"}, limit=500)
-            if trades.empty:
-                trades = self.trade_repo.fetch_trades(filters={"company_key": f"CIK:{normalized_symbol}"}, limit=500)
-            
+
         trades = self._ensure_trade_columns(trades)
-        profile, profile_source = self._load_or_fetch_company_profile(normalized_symbol)
+
+        # Gate-Analyse für Enrichment-Regel und UI-Status
+        gate_statuses = set()
+        if not trades.empty and "gate_status" in trades.columns:
+            gate_statuses = set(trades["gate_status"].fillna("").astype(str).str.upper().unique())
+
+        # Fachregel: Company Context nur für PASS und HOLD (PENDING), nicht für FAIL
+        company_context_allowed = any(s in {"PASS", "PENDING"} for s in gate_statuses)
+
+        if company_context_allowed:
+            profile, profile_source = self._load_or_fetch_company_profile(normalized_symbol)
+        else:
+            profile, profile_source = {}, "fail_excluded" if not trades.empty else "no_trades"
+
+        # Bestimmung des Gesamtstatus für die UI-Visualisierung
+        overall_status = "FAIL"
+        if "PASS" in gate_statuses:
+            overall_status = "PASS"
+        elif "PENDING" in gate_statuses:
+            overall_status = "HOLD"
 
         can_accumulate = False
         if not trades.empty and "transaction_date" in trades.columns:
@@ -331,6 +352,8 @@ class AnalysisService:
             "trade_count": int(len(trades)),
             "avg_price": float(trades["price"].dropna().mean()) if (not trades.empty and "price" in trades.columns and not trades["price"].dropna().empty) else None,
             "total_qty": float(trades["qty"].dropna().sum()) if (not trades.empty and "qty" in trades.columns and not trades["qty"].dropna().empty) else None,
+            "overall_status": overall_status,
+            "can_enrich": company_context_allowed,
         }
         rows = display_trades.to_dict(orient="records")
         # Rohdaten mit Group-ID mitschicken

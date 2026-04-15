@@ -125,6 +125,8 @@ def render_dashboard_page(
                         )
                     except RuntimeError as exc:
                         st.warning(str(exc))
+                    except Exception as exc:
+                        st.error(f"Unerwarteter Fehler beim Datenimport: {exc}")
 
     if service is None:
         st.warning("MySQL nicht erreichbar. Analysefunktionen sind eingeschränkt.")

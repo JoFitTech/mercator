@@ -13,6 +13,7 @@ from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRep
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.preprocessing.gate_evaluator import (
     GATE_PASS,
+    GATE_PENDING,
     GateEvaluator,
 )
 from src.preprocessing.cleaning import normalize_insider_trade
@@ -41,7 +42,7 @@ class ImportService:
         company_mongo_repo: CompanyMongoRepository,
         trade_mysql_repo: InsiderTradeMySqlRepository | None,
         company_mysql_repo: CompanyMySqlRepository | None,
-        profile_fetch_statuses: tuple[str, ...] = (GATE_PASS,),
+        profile_fetch_statuses: tuple[str, ...] = (GATE_PASS, GATE_PENDING),
         allow_write: bool = True,
     ) -> None:
         self.fmp_client = fmp_client
@@ -64,11 +65,16 @@ class ImportService:
             raise RuntimeError("Import ist deaktiviert (Review Mode / MERCATOR_DISABLE_IMPORT).")
 
         fetched_at = datetime.now(timezone.utc)
-        raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
+        try:
+            raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
+        except Exception as exc:
+            LOGGER.error("Initialer Feed-Abruf fehlgeschlagen: %s", exc)
+            raise RuntimeError(f"Der Datenimport konnte nicht gestartet werden: {exc}") from exc
+
         normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]
 
-        # Fachregel: API-2-Abfrage nur für Pre-Gate PASS.
-        effective_profile_fetch_statuses = {GATE_PASS}
+        # Fachregel: API-2-Abfrage für Pre-Gate PASS und HOLD.
+        effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING}
 
         # 1. Schritt: Alle Trades normalisieren, evaluieren und Stubs erstellen
         unique_company_stubs: dict[str, dict[str, Any]] = {}

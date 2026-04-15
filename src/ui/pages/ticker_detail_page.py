@@ -61,10 +61,18 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     result = service.get_ticker_detail(selected_symbol, accumulate=True)
     profile = result.company_profile
 
+    status = result.metrics.get("overall_status", "UNKNOWN")
+    status_map = {
+        "PASS": {"color": "green", "label": "PASS"},
+        "HOLD": {"color": "orange", "label": "HOLD"},
+        "FAIL": {"color": "red", "label": "FAIL"},
+    }
+    s_info = status_map.get(status, {"color": "gray", "label": status})
+
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Trades", format_number(result.metrics.get("trade_count"), "{:,.0f}"))
     m2.metric("Ø Preis", format_number(result.metrics.get("avg_price"), "${:,.2f}"))
-    m3.metric("Gesamtmenge", format_number(result.metrics.get("total_qty"), "{:,.0f}"))
+    m3.metric("Status", s_info["label"])
     m4.metric("Marktkapitalisierung", format_mcap(profile.get("market_cap"), profile.get("currency", "USD")))
     m5.metric("Profilquelle", result.note)
 
@@ -142,11 +150,16 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
             )
 
     with tab2:
-        if not profile:
+        if not result.metrics.get("can_enrich"):
+            st.error("### Company Context nicht verfügbar")
+            st.info("Für Symbole mit Status **FAIL** werden keine Unternehmensprofile geladen oder angezeigt.")
+        elif not profile:
             st.warning("Unternehmensprofil derzeit nicht verfügbar")
         else:
             def safe_value(value: Any) -> str:
-                return "Nicht verfügbar" if value is None or str(value).strip() == "" else str(value)
+                if value is None or str(value).strip() == "" or str(value).lower() == "none":
+                    return "Nicht verfügbar"
+                return str(value)
 
             c1, c2 = st.columns([0.65, 0.35])
             with c1:
