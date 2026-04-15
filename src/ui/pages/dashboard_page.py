@@ -61,6 +61,12 @@ def _render_runtime_preferences(runtime_settings_service: AppSettingsService, ru
             st.success("Defaults aus .env wiederhergestellt.")
 
 
+@st.cache_data(ttl=60)
+def _get_dashboard_payload(_service: DashboardService, target: str) -> dict:
+    """Holt Dashboard-Daten mit Cache (TTL 60s)."""
+    return _service.build_dashboard_payload()
+
+
 def render_dashboard_page(
     service: DashboardService | None,
     import_service: ImportService | None = None,
@@ -126,7 +132,10 @@ def render_dashboard_page(
             st.info("Keine Datenverarbeitung verfügbar. Prüfe Datenbankverbindungen.")
         return
 
-    payload = service.build_dashboard_payload()
+    # Gecachter Payload-Abruf (Finding 4)
+    target = settings.mysql.mysql_active_target if settings else "default"
+    payload = _get_dashboard_payload(service, target)
+
     if payload["clean_records"] == 0 and payload["raw_records"] == 0:
         st.warning(EMPTY_DATA_MESSAGE)
         return

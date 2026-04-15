@@ -18,7 +18,7 @@ class AdminDashboardService:
     def __init__(
         self,
         settings: AppSettings,
-        mysql_client: MySqlClient,
+        mysql_client: MySqlClient | None,
         mongo_available: bool = True,
     ):
         self.settings = settings
@@ -40,6 +40,8 @@ class AdminDashboardService:
 
     def get_mysql_stats(self) -> dict:
         """Holt Statistiken für MySQL-Datenbank."""
+        if not self.mysql_client:
+            return {}
         try:
             with self.mysql_client.connection(include_database=True) as conn:
                 with conn.cursor(dictionary=True) as cursor:
@@ -101,6 +103,8 @@ class AdminDashboardService:
 
     def clear_mysql_companies(self) -> tuple[bool, str]:
         """Löscht alle Einträge aus MySQL companies-Tabelle."""
+        if not self.mysql_client:
+            return False, "❌ MySQL-Verbindung nicht verfügbar."
         if self._deletes_blocked():
             return self._blocked_message()
 
@@ -137,6 +141,8 @@ class AdminDashboardService:
 
     def clear_mysql_trades(self) -> tuple[bool, str]:
         """Löscht alle Einträge aus MySQL insider_trades-Tabelle."""
+        if not self.mysql_client:
+            return False, "❌ MySQL-Verbindung nicht verfügbar."
         if self._deletes_blocked():
             return self._blocked_message()
 
@@ -157,6 +163,8 @@ class AdminDashboardService:
 
     def clear_mysql_all(self) -> tuple[bool, str]:
         """Löscht alle Daten aus MySQL-Datenbank."""
+        if not self.mysql_client:
+            return False, "❌ MySQL-Verbindung nicht verfügbar."
         if self._deletes_blocked():
             return self._blocked_message()
 
@@ -256,6 +264,8 @@ class AdminDashboardService:
 
     def rebuild_mysql_schema(self) -> tuple[bool, str]:
         """Initialisiert/repariert das MySQL-Schema."""
+        if not self.mysql_client:
+            return False, "❌ MySQL-Verbindung nicht verfügbar."
         try:
             actions = self.mysql_client.initialize_schema()
             if not actions:
@@ -273,7 +283,7 @@ class AdminDashboardService:
 
 
 def render_admin_page(
-    settings: AppSettings, mysql_client: MySqlClient, mongo_available: bool = True
+    settings: AppSettings, mysql_client: MySqlClient | None, mongo_available: bool = True
 ) -> None:
     """Rendert das Admin-Dashboard."""
 
@@ -307,48 +317,52 @@ def render_admin_page(
 
         with col1:
             st.markdown("### 🗄️ MySQL")
-            mysql_stats = admin_service.get_mysql_stats()
+            if mysql_client:
+                mysql_stats = admin_service.get_mysql_stats()
 
-            if mysql_stats:
-                metric_cols = st.columns(2)
-                with metric_cols[0]:
-                    st.metric(
-                        "Unternehmen",
-                        mysql_stats.get("companies_count", 0),
-                        delta=None,
-                    )
-                with metric_cols[1]:
-                    st.metric(
-                        "Insidertrades",
-                        mysql_stats.get("trades_count", 0),
-                        delta=None,
-                    )
+                if mysql_stats:
+                    metric_cols = st.columns(2)
+                    with metric_cols[0]:
+                        st.metric(
+                            "Unternehmen",
+                            mysql_stats.get("companies_count", 0),
+                            delta=None,
+                        )
+                    with metric_cols[1]:
+                        st.metric(
+                            "Insidertrades",
+                            mysql_stats.get("trades_count", 0),
+                            delta=None,
+                        )
 
-                metric_cols = st.columns(2)
-                with metric_cols[0]:
-                    st.metric(
-                        "Filter Settings",
-                        mysql_stats.get("filter_settings_count", 0),
-                        delta=None,
-                    )
-                with metric_cols[1]:
-                    st.metric(
-                        "DB-Größe (MB)",
-                        f"{mysql_stats.get('database_size_mb', 0):.2f}",
-                        delta=None,
-                    )
+                    metric_cols = st.columns(2)
+                    with metric_cols[0]:
+                        st.metric(
+                            "Filter Settings",
+                            mysql_stats.get("filter_settings_count", 0),
+                            delta=None,
+                        )
+                    with metric_cols[1]:
+                        st.metric(
+                            "DB-Größe (MB)",
+                            f"{mysql_stats.get('database_size_mb', 0):.2f}",
+                            delta=None,
+                        )
 
-                # Connection info
-                with st.expander("ℹ️ Verbindungsinformationen"):
-                    st.write(
-                        f"**Ziel:** {settings.mysql.mysql_active_target}"
-                    )
-                    active_target = settings.mysql.get_active_mysql_target()
-                    st.write(f"**Host:** {active_target.host}")
-                    st.write(f"**Port:** {active_target.port}")
-                    st.write(f"**Datenbank:** {active_target.database}")
+                    # Connection info
+                    with st.expander("ℹ️ Verbindungsinformationen"):
+                        st.write(
+                            f"**Ziel:** {settings.mysql.mysql_active_target}"
+                        )
+                        active_target = settings.mysql.get_active_mysql_target()
+                        st.write(f"**Host:** {active_target.host}")
+                        st.write(f"**Port:** {active_target.port}")
+                        st.write(f"**Datenbank:** {active_target.database}")
+                else:
+                    st.warning("Fehler beim Abrufen von MySQL-Statistiken")
             else:
-                st.warning("Fehler beim Abrufen von MySQL-Statistiken")
+                st.error("MySQL-Ziel nicht erreichbar oder nicht konfiguriert.")
+                st.info("Statistiken für dieses Ziel können aktuell nicht geladen werden.")
 
         with col2:
             st.markdown("### 🍃 MongoDB")
@@ -383,88 +397,91 @@ def render_admin_page(
     # ===== MySQL MANAGEMENT TAB =====
     with tab_mysql:
         st.markdown("## 🗄️ MySQL-Verwaltung")
+        if not mysql_client:
+            st.warning("⚠️ MySQL-Verbindung zum aktiven Ziel nicht verfügbar.")
+            st.info("Bitte prüfen Sie die Erreichbarkeit in der Sidebar oder wählen Sie ein anderes Ziel.")
+        else:
+            col1, col2 = st.columns(2)
 
-        col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("### Daten löschen")
 
-        with col1:
-            st.markdown("### Daten löschen")
+                if st.button(
+                    "🗑️ Alle Companies löschen",
+                    key="delete_mysql_companies",
+                    help="Löscht alle Einträge aus der companies-Tabelle",
+                    disabled=delete_blocked,
+                ):
+                    with st.spinner("Lösche companies..."):
+                        success, message = admin_service.clear_mysql_companies()
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
 
-            if st.button(
-                "🗑️ Alle Companies löschen",
-                key="delete_mysql_companies",
-                help="Löscht alle Einträge aus der companies-Tabelle",
-                disabled=delete_blocked,
-            ):
-                with st.spinner("Lösche companies..."):
-                    success, message = admin_service.clear_mysql_companies()
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+                if st.button(
+                    "🗑️ Alle Insider Trades löschen",
+                    key="delete_mysql_trades",
+                    help="Löscht alle Einträge aus der insider_trades-Tabelle",
+                    disabled=delete_blocked,
+                ):
+                    with st.spinner("Lösche insider_trades..."):
+                        success, message = admin_service.clear_mysql_trades()
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
 
-            if st.button(
-                "🗑️ Alle Insider Trades löschen",
-                key="delete_mysql_trades",
-                help="Löscht alle Einträge aus der insider_trades-Tabelle",
-                disabled=delete_blocked,
-            ):
-                with st.spinner("Lösche insider_trades..."):
-                    success, message = admin_service.clear_mysql_trades()
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+            with col2:
+                st.markdown("### Datenbank-Operationen")
 
-        with col2:
-            st.markdown("### Datenbank-Operationen")
+                if st.button(
+                    "⚠️ ALLE Daten löschen (Gefährlich!)",
+                    key="delete_mysql_all",
+                    help="Löscht ALLE Daten aus der MySQL-Datenbank",
+                    disabled=delete_blocked,
+                ):
+                    st.warning(
+                        "⚠️ **Dies ist gefährlich!** Alle Daten werden gelöscht!"
+                    )
+                    col_confirm, col_cancel = st.columns(2)
+                    with col_confirm:
+                        if st.button(
+                            "🔴 Bestätigen - ALLE Daten löschen",
+                            key="confirm_delete_all",
+                            type="primary",
+                        ):
+                            with st.spinner("Lösche alle Daten..."):
+                                success, message = admin_service.clear_mysql_all()
+                            if success:
+                                st.success(message)
+                            else:
+                                st.error(message)
 
-            if st.button(
-                "⚠️ ALLE Daten löschen (Gefährlich!)",
-                key="delete_mysql_all",
-                help="Löscht ALLE Daten aus der MySQL-Datenbank",
-                disabled=delete_blocked,
-            ):
-                st.warning(
-                    "⚠️ **Dies ist gefährlich!** Alle Daten werden gelöscht!"
+            st.markdown("---")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("### Schema-Verwaltung")
+
+                if st.button(
+                    "🔧 Schema initialisieren/reparieren",
+                    key="rebuild_schema",
+                    help="Erstellt fehlende Tabellen und Spalten",
+                ):
+                    with st.spinner("Aktualisiere Schema..."):
+                        success, message = admin_service.rebuild_mysql_schema()
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+
+            with col2:
+                st.markdown("### Info")
+                st.info(
+                    "💡 **Tipp:** Verwende diese Funktionen nur wenn du weißt, was du tust!"
                 )
-                col_confirm, col_cancel = st.columns(2)
-                with col_confirm:
-                    if st.button(
-                        "🔴 Bestätigen - ALLE Daten löschen",
-                        key="confirm_delete_all",
-                        type="primary",
-                    ):
-                        with st.spinner("Lösche alle Daten..."):
-                            success, message = admin_service.clear_mysql_all()
-                        if success:
-                            st.success(message)
-                        else:
-                            st.error(message)
-
-        st.markdown("---")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("### Schema-Verwaltung")
-
-            if st.button(
-                "🔧 Schema initialisieren/reparieren",
-                key="rebuild_schema",
-                help="Erstellt fehlende Tabellen und Spalten",
-            ):
-                with st.spinner("Aktualisiere Schema..."):
-                    success, message = admin_service.rebuild_mysql_schema()
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
-
-        with col2:
-            st.markdown("### Info")
-            st.info(
-                "💡 **Tipp:** Verwende diese Funktionen nur wenn du weißt, was du tust!"
-            )
 
     # ===== MONGODB MANAGEMENT TAB =====
     with tab_mongo:
@@ -540,49 +557,51 @@ def render_admin_page(
     # ===== SYNCHRONISATION TAB =====
     with tab_sync:
         st.markdown("## 🔄 Synchronisation")
+        if not mysql_client:
+            st.warning("⚠️ Synchronisation erfordert eine aktive MySQL-Verbindung.")
+        else:
+            st.markdown("### Datenbank-Synchronisation")
 
-        st.markdown("### Datenbank-Synchronisation")
-
-        sync_info = st.expander("ℹ️ Über Synchronisation", expanded=True)
-        with sync_info:
-            st.markdown(
+            sync_info = st.expander("ℹ️ Über Synchronisation", expanded=True)
+            with sync_info:
+                st.markdown(
+                    """
+                **Synchronisation** bedeutet, dass Daten zwischen MongoDB und MySQL abgeglichen werden:
+                
+                - **MongoDB** enthält die "Quelle" für Insidertrade-Daten (via FMP-API)
+                - **MySQL** enthält die "Anwendungs-Datenbank" für Analysen
+                - Synchronisation: MongoDB → MySQL (unidirektional)
+                
+                **Wichtig:**
+                - Synchronisation läuft normalerweise automatisch während Imports
+                - Manuelle Sync nur bei Bedarf (z.B. nach manuellen Datenänderungen)
                 """
-            **Synchronisation** bedeutet, dass Daten zwischen MongoDB und MySQL abgeglichen werden:
-            
-            - **MongoDB** enthält die "Quelle" für Insidertrade-Daten (via FMP-API)
-            - **MySQL** enthält die "Anwendungs-Datenbank" für Analysen
-            - Synchronisation: MongoDB → MySQL (unidirektional)
-            
-            **Wichtig:**
-            - Synchronisation läuft normalerweise automatisch während Imports
-            - Manuelle Sync nur bei Bedarf (z.B. nach manuellen Datenänderungen)
-            """
+                )
+
+            st.markdown("---")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.markdown("### Status")
+                if settings.mysql.mysql_sync_enabled:
+                    st.success("✅ Synchronisation aktiviert")
+                else:
+                    st.warning("⚠️ Synchronisation deaktiviert")
+
+            with col2:
+                st.markdown("### Aktive Ziele")
+                st.write(f"**MySQL:** {settings.mysql.mysql_active_target}")
+                st.write(f"**Mongo:** {settings.mongo.active_target}")
+
+            with col3:
+                st.markdown("### Letzte Aktion")
+                st.write(f"_Keine Info verfügbar_")
+
+            st.markdown("---")
+
+            st.info(
+                "ℹ️ Erweiterte Sync-Funktionen: In Zukunft können hier bidirektionale Sync, "
+                "Konflikt-Auflösung und selektive Synchronisation konfiguriert werden."
             )
-
-        st.markdown("---")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown("### Status")
-            if settings.mysql.mysql_sync_enabled:
-                st.success("✅ Synchronisation aktiviert")
-            else:
-                st.warning("⚠️ Synchronisation deaktiviert")
-
-        with col2:
-            st.markdown("### Aktive Ziele")
-            st.write(f"**MySQL:** {settings.mysql.mysql_active_target}")
-            st.write(f"**Mongo:** {settings.mongo.active_target}")
-
-        with col3:
-            st.markdown("### Letzte Aktion")
-            st.write(f"_Keine Info verfügbar_")
-
-        st.markdown("---")
-
-        st.info(
-            "ℹ️ Erweiterte Sync-Funktionen: In Zukunft können hier bidirektionale Sync, "
-            "Konflikt-Auflösung und selektive Synchronisation konfiguriert werden."
-        )
 

@@ -32,7 +32,7 @@ LOGGER = get_logger(__name__)
 _DB_STATUS_CHECK_TIMEOUT_S = 2
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(ttl=15, show_spinner=False)
 def _cached_db_status(
     mysql_uri_local: str,
     mysql_uri_uni: str,
@@ -147,26 +147,26 @@ def _render_database_sidebar_status(
     )
     status = DatabaseStatus(mysql=mysql_status, mongo=mongo_status)
 
-    with st.sidebar.expander("Datenbank-Status", expanded=advanced_mode):
+    with st.sidebar.expander("System-Health", expanded=True):
         if status.mysql.is_connected:
-            mysql_text = f"MySQL: verbunden mit `{status.mysql.active_target}`"
+            mysql_text = f"MySQL: `{status.mysql.active_target}`"
             if status.mysql.used_fallback:
-                mysql_text += " (Fallback aktiv)"
-            st.success(mysql_text)
+                mysql_text += " (Fallback)"
+            st.success(mysql_text, icon="✅")
         else:
-            st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
+            st.error("MySQL: getrennt", icon="❌")
 
         if status.mongo.is_connected:
-            st.success("MongoDB: verbunden")
+            st.success("MongoDB: verbunden", icon="✅")
         else:
-            st.warning("MongoDB nicht erreichbar. Rohdatenspeicherung deaktiviert.")
+            st.warning("MongoDB: getrennt", icon="⚠️")
 
         if not status.mysql.is_connected and not status.mongo.is_connected:
-            st.error("Keine Datenbankverbindung verfügbar.")
+            st.error("Offline: Keine DB erreichbar.")
 
         docker_hint = _docker_hint_if_needed(settings)
         if docker_hint and (not status.mysql.is_connected or not status.mongo.is_connected):
-            st.caption(docker_hint)
+            st.caption(f"💡 {docker_hint}")
 
     if advanced_mode:
         with st.sidebar.expander("Debug: DB-Status", expanded=False):
@@ -224,17 +224,33 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
         st.sidebar.info("MySQL-Sync ist per Konfiguration deaktiviert.")
         return
 
-    if mysql_resolution is None:
-        st.sidebar.warning("Sync nicht verfügbar: kein aktives MySQL-Ziel erreichbar.")
-        return
-
     st.sidebar.markdown("### MySQL-Sync (Bidirektional)")
+
+    local_client = build_mysql_client_for_target(settings.mysql, "local")
+    uni_client = build_mysql_client_for_target(settings.mysql, "uni")
+
+    # Vorab-Check für Button-Gating
+    with st.spinner("Prüfe Sync-Bereitschaft..."):
+        local_ok, local_msg = local_client.test_connection()
+        uni_ok, uni_msg = uni_client.test_connection()
+
+    sync_possible = local_ok and uni_ok
+
+    if not sync_possible:
+        st.sidebar.warning("Sync nicht verfügbar: Beide Ziele müssen erreichbar sein.")
+        if not local_ok:
+            st.sidebar.caption(f"Lokal: ❌ {local_msg}")
+        if not uni_ok:
+            st.sidebar.caption(f"Uni: ❌ {uni_msg}")
+    else:
+        st.sidebar.success("Bereit für Synchronisation (Lokal & Uni verbunden)")
 
     direction = st.sidebar.radio(
         "Sync-Richtung",
         options=["auto", "local -> uni", "uni -> local"],
         index=0,
         help="Wählt aus, in welche Richtung die Daten abgeglichen werden sollen. 'auto' nutzt den neuesten Zeitstempel.",
+        disabled=not sync_possible
     )
 
     dir_map: dict[str, Literal["auto", "local_to_uni", "uni_to_local"]] = {
@@ -243,23 +259,8 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
         "uni -> local": "uni_to_local",
     }
 
-    if st.sidebar.button("Synchronisierung jetzt starten", type="primary"):
+    if st.sidebar.button("Synchronisierung jetzt starten", type="primary", disabled=not sync_possible):
         try:
-            local_client = build_mysql_client_for_target(settings.mysql, "local")
-            uni_client = build_mysql_client_for_target(settings.mysql, "uni")
-
-            # Beides muss erreichbar sein fuer Sync
-            local_ok, local_msg = local_client.test_connection()
-            uni_ok, uni_msg = uni_client.test_connection()
-
-            if not local_ok or not uni_ok:
-                st.sidebar.error("Sync abgebrochen: Beide Datenbanken müssen erreichbar sein.")
-                if not local_ok:
-                    st.sidebar.caption(f"Lokal: {local_msg}")
-                if not uni_ok:
-                    st.sidebar.caption(f"Uni: {uni_msg}")
-                return
-
             with st.spinner("Synchronisiere Daten..."):
                 summary = MySqlSyncService().sync_all(
                     local_client=local_client,
@@ -406,10 +407,8 @@ def main() -> None:
         render_ticker_detail_page(analysis_service)
 
     def _admin() -> None:
-        if mysql_resolution is None:
-            st.error("Admin-Panel benötigt MySQL-Verbindung.")
-            return
-        render_admin_page(settings, mysql_resolution.client, db_status.mongo.is_connected)
+        client = mysql_resolution.client if mysql_resolution else None
+        render_admin_page(settings, client, db_status.mongo.is_connected)
 
     pages = [st.Page(_dashboard, title="Overview", icon=":material/dashboard:", default=True)]
     if analysis_service is not None:
