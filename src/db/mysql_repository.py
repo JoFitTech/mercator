@@ -560,13 +560,20 @@ class InsiderTradeMySqlRepository(InsiderTradeRepository):
     """Kompatibilitätsklasse für bestehende Aufrufe im Projekt."""
 
     def fetch_all_symbols(self) -> list[str]:
-        """Liefert alle verfügbaren Symbole für bestehende Aufrufe."""
-
-        query = "SELECT DISTINCT company_key FROM insider_trades ORDER BY company_key"
+        """Liefert alle verfügbaren Symbole für bestehende Aufrufe.
+        
+        Kombiniert company_key und symbol_at_trade für maximale Abdeckung (Finding 3).
+        """
+        query = """
+            SELECT DISTINCT company_key FROM insider_trades 
+            UNION 
+            SELECT DISTINCT symbol_at_trade FROM insider_trades 
+            ORDER BY 1
+        """
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query)
-                return [row[0] for row in cursor.fetchall()]
+                return [row[0] for row in cursor.fetchall() if row[0]]
 
 
 class AppFilterSettingsRepository:

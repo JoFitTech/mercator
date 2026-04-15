@@ -127,9 +127,11 @@ def render_dashboard_page(
         return
 
     payload = service.build_dashboard_payload()
-    if payload["clean_records"] == 0:
+    if payload["clean_records"] == 0 and payload["raw_records"] == 0:
         st.warning(EMPTY_DATA_MESSAGE)
         return
+    elif payload["clean_records"] == 0:
+        st.info("Keine bereinigten Daten gefunden. Rohdaten sind vorhanden (%s)." % payload["raw_records"])
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Rohdaten (Mongo)", f"{payload['raw_records']:,}")

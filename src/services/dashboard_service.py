@@ -25,7 +25,11 @@ class DashboardService:
 
     def build_dashboard_payload(self) -> dict:
         """Liefert KPIs und vorbereitete DataFrames für Charts."""
-        trades_df = self.trade_repo.fetch_trades(limit=5000)
+        try:
+            trades_df = self.trade_repo.fetch_trades(limit=5000)
+        except Exception:
+            trades_df = pd.DataFrame()
+            
         raw_records = 0
         gate_pass_records = 0
         
@@ -35,14 +39,26 @@ class DashboardService:
             except Exception:
                 raw_records = 0
         
+        clean_records = 0
+        try:
+            clean_records = self.trade_repo.count_all()
+        except Exception:
+            clean_records = 0
+
+        company_profiles = 0
+        try:
+            company_profiles = self.company_repo.count_all()
+        except Exception:
+            company_profiles = 0
+
         # Gate-PASS berechnen
         if not trades_df.empty and "gate_status" in trades_df.columns:
             gate_pass_records = trades_df[trades_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
 
         payload = {
             "raw_records": raw_records,
-            "clean_records": self.trade_repo.count_all(),
-            "company_profiles": self.company_repo.count_all(),
+            "clean_records": clean_records,
+            "company_profiles": company_profiles,
             "gate_pass_records": gate_pass_records,
             "transaction_type_distribution": pd.DataFrame(),
             "sector_distribution": pd.DataFrame(),

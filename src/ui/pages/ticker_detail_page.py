@@ -73,69 +73,70 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
         st.subheader("Insider Trades (akkumuliert)")
 
         if not result.rows:
-            st.info("Keine Transaktionen gefunden.")
-            return
+            st.info(f"Keine Transaktionen für {selected_symbol} gefunden.")
+            if result.note:
+                st.caption(f"Hinweis: {result.note}")
+        else:
+            df_display = pd.DataFrame(result.rows)
+            for col, default in {
+                "is_accumulated": False,
+                "accumulated_trade_count": 1,
+                "accumulation_start_date": pd.NaT,
+                "accumulation_end_date": pd.NaT,
+                "transaction_date": pd.NaT,
+            }.items():
+                if col not in df_display.columns:
+                    df_display[col] = default
 
-        df_display = pd.DataFrame(result.rows)
-        for col, default in {
-            "is_accumulated": False,
-            "accumulated_trade_count": 1,
-            "accumulation_start_date": pd.NaT,
-            "accumulation_end_date": pd.NaT,
-            "transaction_date": pd.NaT,
-        }.items():
-            if col not in df_display.columns:
-                df_display[col] = default
+            df_display["is_accumulated"] = df_display["is_accumulated"].fillna(False).astype(bool)
+            df_display["accumulated_trade_count"] = pd.to_numeric(df_display["accumulated_trade_count"], errors="coerce").fillna(1)
+            df_display["accumulation_start_date"] = pd.to_datetime(df_display["accumulation_start_date"], errors="coerce")
+            df_display["accumulation_end_date"] = pd.to_datetime(df_display["accumulation_end_date"], errors="coerce")
+            df_display["transaction_date"] = pd.to_datetime(df_display["transaction_date"], errors="coerce")
 
-        df_display["is_accumulated"] = df_display["is_accumulated"].fillna(False).astype(bool)
-        df_display["accumulated_trade_count"] = pd.to_numeric(df_display["accumulated_trade_count"], errors="coerce").fillna(1)
-        df_display["accumulation_start_date"] = pd.to_datetime(df_display["accumulation_start_date"], errors="coerce")
-        df_display["accumulation_end_date"] = pd.to_datetime(df_display["accumulation_end_date"], errors="coerce")
-        df_display["transaction_date"] = pd.to_datetime(df_display["transaction_date"], errors="coerce")
+            df_display["Zeitraum"] = df_display.apply(
+                lambda r: (
+                    f"{r['accumulation_start_date'].date()} bis {r['accumulation_end_date'].date()}"
+                    if r["is_accumulated"] and pd.notna(r["accumulation_start_date"]) and pd.notna(r["accumulation_end_date"])
+                    else (r["transaction_date"].date() if pd.notna(r["transaction_date"]) else "-")
+                ),
+                axis=1,
+            )
 
-        df_display["Zeitraum"] = df_display.apply(
-            lambda r: (
-                f"{r['accumulation_start_date'].date()} bis {r['accumulation_end_date'].date()}"
-                if r["is_accumulated"] and pd.notna(r["accumulation_start_date"]) and pd.notna(r["accumulation_end_date"])
-                else (r["transaction_date"].date() if pd.notna(r["transaction_date"]) else "-")
-            ),
-            axis=1,
-        )
-
-        st.dataframe(
-            _safe_select_columns(
-                df_display,
-                [
-                    "Zeitraum",
-                    "reporting_name",
-                    "direction",
-                    "accumulated_trade_count",
-                    "accumulated_qty",
-                    "accumulated_avg_price_weighted",
-                    "accumulated_trade_value_estimated",
-                    "score",
-                    "score_class",
-                    "gate_status",
-                    "validation_status",
-                ],
-            ),
-            column_config={
-                "Zeitraum": st.column_config.TextColumn("Zeitraum", width="medium"),
-                "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
-                "direction": st.column_config.TextColumn("Richtung", width="small"),
-                "accumulated_trade_count": st.column_config.NumberColumn("#Trades", format="%d", width="small"),
-                "accumulated_qty": st.column_config.NumberColumn("Stück", format="%d"),
-                "accumulated_avg_price_weighted": st.column_config.NumberColumn("Ø Preis", format="$%.2f"),
-                "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
-                "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
-                "score_class": st.column_config.TextColumn("Klasse", width="small"),
-                "gate_status": st.column_config.TextColumn("Gate", width="small"),
-                "validation_status": st.column_config.TextColumn("Validation", width="small"),
-            },
-            use_container_width=True,
-            hide_index=True,
-            height=520,
-        )
+            st.dataframe(
+                _safe_select_columns(
+                    df_display,
+                    [
+                        "Zeitraum",
+                        "reporting_name",
+                        "direction",
+                        "accumulated_trade_count",
+                        "accumulated_qty",
+                        "accumulated_avg_price_weighted",
+                        "accumulated_trade_value_estimated",
+                        "score",
+                        "score_class",
+                        "gate_status",
+                        "validation_status",
+                    ],
+                ),
+                column_config={
+                    "Zeitraum": st.column_config.TextColumn("Zeitraum", width="medium"),
+                    "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
+                    "direction": st.column_config.TextColumn("Richtung", width="small"),
+                    "accumulated_trade_count": st.column_config.NumberColumn("#Trades", format="%d", width="small"),
+                    "accumulated_qty": st.column_config.NumberColumn("Stück", format="%d"),
+                    "accumulated_avg_price_weighted": st.column_config.NumberColumn("Ø Preis", format="$%.2f"),
+                    "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
+                    "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
+                    "score_class": st.column_config.TextColumn("Klasse", width="small"),
+                    "gate_status": st.column_config.TextColumn("Gate", width="small"),
+                    "validation_status": st.column_config.TextColumn("Validation", width="small"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                height=520,
+            )
 
     with tab2:
         if not profile:

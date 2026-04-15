@@ -204,9 +204,19 @@ class AnalysisService:
 
     def get_ticker_detail(self, company_key: str, accumulate: bool = True) -> AnalysisResult:
         """Liefert Profil, letzte Trades und Basiskennzahlen für einen Company-Key."""
+        # 1. Suche nach company_key
         trades = self.trade_repo.fetch_trades(filters={"company_key": company_key}, limit=500)
+        
+        # 2. Fallback: Suche nach symbol_at_trade, falls company_key nichts liefert (Finding 3)
+        if trades.empty:
+            trades = self.trade_repo.fetch_trades(filters={"symbol": company_key}, limit=500)
+            
         trades = self._ensure_trade_columns(trades)
         profile_df = self.company_repo.fetch_company(company_key)
+        
+        # Falls immer noch kein Profil, versuche es über den Symbol-Lookup im Company-Repo
+        if profile_df.empty:
+            profile_df = pd.DataFrame([self.company_repo.get_company_by_symbol(company_key)] if self.company_repo.get_company_by_symbol(company_key) else [])
 
         can_accumulate = False
         if not trades.empty and "transaction_date" in trades.columns:

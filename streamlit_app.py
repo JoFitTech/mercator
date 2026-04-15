@@ -29,10 +29,10 @@ MYSQL_TARGET_STATE_KEY = "mysql_runtime_target"
 LOGGER = get_logger(__name__)
 
 # Kurzer Timeout für schnelle Erreichbarkeitsprüfungen in der UI (Sekunden).
-_DB_STATUS_CHECK_TIMEOUT_S = 3
+_DB_STATUS_CHECK_TIMEOUT_S = 2
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=5, show_spinner=False)
 def _cached_db_status(
     mysql_uri_local: str,
     mysql_uri_uni: str,
@@ -318,12 +318,21 @@ def _inject_global_styles() -> None:
 def main() -> None:
     """Konfiguriert Navigation und rendert die gewählte Seite."""
     st.set_page_config(page_title="Mercator", layout="wide")
+    
+    # Initiale Session-State-Werte deterministisch setzen (Finding 5)
+    if "initialized" not in st.session_state:
+        st.session_state["initialized"] = True
+        if "advanced_mode" not in st.session_state:
+            st.session_state["advanced_mode"] = False
+        if "selected_ticker" not in st.session_state:
+            st.session_state["selected_ticker"] = None
+
     _inject_global_styles()
     st.sidebar.title("Mercator")
     st.sidebar.caption("Interaktive Datenanwendung für das Modul Datenbanken 2")
 
     st.sidebar.markdown("### App-Konfiguration")
-    advanced_mode = st.sidebar.toggle("Erweiterte Ansicht (Advanced Mode)", value=False)
+    advanced_mode = st.sidebar.toggle("Erweiterte Ansicht (Advanced Mode)", value=st.session_state.get("advanced_mode", False))
     st.session_state["advanced_mode"] = advanced_mode
     st.sidebar.markdown("---")
 

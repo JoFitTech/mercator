@@ -38,13 +38,13 @@ def _default_filters() -> dict[str, Any]:
 
 def _render_filter_summary(filters: dict[str, Any]) -> None:
     parts: list[str] = []
-    if filters["symbol"]:
+    if filters.get("symbol"):
         parts.append(f"Ticker: **{filters['symbol']}**")
-    if filters["reporting_name"]:
+    if filters.get("reporting_name"):
         parts.append(f"Insider: **{filters['reporting_name']}**")
-    if filters["direction"] != "Alle":
+    if filters.get("direction") != "Alle":
         parts.append(f"Richtung: **{filters['direction']}**")
-    if int(filters["min_value"]) > 0:
+    if int(filters.get("min_value", 0)) > 0:
         parts.append(f"Min. Trade Value: **${int(filters['min_value']):,}**")
     if filters.get("gate_statuses") and len(filters["gate_statuses"]) < 3:
         parts.append(f"Gate: **{', '.join(filters['gate_statuses'])}**")
@@ -60,6 +60,8 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
     st.caption("Fokussierter Screener für Trade-Relevanz, Richtung, Gate-/Validierungsstatus und schnellen Drilldown.")
 
     defaults = _default_filters()
+    
+    # Zentrale State-Initialisierung
     if "explorer_filters" not in st.session_state:
         if settings_service is not None:
             persisted = settings_service.load_filter("explorer", "filters", defaults)
@@ -67,47 +69,87 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         else:
             st.session_state.explorer_filters = defaults.copy()
 
-    # Sicherstellen, dass alle neuen Keys aus defaults vorhanden sind (Fix für KeyError)
+    # Sicherstellen, dass alle neuen Keys aus defaults vorhanden sind
     for k, v in defaults.items():
         if k not in st.session_state.explorer_filters:
             st.session_state.explorer_filters[k] = v
 
+    # Hilfsfunktion zum Zurücksetzen der Widget-Keys
+    def do_reset():
+        st.session_state.explorer_filters = defaults.copy()
+        # Alle Widget-Keys aus session_state löschen, damit sie auf default/value zurückfallen
+        for k in defaults.keys():
+            widget_key = f"exp_widget_{k}"
+            if widget_key in st.session_state:
+                del st.session_state[widget_key]
+        if settings_service is not None:
+            settings_service.save_filter("explorer", "filters", st.session_state.explorer_filters)
+        st.rerun()
+
     with st.form("explorer_filters_form", border=False):
         st.subheader("Primäre Filter")
         c1, c2, c3, c4 = st.columns([1, 1.2, 0.8, 1])
-        symbol = c1.text_input("Ticker", value=str(st.session_state.explorer_filters.get("symbol", "")), placeholder="z. B. AAPL")
+        
+        # Ticker als Textfeld mit klarem Hinweis (Finding 4)
+        symbol = c1.text_input(
+            "Ticker", 
+            value=str(st.session_state.explorer_filters.get("symbol", "")), 
+            placeholder="z. B. AAPL",
+            help="Eingabe wird durch 'Filter anwenden' übernommen (kein Enter nötig).",
+            key="exp_widget_symbol"
+        )
         reporting = c2.text_input(
-            "Insider (Name)", value=str(st.session_state.explorer_filters.get("reporting_name", "")), placeholder="z. B. Tim Cook"
+            "Insider (Name)", 
+            value=str(st.session_state.explorer_filters.get("reporting_name", "")), 
+            placeholder="z. B. Tim Cook",
+            key="exp_widget_reporting_name"
         )
         persisted_direction = str(st.session_state.explorer_filters.get("direction", "Alle"))
         direction = c3.selectbox(
             "Richtung",
             PRIMARY_DIRECTIONS,
             index=PRIMARY_DIRECTIONS.index(persisted_direction if persisted_direction in PRIMARY_DIRECTIONS else "Alle"),
+            key="exp_widget_direction"
         )
         min_value = c4.number_input(
             "Min. Trade Value ($)",
             min_value=0,
             value=int(st.session_state.explorer_filters.get("min_value", 100_000)),
             step=50_000,
+            key="exp_widget_min_value"
         )
 
         with st.expander("Sekundäre Filter & Darstellung", expanded=False):
             s1, s2, s3 = st.columns(3)
-            limit = s1.select_slider("Max. Zeilen", options=[250, 500, 1000, 2000], value=int(st.session_state.explorer_filters.get("limit", 1000)))
-            accumulate = s2.toggle("Trades akkumulieren", value=bool(st.session_state.explorer_filters.get("accumulate", True)))
-            show_raw = s3.toggle("Einzeltrades anzeigen", value=bool(st.session_state.explorer_filters.get("show_raw", False)))
+            limit = s1.select_slider(
+                "Max. Zeilen", 
+                options=[250, 500, 1000, 2000], 
+                value=int(st.session_state.explorer_filters.get("limit", 1000)),
+                key="exp_widget_limit"
+            )
+            accumulate = s2.toggle(
+                "Trades akkumulieren", 
+                value=bool(st.session_state.explorer_filters.get("accumulate", True)),
+                key="exp_widget_accumulate"
+            )
+            show_raw = s3.toggle(
+                "Einzeltrades anzeigen", 
+                value=bool(st.session_state.explorer_filters.get("show_raw", False)),
+                key="exp_widget_show_raw"
+            )
 
             s4, s5 = st.columns(2)
             gate_statuses = s4.multiselect(
                 "Gate-Status",
                 options=["PASS", "PENDING", "FAIL"],
                 default=list(st.session_state.explorer_filters.get("gate_statuses", ["PASS", "PENDING", "FAIL"])),
+                key="exp_widget_gate_statuses"
             )
             validation_statuses = s5.multiselect(
                 "Validation",
                 options=["VALID", "INVALID", "UNCHECKED"],
                 default=list(st.session_state.explorer_filters.get("validation_statuses", ["VALID", "INVALID", "UNCHECKED"])),
+                key="exp_widget_validation_statuses"
             )
 
         a1, a2 = st.columns([1, 1])
@@ -115,10 +157,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         reset_filters = a2.form_submit_button("Filter zurücksetzen", use_container_width=True)
 
     if reset_filters:
-        st.session_state.explorer_filters = defaults.copy()
-        if settings_service is not None:
-            settings_service.save_filter("explorer", "filters", st.session_state.explorer_filters)
-        st.rerun()
+        do_reset()
 
     if apply_filters:
         st.session_state.explorer_filters.update(
@@ -130,8 +169,8 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 "limit": int(limit),
                 "accumulate": bool(accumulate),
                 "show_raw": bool(show_raw),
-                "gate_statuses": gate_statuses or ["PASS", "PENDING", "FAIL"],
-                "validation_statuses": validation_statuses or ["VALID", "INVALID", "UNCHECKED"],
+                "gate_statuses": gate_statuses if gate_statuses else ["PASS", "PENDING", "FAIL"],
+                "validation_statuses": validation_statuses if validation_statuses else ["VALID", "INVALID", "UNCHECKED"],
             }
         )
         if settings_service is not None:
