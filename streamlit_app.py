@@ -103,15 +103,18 @@ def _render_database_sidebar_status(
     """Rendert Sidebar-Steuerung und Status für Datenbanken getrennt."""
 
     configured_target = settings.mysql.mysql_active_target
-    selected_target = st.sidebar.radio(
-        "Aktives MySQL-Ziel",
-        options=["local", "uni"],
-        index=0 if st.session_state.get(MYSQL_TARGET_STATE_KEY, configured_target) == "local" else 1,
-        key=MYSQL_TARGET_STATE_KEY,
-        horizontal=True,
-    )
+    if advanced_mode:
+        selected_target = st.sidebar.radio(
+            "Aktives MySQL-Ziel",
+            options=["local", "uni"],
+            index=0 if st.session_state.get(MYSQL_TARGET_STATE_KEY, configured_target) == "local" else 1,
+            key=MYSQL_TARGET_STATE_KEY,
+            horizontal=True,
+        )
+    else:
+        selected_target = st.session_state.get(MYSQL_TARGET_STATE_KEY, configured_target)
 
-    # Gecachten DB-Check nutzen (verhindert Blockade beim Seitenrender)
+    # Gecachten DB-Check nutzen
     mysql_connected, active_target, used_fallback, mongo_connected = _cached_db_status(
         mysql_uri_local=f"{settings.mysql.local_mysql.host}:{settings.mysql.local_mysql.port}",
         mysql_uri_uni=f"{settings.mysql.uni_mysql.host}:{settings.mysql.uni_mysql.port}",
@@ -279,34 +282,31 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
 
 
 def _inject_global_styles() -> None:
-    """Setzt ein ruhiges, konsistentes UI-Grundlayout für Streamlit."""
+    """Setzt ein ruhiges, konsistentes UI-Grundlayout für Streamlit (unterstützt Darkmode)."""
     st.markdown(
         """
         <style>
-        .stApp {
-            background-color: #f7f8fa;
-            color: #111827;
-        }
+        /* Grundlayout anpassen ohne Farben zu forcieren */
         [data-testid="stAppViewContainer"] .main .block-container {
             max-width: 1360px;
             padding-top: 1.25rem;
             padding-bottom: 2rem;
         }
+        /* Sidebar Border */
         [data-testid="stSidebar"] {
-            background-color: #ffffff;
-            border-right: 1px solid #e5e7eb;
+            border-right: 1px solid rgba(128, 128, 128, 0.2);
         }
         h1, h2, h3 {
             letter-spacing: -0.01em;
         }
+        /* Metrics und DataFrames stylen, aber Hintergrundfarben variabel lassen */
         [data-testid="stMetric"] {
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
+            border: 1px solid rgba(128, 128, 128, 0.2);
             border-radius: 12px;
             padding: 0.7rem 0.8rem;
         }
         [data-testid="stDataFrame"] {
-            border: 1px solid #e5e7eb;
+            border: 1px solid rgba(128, 128, 128, 0.2);
             border-radius: 12px;
             overflow: hidden;
         }

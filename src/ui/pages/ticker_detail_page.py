@@ -50,7 +50,11 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
         st.info("Keine Daten verfügbar.")
         return
 
-    selected_symbol = st.selectbox("Ticker", all_symbols)
+    default_index = 0
+    if st.session_state.get("selected_ticker") in all_symbols:
+        default_index = all_symbols.index(st.session_state["selected_ticker"])
+
+    selected_symbol = st.selectbox("Ticker", all_symbols, index=default_index)
     if not selected_symbol:
         return
 

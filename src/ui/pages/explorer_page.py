@@ -67,6 +67,11 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         else:
             st.session_state.explorer_filters = defaults.copy()
 
+    # Sicherstellen, dass alle neuen Keys aus defaults vorhanden sind (Fix für KeyError)
+    for k, v in defaults.items():
+        if k not in st.session_state.explorer_filters:
+            st.session_state.explorer_filters[k] = v
+
     with st.form("explorer_filters_form", border=False):
         st.subheader("Primäre Filter")
         c1, c2, c3, c4 = st.columns([1, 1.2, 0.8, 1])
@@ -184,90 +189,117 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         display_df = _safe_select_columns(
             data,
             [
-                "transaction_date",
                 "symbol_at_trade",
-                "company_name",
-                "reporting_name",
                 "direction",
-                "accumulated_qty",
-                "accumulated_avg_price_weighted",
-                "accumulated_trade_value_estimated",
                 "score",
                 "score_class",
+                "accumulated_trade_value_estimated",
                 "gate_status",
                 "validation_status",
+                "transaction_date",
+                "company_name",
+                "reporting_name",
+                "accumulated_qty",
+                "accumulated_avg_price_weighted",
                 "accumulated_trade_count",
             ],
         ).copy()
         display_df["accumulated_trade_count"] = pd.to_numeric(display_df["accumulated_trade_count"], errors="coerce").fillna(1)
 
         table_columns = [
-            "transaction_date",
             "symbol_at_trade",
+            "direction",
+            "score",
+            "score_class",
+            "accumulated_trade_value_estimated",
+            "gate_status",
+            "validation_status",
+            "transaction_date",
             "company_name",
             "reporting_name",
-            "direction",
             "accumulated_trade_count",
             "accumulated_qty",
             "accumulated_avg_price_weighted",
-            "accumulated_trade_value_estimated",
-            "score",
-            "score_class",
-            "gate_status",
-            "validation_status",
         ]
 
         col_config = {
-            "transaction_date": st.column_config.DateColumn("Datum", width="small"),
             "symbol_at_trade": st.column_config.TextColumn("Ticker", width="small"),
+            "direction": st.column_config.TextColumn("Richtung", width="small"),
+            "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
+            "score_class": st.column_config.TextColumn("Klasse", width="small"),
+            "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
+            "gate_status": st.column_config.TextColumn("Gate", width="small"),
+            "validation_status": st.column_config.TextColumn("Validation", width="small"),
+            "transaction_date": st.column_config.DateColumn("Datum", width="small"),
             "company_name": st.column_config.TextColumn("Unternehmen", width="large"),
             "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
-            "direction": st.column_config.TextColumn("Richtung", width="small"),
             "accumulated_trade_count": st.column_config.NumberColumn("#Trades", format="%d", width="small"),
             "accumulated_qty": st.column_config.NumberColumn("Stück", format="%d"),
             "accumulated_avg_price_weighted": st.column_config.NumberColumn("Ø Preis", format="$%.2f"),
-            "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
-            "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
-            "score_class": st.column_config.TextColumn("Klasse", width="small"),
-            "gate_status": st.column_config.TextColumn("Gate", width="small"),
-            "validation_status": st.column_config.TextColumn("Validation", width="small"),
         }
     else:
         display_df = _safe_select_columns(
             data,
             [
-                "transaction_date",
                 "symbol_at_trade",
-                "company_name",
-                "reporting_name",
                 "direction",
-                "qty",
-                "price",
-                "trade_value_estimated",
                 "score",
                 "score_class",
+                "trade_value_estimated",
                 "gate_status",
                 "validation_status",
+                "transaction_date",
+                "company_name",
+                "reporting_name",
+                "qty",
+                "price",
             ],
         ).copy()
 
-        table_columns = list(display_df.columns)
+        table_columns = [
+            "symbol_at_trade",
+            "direction",
+            "score",
+            "score_class",
+            "trade_value_estimated",
+            "gate_status",
+            "validation_status",
+            "transaction_date",
+            "company_name",
+            "reporting_name",
+            "qty",
+            "price",
+        ]
         col_config = {
-            "transaction_date": st.column_config.DateColumn("Datum", width="small"),
             "symbol_at_trade": st.column_config.TextColumn("Ticker", width="small"),
-            "company_name": st.column_config.TextColumn("Unternehmen", width="large"),
-            "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
             "direction": st.column_config.TextColumn("Richtung", width="small"),
-            "qty": st.column_config.NumberColumn("Stück", format="%d"),
-            "price": st.column_config.NumberColumn("Preis", format="$%.2f"),
-            "trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
             "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
             "score_class": st.column_config.TextColumn("Klasse", width="small"),
+            "trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
             "gate_status": st.column_config.TextColumn("Gate", width="small"),
             "validation_status": st.column_config.TextColumn("Validation", width="small"),
+            "transaction_date": st.column_config.DateColumn("Datum", width="small"),
+            "company_name": st.column_config.TextColumn("Unternehmen", width="large"),
+            "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
+            "qty": st.column_config.NumberColumn("Stück", format="%d"),
+            "price": st.column_config.NumberColumn("Preis", format="$%.2f"),
         }
 
-    st.dataframe(display_df[table_columns], column_config=col_config, use_container_width=True, hide_index=True, height=560)
+    event = st.dataframe(
+        display_df[table_columns],
+        column_config=col_config,
+        use_container_width=True,
+        hide_index=True,
+        height=560,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    if event and event.get("selection") and event["selection"].get("rows"):
+        selected_row_idx = event["selection"]["rows"][0]
+        selected_ticker = display_df.iloc[selected_row_idx]["symbol_at_trade"]
+        st.session_state["selected_ticker"] = selected_ticker
+        st.success(f"Ausgewählt: **{selected_ticker}**. Gehe zur 'Detailansicht' für eine vollständige Analyse.")
 
     symbols = sorted({str(v) for v in display_df.get("symbol_at_trade", pd.Series(dtype="object")).dropna().tolist()})
     if symbols:

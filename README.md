@@ -38,13 +38,11 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - `src/ui/pages/` – Dashboard, Explorer, Ticker-Detail, Methodik
 - `src/ui/components/` – Wiederverwendbare UI-Bausteine
 - `src/utils/` – Hilfsfunktionen
-- `docs/` – Scope, Architektur, Datensatznotizen
 - `tests/` – robuste Basistests
-- `legacy/` – geordnete Altbestände
 
 ## Dokumentation
 - [Methodik & Architektur](src/ui/pages/methodology_page.py) (UI-Seite)
-- [Technischer Ablauf & Datenfluss](Ablauf.md) (Markdown-Übersicht)
+- [Technisches Datenmodell](src/db/mysql_repository.py)
 
 ## Datenfluss
 1. `ImportService` lädt `Latest Insider Trading` von FMP (`page=0`, `limit=100`).
@@ -64,6 +62,7 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - **Explorer (Screener)**: Kompakte, eckige Tabellenansicht mit Fokus auf Scanbarkeit.
     - Akkumulations-Toggle: Zusammenfassung konsekutiver Trades einer Person.
     - Filter für Ticker, Insider, Richtung und Mindestwert.
+    - **NEU**: Zeilenselektion für direkten Drilldown in die Detailansicht.
 - **Ticker-Detailansicht (Deep Dive)**: 
     - Strukturierte Tabs für Übersicht, Firmenkontext und Rohdaten.
     - Detaillierte Auflistung von Akkumulationsgruppen und deren Einzeltrades.
@@ -71,10 +70,11 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 
 ## Lokale Einrichtung
 ### Windows PowerShell (empfohlen)
-Wenn du **nur testen/starten** willst, brauchst du lokal **kein Python**, solange Docker Desktop laeuft.
+Wenn du **nur testen/starten** willst, brauchst du lokal **kein Python**, solange Docker Desktop läuft.
 
 ```powershell
-Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
+git clone <this-repo-url> mercator
+cd mercator
 Copy-Item .env.example .env -Force
 .\mercator.ps1 start
 .\mercator.ps1 open
@@ -87,11 +87,10 @@ Wichtig:
 
 ### Lokale Python-Umgebung (nur wenn du ohne Docker entwickeln willst)
 ```powershell
-Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
-py -3.11 -m venv .venv
+cd mercator
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env -Force
+pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
