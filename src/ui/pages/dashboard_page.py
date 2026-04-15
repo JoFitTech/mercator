@@ -102,7 +102,9 @@ def render_dashboard_page(
                     st.warning("Import-Service nicht verfügbar. Rohdatenspeicherung ist derzeit deaktiviert.")
                     error_detail = st.session_state.get("import_service_error")
                     if error_detail:
-                        st.caption(f"Technischer Hinweis: {error_detail}")
+                        # Formatiere mehrzeilige Fehlermeldungen
+                        with st.expander("📋 Technische Details"):
+                            st.code(error_detail, language="text")
                 else:
                     try:
                         with st.spinner("Import läuft..."):

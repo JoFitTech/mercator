@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status", "logs", "init-db", "open", "cleanup", "doctor")]
+    [ValidateSet("start", "stop", "restart", "status", "logs", "init-db", "open", "cleanup", "doctor", "e2e-install", "e2e-smoke", "e2e")]
     [string]$Action = "status",
     [string]$Service = "app"
 )
@@ -79,12 +79,12 @@ function Remove-Legacy-Containers {
  }
 
 function Get-AppUrl {
-    """
+    <#
     Ermittelt die beste lokale URL fuer die App:
     1) Docker-Port-Mapping des laufenden `mercator-app` Containers
     2) Letzte Streamlit-Logdatei (`streamlit_*.log`) und deren `Local URL`
     3) Fallback auf localhost:8501
-    """
+    #>
 
     try {
         $ports = docker ps --filter "name=^/mercator-app$" --format "{{.Ports}}"
@@ -166,6 +166,35 @@ function Invoke-ComposeQuiet {
     Remove-Item $errorFile -ErrorAction SilentlyContinue
 }
 
+function Get-PythonCommand {
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCmd) { return $pythonCmd.Source }
+
+    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyLauncher) { return "$($pyLauncher.Source) -3" }
+
+    throw "Python wurde nicht gefunden. Installiere Python 3.11+ oder aktiviere eine virtuelle Umgebung."
+}
+
+function Invoke-PythonModule {
+    param(
+        [Parameter(Mandatory=$true)][string]$Module,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$ModuleArgs
+    )
+
+    $pythonCommand = Get-PythonCommand
+    if ($pythonCommand -like "* -3") {
+        $parts = $pythonCommand -split " "
+        & $parts[0] $parts[1] -m $Module @ModuleArgs
+    } else {
+        & $pythonCommand -m $Module @ModuleArgs
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "python -m $Module $($ModuleArgs -join ' ') fehlgeschlagen (ExitCode $LASTEXITCODE)."
+    }
+}
+
 switch ($Action) {
     "start" {
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
@@ -227,5 +256,24 @@ switch ($Action) {
         # Optional: Raeumt auch den aktuellen Stack auf.
         Invoke-Compose down --remove-orphans
         Write-Host "Cleanup abgeschlossen." -ForegroundColor Green
+    }
+    "e2e-install" {
+        Write-Host "Installiere Dev- und E2E-Abhaengigkeiten..." -ForegroundColor Cyan
+        Invoke-PythonModule pip install -r requirements-dev.txt
+        Write-Host "Installiere Playwright Chromium..." -ForegroundColor Cyan
+        Invoke-PythonModule playwright install chromium
+        Write-Host "E2E-Setup abgeschlossen." -ForegroundColor Green
+    }
+    "e2e-smoke" {
+        $appUrl = Get-AppUrl
+        $env:MERCATOR_E2E_BASE_URL = $appUrl
+        Write-Host "Starte Smoke-E2E gegen $appUrl" -ForegroundColor Cyan
+        Invoke-PythonModule pytest tests/e2e/ -m smoke -v
+    }
+    "e2e" {
+        $appUrl = Get-AppUrl
+        $env:MERCATOR_E2E_BASE_URL = $appUrl
+        Write-Host "Starte komplette E2E-Suite gegen $appUrl" -ForegroundColor Cyan
+        Invoke-PythonModule pytest tests/e2e/ -v
     }
 }

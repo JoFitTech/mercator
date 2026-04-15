@@ -555,23 +555,37 @@ def load_settings() -> AppSettings:
     return app_settings
 
 
-def validate_fmp_api_key(api_key: str) -> None:
+def validate_fmp_api_key(api_key: str) -> bool:
     """Validiert den API-Key für Importläufe.
 
     Args:
         api_key: API-Key aus der Konfiguration.
 
+    Returns:
+        True, wenn der Key gültig ist.
+
     Raises:
-        ValueError: Falls der Key fehlt oder nur Platzhalter enthält.
+        ValueError: Falls der Key fehlt oder nur Platzhalter enthält (mit hilfreicher Meldung).
     """
 
     normalized = (api_key or "").strip().lower()
-    if not normalized or normalized in FMP_API_KEY_PLACEHOLDERS:
+    if not normalized:
         raise ValueError(
-            "FMP_API_KEY fehlt oder ist ein Platzhalter. "
-            "Setze einen gueltigen Wert bevorzugt als echte Umgebungsvariable `FMP_API_KEY`, "
-            "alternativ lokal in `.env` oder in Streamlit-Secrets (`FMP_API_KEY`)."
+            "FMP_API_KEY fehlt. Bitte setze einen gültigen Wert in einer der folgenden Methoden:\n"
+            "  1. Umgebungsvariable: FMP_API_KEY=your_actual_api_key\n"
+            "  2. .env-Datei: FMP_API_KEY=your_actual_api_key\n"
+            "  3. Streamlit-Secrets: secrets.toml mit FMP_API_KEY=your_actual_api_key\n"
+            "Import-Service bleibt deaktiviert, bis ein gültiger Key gesetzt wird."
         )
+    if normalized in FMP_API_KEY_PLACEHOLDERS:
+        raise ValueError(
+            f"FMP_API_KEY ist ein Platzhalter ('{api_key}'). Bitte ersetze ihn durch einen echten API-Key:\n"
+            "  1. Umgebungsvariable: FMP_API_KEY=your_actual_api_key\n"
+            "  2. .env-Datei: FMP_API_KEY=your_actual_api_key\n"
+            "  3. Streamlit-Secrets: secrets.toml mit FMP_API_KEY=your_actual_api_key\n"
+            "Import-Service bleibt deaktiviert, bis ein gültiger Key gesetzt wird."
+        )
+    return True
 
 
 # Offene Punkte sind zentral dokumentiert in ``docs/todos_offene_fragen.md``.

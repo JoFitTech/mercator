@@ -36,3 +36,9 @@ Thumbs.db
 *.temp
 *.pid
 app.tar.gz
+
+# E2E Playwright Test-Artefakte
+tests/e2e/screenshots/
+tests/e2e/traces/
+playwright-report/
+test-results/

@@ -39,10 +39,12 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - `src/ui/components/` – Wiederverwendbare UI-Bausteine
 - `src/utils/` – Hilfsfunktionen
 - `tests/` – robuste Basistests
+- `tests/e2e/` – Browserbasierte End-to-End-Tests mit Playwright
 
 ## Dokumentation
 - [Methodik & Architektur](src/ui/pages/methodology_page.py) (UI-Seite)
 - [Technisches Datenmodell](src/db/mysql_repository.py)
+- [E2E Browser-Tests mit Playwright](README-E2E.md)
 
 ## Datenfluss
 1. `ImportService` lädt `Latest Insider Trading` von FMP (`page=0`, `limit=100`).
@@ -180,6 +182,9 @@ Verfuegbare Aktionen (PowerShell Skript):
 - `doctor` - führt einen detaillierten Schema-Check und Reparaturen durch
 - `open` - oeffnet `http://localhost:8501`
 - `cleanup` - entfernt verwaiste Container (Präfix `mercator-*` oder `finanzport-*`)
+- `e2e-install` - installiert Dev-/Playwright-Abhängigkeiten und Chromium
+- `e2e-smoke` - führt die schnellen Browser-Smoke-Tests gegen die laufende App aus
+- `e2e` - führt die gesamte Playwright-E2E-Suite gegen die laufende App aus
 
 Beispiele:
 
@@ -189,6 +194,8 @@ Beispiele:
 .\mercator.ps1 logs
 .\mercator.ps1 logs -Service mongo
 .\mercator.ps1 init-db
+.\mercator.ps1 e2e-install
+.\mercator.ps1 e2e-smoke
 ```
 
 In der Dashboard-Seite kannst du unter **Gate- und Profil-Einstellungen** die Kriterien editieren
@@ -272,9 +279,6 @@ Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung w
 Danach kannst du den Status prüfen oder die App öffnen:
 
 ```powershell
-.\mercator.ps1 status
-.\mercator.ps1 open
-```
 .\mercator.ps1 status
 .\mercator.ps1 open
 ```

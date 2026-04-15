@@ -86,9 +86,9 @@ class ServiceFactory:
                 )
             except ValueError as exc:
                 ServiceFactory.last_import_issue = (
-                    f"FMP-Konfiguration ungueltig ({settings.fmp.api_key_source}): {exc}"
+                    f"FMP-Konfiguration ungueltig ({settings.fmp.api_key_source}):\n{str(exc)}"
                 )
-                LOGGER.warning("ServiceFactory: ImportService deaktiviert (%s)", ServiceFactory.last_import_issue)
+                LOGGER.warning("ServiceFactory: ImportService deaktiviert. Reason:\n%s", ServiceFactory.last_import_issue)
             except Exception as exc:
                 ServiceFactory.last_import_issue = f"FMP-Client Initialisierung fehlgeschlagen: {exc}"
                 LOGGER.error("ServiceFactory: ImportService deaktiviert (%s)", ServiceFactory.last_import_issue)
@@ -144,8 +144,8 @@ class ServiceFactory:
             )
         except ValueError as exc:
             import_service = None
-            ServiceFactory.last_import_issue = f"FMP-Konfiguration ungueltig ({settings.fmp.api_key_source}): {exc}"
-            LOGGER.warning("ServiceFactory: Ingestion-only deaktiviert (%s)", ServiceFactory.last_import_issue)
+            ServiceFactory.last_import_issue = f"FMP-Konfiguration ungueltig ({settings.fmp.api_key_source}):\n{str(exc)}"
+            LOGGER.warning("ServiceFactory: Ingestion-only deaktiviert. Reason:\n%s", ServiceFactory.last_import_issue)
         except Exception as exc:
             import_service = None
             ServiceFactory.last_import_issue = f"FMP-Client Initialisierung fehlgeschlagen: {exc}"
