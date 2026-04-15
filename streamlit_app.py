@@ -408,7 +408,7 @@ def main() -> None:
 
     def _admin() -> None:
         client = mysql_resolution.client if mysql_resolution else None
-        render_admin_page(settings, client, db_status.mongo.is_connected)
+        render_admin_page(settings, client, db_status.mongo.is_connected, runtime_settings_service)
 
     pages = [st.Page(_dashboard, title="Overview", icon=":material/dashboard:", default=True)]
     if analysis_service is not None:

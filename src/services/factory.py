@@ -61,10 +61,20 @@ class ServiceFactory:
         # Services
         runtime_settings_service = AppSettingsService(runtime_settings_repo, filter_repo, settings)
         runtime_settings = runtime_settings_service.load()
-
-        gate_evaluator = GateEvaluator(GateRules())
+        score_gate_policy = runtime_settings_service.load_score_gate_policy()
+        gate_evaluator = GateEvaluator(
+            GateRules(
+                min_trade_value=int(score_gate_policy.gate_min_trade_value),
+                allowed_acquisition_or_disposition=tuple(score_gate_policy.gate_allowed_acquisition_or_disposition),
+                excluded_transaction_types=tuple(score_gate_policy.gate_excluded_transaction_types),
+                required_form_type=score_gate_policy.gate_form_type_required,
+                required_security_name=score_gate_policy.gate_security_name_required,
+                required_validation_status=score_gate_policy.gate_validation_status_required,
+            )
+        )
 
         import_service: ImportService | None = None
+        fmp_client: FmpClient | None = None
         if mongo_client is not None and raw_repo is not None and company_mongo_repo is not None:
             try:
                 fmp_client = FmpClient(
@@ -98,7 +108,12 @@ class ServiceFactory:
             LOGGER.warning("ServiceFactory: ImportService deaktiviert (%s)", ServiceFactory.last_import_issue)
 
         dashboard_service = DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo)
-        analysis_service = AnalysisService(trade_repo, company_repo)
+        analysis_service = AnalysisService(
+            trade_repo,
+            company_repo,
+            score_gate_policy=score_gate_policy,
+            fmp_client=fmp_client,
+        )
         
         return dashboard_service, analysis_service, import_service, runtime_settings_service
 
@@ -122,7 +137,17 @@ class ServiceFactory:
         runtime_settings_service = AppSettingsService(runtime_repo=None, filter_repo=None, defaults=settings)
         runtime_settings = runtime_settings_service.load()
 
-        gate_evaluator = GateEvaluator(GateRules())
+        score_gate_policy = runtime_settings_service.load_score_gate_policy()
+        gate_evaluator = GateEvaluator(
+            GateRules(
+                min_trade_value=int(score_gate_policy.gate_min_trade_value),
+                allowed_acquisition_or_disposition=tuple(score_gate_policy.gate_allowed_acquisition_or_disposition),
+                excluded_transaction_types=tuple(score_gate_policy.gate_excluded_transaction_types),
+                required_form_type=score_gate_policy.gate_form_type_required,
+                required_security_name=score_gate_policy.gate_security_name_required,
+                required_validation_status=score_gate_policy.gate_validation_status_required,
+            )
+        )
 
         try:
             fmp_client = FmpClient(
@@ -154,4 +179,3 @@ class ServiceFactory:
         if import_service is not None:
             LOGGER.warning("ServiceFactory: Ingestion-only Modus aktiv (MySQL nicht verfuegbar).")
         return import_service, runtime_settings_service
-

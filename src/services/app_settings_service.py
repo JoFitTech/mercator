@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from src.config.settings import AppSettings
+from src.domain_rules import ScoreGatePolicy
 from src.db.mysql_repository import (
     AppFilterSettingsRepository,
     AppRuntimePreferencesRepository,
@@ -28,6 +29,7 @@ class AppSettingsService:
     """Lädt/speichert Laufzeit-Einstellungen und UI-Filter mit Env-Defaults."""
 
     RUNTIME_PREFERENCE_KEY = "runtime_settings"
+    SCORE_GATE_POLICY_KEY = "score_gate_policy"
 
     def __init__(
         self,
@@ -60,6 +62,39 @@ class AppSettingsService:
         base = asdict(self.defaults_runtime())
         base.update({k: v for k, v in payload.items() if k in base})
         return RuntimeSettings(**base)
+
+    def defaults_score_gate_policy(self) -> ScoreGatePolicy:
+        return ScoreGatePolicy(
+            gate_validation_status_required="VALID",
+            gate_form_type_required="4",
+            gate_security_name_required="Common Stock",
+            gate_allowed_acquisition_or_disposition=tuple(self.defaults.gate.allowed_acquisition_or_disposition),
+            gate_excluded_transaction_types=("A-Award", "M-Exempt"),
+            gate_min_trade_value=int(self.defaults.gate.min_trade_value),
+        )
+
+    def load_score_gate_policy(self) -> ScoreGatePolicy:
+        if self.runtime_repo is None:
+            return self.defaults_score_gate_policy()
+        payload = self.runtime_repo.load(self.SCORE_GATE_POLICY_KEY)
+        if not payload or not isinstance(payload, dict):
+            return self.defaults_score_gate_policy()
+        base = asdict(self.defaults_score_gate_policy())
+        base.update({k: v for k, v in payload.items() if k in base})
+        for key in ("gate_allowed_acquisition_or_disposition", "gate_excluded_transaction_types"):
+            if isinstance(base.get(key), list):
+                base[key] = tuple(base[key])
+        return ScoreGatePolicy(**base)
+
+    def save_score_gate_policy(self, policy: ScoreGatePolicy) -> None:
+        if self.runtime_repo is None:
+            return
+        self.runtime_repo.upsert(
+            {
+                "preference_key": self.SCORE_GATE_POLICY_KEY,
+                "preference_value_json": policy.to_dict(),
+            }
+        )
 
     def save(self, runtime: RuntimeSettings) -> None:
         if self.runtime_repo is None:

@@ -20,6 +20,15 @@ class _FakeCompanyRepo:
     def fetch_company(self, company_key: str):
         return pd.DataFrame([{"company_key": company_key, "company_name": "Apple Inc."}])
 
+    def get_company_by_current_symbol(self, symbol: str):
+        return {"current_symbol": symbol, "company_name": "Apple Inc."}
+
+    def upsert_company(self, payload):
+        return None
+
+    def fetch_all_symbols(self):
+        return ["AAPL"]
+
 
 class _MinimalTradeRepo:
     def fetch_trades(self, filters=None, limit=500):
@@ -86,4 +95,3 @@ def test_get_ticker_detail_stable_with_reduced_data() -> None:
     assert len(result.rows) == 1
     assert "score" in result.rows[0]
     assert "score_class" in result.rows[0]
-

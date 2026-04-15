@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.domain_rules import normalize_symbol, sanitize_symbol_options
 from src.db.mysql_client import MySqlClient
 
 
@@ -461,7 +462,7 @@ class InsiderTradeRepository:
 
         if filters.get("symbol"):
             clauses.append("t.symbol_at_trade = %s")
-            params.append(filters["symbol"])
+            params.append(str(filters["symbol"]).strip().upper())
         if filters.get("company_key"):
             clauses.append("t.company_key = %s")
             params.append(filters["company_key"])
@@ -547,13 +548,16 @@ class CompanyMySqlRepository(CompanyRepository):
 
     def fetch_all_symbols(self) -> list[str]:
         """Liefert alle verfügbaren Symbole für bestehende Aufrufe."""
-
-        symbols: list[str] = []
-        for row in self.list_companies(limit=100000):
-            symbol = row.get("current_symbol") or row.get("company_key")
-            if symbol:
-                symbols.append(str(symbol))
-        return symbols
+        query = """
+            SELECT DISTINCT current_symbol
+            FROM companies
+            WHERE current_symbol IS NOT NULL AND TRIM(current_symbol) <> ''
+            ORDER BY current_symbol
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                return sanitize_symbol_options(row[0] for row in cursor.fetchall())
 
 
 class InsiderTradeMySqlRepository(InsiderTradeRepository):
@@ -561,19 +565,25 @@ class InsiderTradeMySqlRepository(InsiderTradeRepository):
 
     def fetch_all_symbols(self) -> list[str]:
         """Liefert alle verfügbaren Symbole für bestehende Aufrufe.
-        
-        Kombiniert company_key und symbol_at_trade für maximale Abdeckung (Finding 3).
+
+        Root-Cause-Fix: `company_key` kann CIK-basierte Identifikatoren enthalten
+        und darf nie in die Ticker-Auswahl gelangen.
         """
         query = """
-            SELECT DISTINCT company_key FROM insider_trades 
-            UNION 
-            SELECT DISTINCT symbol_at_trade FROM insider_trades 
-            ORDER BY 1
+            SELECT DISTINCT symbol_at_trade
+            FROM insider_trades
+            WHERE symbol_at_trade IS NOT NULL AND TRIM(symbol_at_trade) <> ''
+            ORDER BY symbol_at_trade
         """
         with self._client.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query)
-                return [row[0] for row in cursor.fetchall() if row[0]]
+                symbols: list[str] = []
+                for row in cursor.fetchall():
+                    symbol = normalize_symbol(row[0])
+                    if symbol:
+                        symbols.append(symbol)
+                return sanitize_symbol_options(symbols)
 
 
 class AppFilterSettingsRepository:
@@ -756,5 +766,4 @@ class AppRuntimePreferencesRepository:
             with conn.cursor() as cursor:
                 cursor.execute(sql, params)
             conn.commit()
-
 

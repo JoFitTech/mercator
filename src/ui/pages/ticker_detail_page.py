@@ -42,7 +42,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     st.caption("Kontext pro Unternehmen: Trade-Historie, Qualitätsindikatoren und Profildaten für den finalen Entscheid.")
 
     try:
-        all_symbols = sorted(list(set(service.trade_repo.fetch_all_symbols()) | set(service.company_repo.fetch_all_symbols())))
+        all_symbols = service.list_ticker_options()
     except Exception:
         all_symbols = []
 
@@ -61,11 +61,12 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     result = service.get_ticker_detail(selected_symbol, accumulate=True)
     profile = result.company_profile
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Trades", format_number(result.metrics.get("trade_count"), "{:,.0f}"))
     m2.metric("Ø Preis", format_number(result.metrics.get("avg_price"), "${:,.2f}"))
     m3.metric("Gesamtmenge", format_number(result.metrics.get("total_qty"), "{:,.0f}"))
     m4.metric("Marktkapitalisierung", format_mcap(profile.get("market_cap"), profile.get("currency", "USD")))
+    m5.metric("Profilquelle", result.note)
 
     tab1, tab2, tab3 = st.tabs(["Trades", "Company Context", "Raw / Audit"])
 
@@ -116,6 +117,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
                         "accumulated_trade_value_estimated",
                         "score",
                         "score_class",
+                        "score_status",
                         "gate_status",
                         "validation_status",
                     ],
@@ -130,6 +132,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
                     "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
                     "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
                     "score_class": st.column_config.TextColumn("Klasse", width="small"),
+                    "score_status": st.column_config.TextColumn("Status", width="small"),
                     "gate_status": st.column_config.TextColumn("Gate", width="small"),
                     "validation_status": st.column_config.TextColumn("Validation", width="small"),
                 },
@@ -140,25 +143,39 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
 
     with tab2:
         if not profile:
-            st.warning("Kein Firmenprofil gefunden.")
+            st.warning("Unternehmensprofil derzeit nicht verfügbar")
         else:
+            def safe_value(value: Any) -> str:
+                return "Nicht verfügbar" if value is None or str(value).strip() == "" else str(value)
+
             c1, c2 = st.columns([0.65, 0.35])
             with c1:
-                st.subheader(f"{profile.get('company_name') or selected_symbol}")
-                st.write(f"**Sektor:** {profile.get('sector') or '-'}")
-                st.write(f"**Branche:** {profile.get('industry') or '-'}")
-                st.write(f"**Land:** {profile.get('country') or '-'}")
-                st.write(f"**Börse:** {profile.get('exchange_full_name') or '-'}")
+                st.subheader(safe_value(profile.get("company_name") or selected_symbol))
+                st.write(f"**Sektor:** {safe_value(profile.get('sector'))}")
+                st.write(f"**Branche:** {safe_value(profile.get('industry'))}")
+                st.write(f"**Land:** {safe_value(profile.get('country'))}")
+                st.write(f"**Börse:** {safe_value(profile.get('exchange_full_name'))}")
             with c2:
-                st.write(f"**ISIN:** {profile.get('isin') or '-'}")
-                st.write(f"**CIK:** {profile.get('cik') or '-'}")
-                st.write(f"**CEO:** {profile.get('ceo') or '-'}")
-                st.write(f"**Mitarbeiter:** {profile.get('full_time_employees') or '-'}")
+                st.write(f"**ISIN:** {safe_value(profile.get('isin'))}")
+                st.write(f"**CIK:** {safe_value(profile.get('cik'))}")
+                st.write(f"**CEO:** {safe_value(profile.get('ceo'))}")
+                st.write(f"**Mitarbeiter:** {safe_value(profile.get('full_time_employees'))}")
                 if profile.get("website"):
                     st.link_button("Unternehmenswebsite", profile["website"], use_container_width=True)
 
             st.markdown("**Beschreibung**")
-            st.write(profile.get("description") or "Keine Beschreibung verfügbar.")
+            st.write(safe_value(profile.get("description")))
+
+        gate_df = pd.DataFrame(result.rows)
+        if not gate_df.empty and "gate_status" in gate_df.columns:
+            st.markdown("**Gate-Ergebnis**")
+            gate_counts = gate_df["gate_status"].fillna("UNKNOWN").astype(str).str.upper().value_counts()
+            st.write(
+                f"PASS: {int(gate_counts.get('PASS', 0))} · HOLD/PENDING: {int(gate_counts.get('PENDING', 0))} · FAIL: {int(gate_counts.get('FAIL', 0))}"
+            )
+            failed = gate_df[gate_df["gate_status"].fillna("").astype(str).str.upper() == "FAIL"]
+            if not failed.empty:
+                st.dataframe(_safe_select_columns(failed, ["transaction_date", "reporting_name", "gate_reason"]), hide_index=True)
 
     with tab3:
         st.subheader("Technische Metadaten")
