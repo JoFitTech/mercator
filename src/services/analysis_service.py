@@ -285,7 +285,16 @@ class AnalysisService:
             df = df[df["trade_value_estimated"] >= min_value]
 
         if accumulate and not df.empty:
+            if "transaction_date" not in df.columns:
+                return df
+
+            parsed_dates = pd.to_datetime(df["transaction_date"], errors="coerce")
+            if not parsed_dates.notna().any():
+                return df
+
             try:
+                df = df.copy()
+                df["transaction_date"] = parsed_dates
                 return AccumulationService.accumulate_trades(df)
             except Exception:
                 return df

@@ -10,8 +10,8 @@ class _FakeTradeRepo:
         # Wir geben acquisition_or_disposition mit, damit direction gemappt werden kann
         return pd.DataFrame(
             [
-                {"symbol": "AAPL", "symbol_at_trade": "AAPL", "price": 10.0, "qty": 2.0, "acquisition_or_disposition": "A"},
-                {"symbol": "AAPL", "symbol_at_trade": "AAPL", "price": 20.0, "qty": 3.0, "acquisition_or_disposition": "D"},
+                {"symbol": "AAPL", "symbol_at_trade": "AAPL", "price": 10.0, "qty": 2.0, "acquisition_or_disposition": "A", "gate_status": "PASS"},
+                {"symbol": "AAPL", "symbol_at_trade": "AAPL", "price": 20.0, "qty": 3.0, "acquisition_or_disposition": "D", "gate_status": "PASS"},
             ]
         )
 
@@ -82,8 +82,37 @@ def test_get_filtered_trades_no_keyerror_with_missing_score_columns() -> None:
     df = service.get_filtered_trades(accumulate=True)
 
     assert isinstance(df, pd.DataFrame)
+    assert len(df) == 1
     assert "score" in df.columns
     assert "score_class" in df.columns
+    assert df.iloc[0]["symbol_at_trade"] == "AAPL"
+
+
+class _InvalidDateTradeRepo:
+    def fetch_trades(self, filters=None, limit=500):
+        return pd.DataFrame(
+            [
+                {
+                    "company_key": "AAPL",
+                    "symbol_at_trade": "AAPL",
+                    "acquisition_or_disposition": "A",
+                    "transaction_date": "not-a-date",
+                    "qty": 5,
+                    "price": 10.5,
+                    "trade_value_estimated": 52.5,
+                }
+            ]
+        )
+
+
+def test_get_filtered_trades_falls_back_when_transaction_date_is_unparseable() -> None:
+    service = AnalysisService(_InvalidDateTradeRepo(), _FakeCompanyRepo())
+    df = service.get_filtered_trades(accumulate=True)
+
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 1
+    assert df.iloc[0]["symbol_at_trade"] == "AAPL"
+    assert df.iloc[0]["direction"] == "BUY"
 
 
 def test_get_ticker_detail_stable_with_reduced_data() -> None:
