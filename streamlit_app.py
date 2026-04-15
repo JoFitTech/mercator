@@ -165,16 +165,16 @@ def _render_database_sidebar_status(
         if docker_hint and (not status.mysql.is_connected or not status.mongo.is_connected):
             st.caption(docker_hint)
 
-    with st.sidebar.expander("Debug: DB-Status", expanded=advanced_mode):
-        selected_mysql = settings.mysql.get_mysql_target(selected_target)
-        st.write(f"MySQL Status: {'connected' if status.mysql.is_connected else 'failed'}")
-        st.write(f"MongoDB Status: {'connected' if status.mongo.is_connected else 'failed'}")
-        st.write(f"MySQL Host: `{selected_mysql.host}`")
-        st.write(f"MySQL Port: `{selected_mysql.port}`")
-        st.write(f"MySQL Datenbank: `{selected_mysql.database}`")
-        st.write(f"MySQL SSL: `{'deaktiviert' if selected_mysql.ssl_disabled else 'aktiviert'}`")
-        st.write(f"Mongo URI: `{_mask_mongo_uri(settings.mongo.uri)}`")
-        if advanced_mode:
+    if advanced_mode:
+        with st.sidebar.expander("Debug: DB-Status", expanded=False):
+            selected_mysql = settings.mysql.get_mysql_target(selected_target)
+            st.write(f"MySQL Status: {'connected' if status.mysql.is_connected else 'failed'}")
+            st.write(f"MongoDB Status: {'connected' if status.mongo.is_connected else 'failed'}")
+            st.write(f"MySQL Host: `{selected_mysql.host}`")
+            st.write(f"MySQL Port: `{selected_mysql.port}`")
+            st.write(f"MySQL Datenbank: `{selected_mysql.database}`")
+            st.write(f"MySQL SSL: `{'deaktiviert' if selected_mysql.ssl_disabled else 'aktiviert'}`")
+            st.write(f"Mongo URI: `{_mask_mongo_uri(settings.mongo.uri)}`")
             if mysql_resolution is not None:
                 for message in mysql_resolution.messages:
                     st.caption(f"MySQL Detail: {message}")
@@ -276,9 +276,49 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
             st.sidebar.error(f"Sync fehlgeschlagen: {exc}")
 
 
+
+
+def _inject_global_styles() -> None:
+    """Setzt ein ruhiges, konsistentes UI-Grundlayout für Streamlit."""
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background-color: #f7f8fa;
+            color: #111827;
+        }
+        [data-testid="stAppViewContainer"] .main .block-container {
+            max-width: 1360px;
+            padding-top: 1.25rem;
+            padding-bottom: 2rem;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #ffffff;
+            border-right: 1px solid #e5e7eb;
+        }
+        h1, h2, h3 {
+            letter-spacing: -0.01em;
+        }
+        [data-testid="stMetric"] {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 0.7rem 0.8rem;
+        }
+        [data-testid="stDataFrame"] {
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def main() -> None:
     """Konfiguriert Navigation und rendert die gewählte Seite."""
     st.set_page_config(page_title="Mercator", layout="wide")
+    _inject_global_styles()
     st.sidebar.title("Mercator")
     st.sidebar.caption("Interaktive Datenanwendung für das Modul Datenbanken 2")
 
@@ -362,12 +402,12 @@ def main() -> None:
             return
         render_admin_page(settings, mysql_resolution.client, db_status.mongo.is_connected)
 
-    pages = [st.Page(_dashboard, title="Dashboard", icon=":material/dashboard:", default=True)]
+    pages = [st.Page(_dashboard, title="Overview", icon=":material/dashboard:", default=True)]
     if analysis_service is not None:
         pages.extend(
             [
                 st.Page(_explorer, title="Explorer", icon=":material/table_view:"),
-                st.Page(_ticker_detail, title="Ticker-Detailansicht", icon=":material/insights:"),
+                st.Page(_ticker_detail, title="Detailansicht", icon=":material/insights:"),
             ]
         )
     pages.append(st.Page(render_methodology_page, title="Methodik", icon=":material/schema:"))

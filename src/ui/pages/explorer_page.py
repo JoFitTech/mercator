@@ -2,113 +2,185 @@
 
 from __future__ import annotations
 
-import streamlit as st
-import pandas as pd
 from typing import Any
+
+import pandas as pd
+import streamlit as st
 
 from src.services.analysis_service import AnalysisService
 from src.services.app_settings_service import AppSettingsService
 
 
-def format_currency_compact(value: Any) -> str:
-    """Formatiert Währungswerte kompakt (z.B. 1.25M, 842k)."""
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return "-"
-    val = float(value)
-    if abs(val) >= 1_000_000:
-        return f"{val / 1_000_000:.2f}M"
-    if abs(val) >= 1_000:
-        return f"{val / 1_000:.1f}k"
-    return f"{val:.2f}"
+PRIMARY_DIRECTIONS = ["Alle", "BUY", "SELL"]
 
 
-def render_explorer_page(service: AnalysisService, settings_service: AppSettingsService | None = None) -> None:
-    """Rendert Filter und kompakte Screener-Tabelle für Insider-Trades."""
-    st.title("Mercator")
-    st.markdown("### Insider Trades Screener")
+def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    safe_df = frame.copy()
+    for col in columns:
+        if col not in safe_df.columns:
+            safe_df[col] = pd.NA
+    return safe_df[columns]
 
-    default_filters = {
+
+def _default_filters() -> dict[str, Any]:
+    return {
         "symbol": "",
         "reporting_name": "",
         "direction": "Alle",
-        "min_value": 0,
+        "min_value": 100_000,
+        "limit": 1000,
         "accumulate": True,
         "show_raw": False,
+        "gate_statuses": ["PASS", "PENDING", "FAIL"],
+        "validation_statuses": ["VALID", "INVALID", "UNCHECKED"],
     }
 
+
+def _render_filter_summary(filters: dict[str, Any]) -> None:
+    parts: list[str] = []
+    if filters["symbol"]:
+        parts.append(f"Ticker: **{filters['symbol']}**")
+    if filters["reporting_name"]:
+        parts.append(f"Insider: **{filters['reporting_name']}**")
+    if filters["direction"] != "Alle":
+        parts.append(f"Richtung: **{filters['direction']}**")
+    if int(filters["min_value"]) > 0:
+        parts.append(f"Min. Trade Value: **${int(filters['min_value']):,}**")
+    if filters.get("gate_statuses") and len(filters["gate_statuses"]) < 3:
+        parts.append(f"Gate: **{', '.join(filters['gate_statuses'])}**")
+    if filters.get("validation_statuses") and len(filters["validation_statuses"]) < 3:
+        parts.append(f"Validation: **{', '.join(filters['validation_statuses'])}**")
+
+    st.caption("Aktive Filter: " + (" · ".join(parts) if parts else "Keine (Standardansicht)"))
+
+
+def render_explorer_page(service: AnalysisService, settings_service: AppSettingsService | None = None) -> None:
+    """Rendert Filter und Screener-Tabelle für Insider-Trades."""
+    st.title("Explorer")
+    st.caption("Fokussierter Screener für Trade-Relevanz, Richtung, Gate-/Validierungsstatus und schnellen Drilldown.")
+
+    defaults = _default_filters()
     if "explorer_filters" not in st.session_state:
         if settings_service is not None:
-            persisted = settings_service.load_filter("explorer", "filters", default_filters)
-            st.session_state.explorer_filters = persisted if isinstance(persisted, dict) else default_filters.copy()
+            persisted = settings_service.load_filter("explorer", "filters", defaults)
+            st.session_state.explorer_filters = persisted if isinstance(persisted, dict) else defaults.copy()
         else:
-            st.session_state.explorer_filters = default_filters.copy()
+            st.session_state.explorer_filters = defaults.copy()
 
-    # Filterleiste
-    with st.expander("Filter & Optionen", expanded=True):
-        c1, c2, c3, c4 = st.columns(4)
+    with st.form("explorer_filters_form", border=False):
+        st.subheader("Primäre Filter")
+        c1, c2, c3, c4 = st.columns([1, 1.2, 0.8, 1])
+        symbol = c1.text_input("Ticker", value=str(st.session_state.explorer_filters.get("symbol", "")), placeholder="z. B. AAPL")
+        reporting = c2.text_input(
+            "Insider (Name)", value=str(st.session_state.explorer_filters.get("reporting_name", "")), placeholder="z. B. Tim Cook"
+        )
         persisted_direction = str(st.session_state.explorer_filters.get("direction", "Alle"))
-        symbol = c1.text_input("Ticker", value=str(st.session_state.explorer_filters.get("symbol", "")), placeholder="z.B. AAPL")
-        reporting = c2.text_input("Insider", value=str(st.session_state.explorer_filters.get("reporting_name", "")), placeholder="Name...")
         direction = c3.selectbox(
             "Richtung",
-            ["Alle", "BUY", "SELL"],
-            index=["Alle", "BUY", "SELL"].index(persisted_direction if persisted_direction in {"Alle", "BUY", "SELL"} else "Alle"),
+            PRIMARY_DIRECTIONS,
+            index=PRIMARY_DIRECTIONS.index(persisted_direction if persisted_direction in PRIMARY_DIRECTIONS else "Alle"),
         )
-        min_value = c4.number_input("Min. Wert ($)", value=int(st.session_state.explorer_filters.get("min_value", 0)), step=10000)
+        min_value = c4.number_input(
+            "Min. Trade Value ($)",
+            min_value=0,
+            value=int(st.session_state.explorer_filters.get("min_value", 100_000)),
+            step=50_000,
+        )
 
-        c5, c6 = st.columns(2)
-        accumulate = c5.toggle("Trades akkumulieren", value=bool(st.session_state.explorer_filters.get("accumulate", True)))
-        show_raw = c6.toggle("Rohdaten zeigen", value=bool(st.session_state.explorer_filters.get("show_raw", False)))
+        with st.expander("Sekundäre Filter & Darstellung", expanded=False):
+            s1, s2, s3 = st.columns(3)
+            limit = s1.select_slider("Max. Zeilen", options=[250, 500, 1000, 2000], value=int(st.session_state.explorer_filters.get("limit", 1000)))
+            accumulate = s2.toggle("Trades akkumulieren", value=bool(st.session_state.explorer_filters.get("accumulate", True)))
+            show_raw = s3.toggle("Einzeltrades anzeigen", value=bool(st.session_state.explorer_filters.get("show_raw", False)))
 
-        # State aktualisieren
+            s4, s5 = st.columns(2)
+            gate_statuses = s4.multiselect(
+                "Gate-Status",
+                options=["PASS", "PENDING", "FAIL"],
+                default=list(st.session_state.explorer_filters.get("gate_statuses", ["PASS", "PENDING", "FAIL"])),
+            )
+            validation_statuses = s5.multiselect(
+                "Validation",
+                options=["VALID", "INVALID", "UNCHECKED"],
+                default=list(st.session_state.explorer_filters.get("validation_statuses", ["VALID", "INVALID", "UNCHECKED"])),
+            )
+
+        a1, a2 = st.columns([1, 1])
+        apply_filters = a1.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
+        reset_filters = a2.form_submit_button("Filter zurücksetzen", use_container_width=True)
+
+    if reset_filters:
+        st.session_state.explorer_filters = defaults.copy()
+        if settings_service is not None:
+            settings_service.save_filter("explorer", "filters", st.session_state.explorer_filters)
+        st.rerun()
+
+    if apply_filters:
         st.session_state.explorer_filters.update(
             {
                 "symbol": symbol.strip().upper(),
                 "reporting_name": reporting.strip(),
                 "direction": direction,
-                "min_value": min_value,
-                "accumulate": accumulate,
-                "show_raw": show_raw,
+                "min_value": int(min_value),
+                "limit": int(limit),
+                "accumulate": bool(accumulate),
+                "show_raw": bool(show_raw),
+                "gate_statuses": gate_statuses or ["PASS", "PENDING", "FAIL"],
+                "validation_statuses": validation_statuses or ["VALID", "INVALID", "UNCHECKED"],
             }
         )
-
         if settings_service is not None:
             settings_service.save_filter("explorer", "filters", st.session_state.explorer_filters)
 
-    # Daten laden
+    filters_state = st.session_state.explorer_filters
+    _render_filter_summary(filters_state)
+
     api_direction = None
-    if direction == "BUY":
+    if filters_state["direction"] == "BUY":
         api_direction = "A"
-    elif direction == "SELL":
+    elif filters_state["direction"] == "SELL":
         api_direction = "D"
 
-    filters = {
-        "symbol": symbol.strip().upper() or None,
-        "reporting_name": reporting.strip() or None,
+    query_filters = {
+        "symbol": filters_state["symbol"] or None,
+        "reporting_name": filters_state["reporting_name"] or None,
         "acquisition_or_disposition": api_direction,
     }
 
     data = service.get_filtered_trades(
-        filters=filters,
-        limit=1000,
-        accumulate=accumulate and not show_raw,
-        min_value=float(min_value),
+        filters=query_filters,
+        limit=int(filters_state.get("limit", 1000)),
+        accumulate=bool(filters_state.get("accumulate", True)) and not bool(filters_state.get("show_raw", False)),
+        min_value=float(filters_state.get("min_value", 0)),
     )
 
     if data.empty:
-        st.info("Keine Daten gefunden, die den Filtern entsprechen.")
+        st.info("Keine Treffer für die aktuelle Filterkombination.")
         return
 
-    def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-        safe_df = frame.copy()
-        for col in columns:
-            if col not in safe_df.columns:
-                safe_df[col] = pd.NA
-        return safe_df[columns]
+    if "gate_status" in data.columns:
+        data = data[data["gate_status"].fillna("UNKNOWN").astype(str).str.upper().isin(filters_state["gate_statuses"])]
+    if "validation_status" in data.columns:
+        data = data[data["validation_status"].fillna("UNKNOWN").astype(str).str.upper().isin(filters_state["validation_statuses"])]
 
-    st.subheader(f"{len(data)} Ergebnisse")
+    if data.empty:
+        st.info("Keine Treffer nach Gate-/Validation-Filter.")
+        return
 
-    if accumulate and not show_raw:
+    score_col = "score" if "score" in data.columns else None
+    value_col = "accumulated_trade_value_estimated" if "accumulated_trade_value_estimated" in data.columns else "trade_value_estimated"
+    if score_col is not None:
+        data = data.sort_values(by=[score_col, value_col], ascending=[False, False], na_position="last")
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Treffer", f"{len(data):,}")
+    k2.metric("BUY", f"{int((data.get('direction', pd.Series(dtype='object')) == 'BUY').sum()):,}")
+    k3.metric("Gate PASS", f"{int((data.get('gate_status', pd.Series(dtype='object')).astype(str).str.upper() == 'PASS').sum()):,}")
+    k4.metric("Ø Score", f"{pd.to_numeric(data.get('score'), errors='coerce').mean():.1f}" if "score" in data.columns else "-")
+
+    st.subheader("Trade-Arbeitsfläche")
+
+    if filters_state["accumulate"] and not filters_state["show_raw"]:
         display_df = _safe_select_columns(
             data,
             [
@@ -124,24 +196,18 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 "score_class",
                 "gate_status",
                 "validation_status",
-                "is_accumulated",
                 "accumulated_trade_count",
             ],
         ).copy()
-
-        display_df["is_accumulated"] = display_df["is_accumulated"].fillna(False).astype(bool)
         display_df["accumulated_trade_count"] = pd.to_numeric(display_df["accumulated_trade_count"], errors="coerce").fillna(1)
 
-        display_df["Type"] = display_df.apply(
-            lambda r: f"ACC x{r['accumulated_trade_count']}" if r["is_accumulated"] else "Single", axis=1
-        )
-
-        final_cols = [
+        table_columns = [
             "transaction_date",
             "symbol_at_trade",
             "company_name",
             "reporting_name",
             "direction",
+            "accumulated_trade_count",
             "accumulated_qty",
             "accumulated_avg_price_weighted",
             "accumulated_trade_value_estimated",
@@ -149,23 +215,22 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             "score_class",
             "gate_status",
             "validation_status",
-            "Type",
         ]
 
         col_config = {
-            "transaction_date": st.column_config.DateColumn("Datum"),
-            "symbol_at_trade": st.column_config.TextColumn("Ticker"),
-            "company_name": st.column_config.TextColumn("Firma"),
-            "reporting_name": st.column_config.TextColumn("Insider"),
-            "direction": st.column_config.TextColumn("Richtung"),
-            "accumulated_qty": st.column_config.NumberColumn("Stückzahl", format="%d"),
-            "accumulated_avg_price_weighted": st.column_config.NumberColumn("Preis", format="$%.2f"),
-            "accumulated_trade_value_estimated": st.column_config.NumberColumn("Wert ($)", format="$%.2f"),
-            "score": st.column_config.NumberColumn("Score", format="%.2f"),
-            "score_class": st.column_config.TextColumn("Score Klasse"),
-            "gate_status": st.column_config.TextColumn("Gate"),
-            "validation_status": st.column_config.TextColumn("Validation"),
-            "Type": st.column_config.TextColumn("Typ"),
+            "transaction_date": st.column_config.DateColumn("Datum", width="small"),
+            "symbol_at_trade": st.column_config.TextColumn("Ticker", width="small"),
+            "company_name": st.column_config.TextColumn("Unternehmen", width="large"),
+            "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
+            "direction": st.column_config.TextColumn("Richtung", width="small"),
+            "accumulated_trade_count": st.column_config.NumberColumn("#Trades", format="%d", width="small"),
+            "accumulated_qty": st.column_config.NumberColumn("Stück", format="%d"),
+            "accumulated_avg_price_weighted": st.column_config.NumberColumn("Ø Preis", format="$%.2f"),
+            "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
+            "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
+            "score_class": st.column_config.TextColumn("Klasse", width="small"),
+            "gate_status": st.column_config.TextColumn("Gate", width="small"),
+            "validation_status": st.column_config.TextColumn("Validation", width="small"),
         }
     else:
         display_df = _safe_select_columns(
@@ -186,41 +251,40 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             ],
         ).copy()
 
-        final_cols = [
-            "transaction_date",
-            "symbol_at_trade",
-            "company_name",
-            "reporting_name",
-            "direction",
-            "qty",
-            "price",
-            "trade_value_estimated",
-            "score",
-            "score_class",
-            "gate_status",
-            "validation_status",
-        ]
-
+        table_columns = list(display_df.columns)
         col_config = {
-            "transaction_date": st.column_config.DateColumn("Datum"),
-            "symbol_at_trade": st.column_config.TextColumn("Ticker"),
-            "company_name": st.column_config.TextColumn("Firma"),
-            "reporting_name": st.column_config.TextColumn("Insider"),
-            "direction": st.column_config.TextColumn("Richtung"),
-            "qty": st.column_config.NumberColumn("Stückzahl", format="%d"),
+            "transaction_date": st.column_config.DateColumn("Datum", width="small"),
+            "symbol_at_trade": st.column_config.TextColumn("Ticker", width="small"),
+            "company_name": st.column_config.TextColumn("Unternehmen", width="large"),
+            "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
+            "direction": st.column_config.TextColumn("Richtung", width="small"),
+            "qty": st.column_config.NumberColumn("Stück", format="%d"),
             "price": st.column_config.NumberColumn("Preis", format="$%.2f"),
-            "trade_value_estimated": st.column_config.NumberColumn("Wert ($)", format="$%.2f"),
-            "score": st.column_config.NumberColumn("Score", format="%.2f"),
-            "score_class": st.column_config.TextColumn("Score Klasse"),
-            "gate_status": st.column_config.TextColumn("Gate"),
-            "validation_status": st.column_config.TextColumn("Validation"),
+            "trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
+            "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
+            "score_class": st.column_config.TextColumn("Klasse", width="small"),
+            "gate_status": st.column_config.TextColumn("Gate", width="small"),
+            "validation_status": st.column_config.TextColumn("Validation", width="small"),
         }
 
-    st.dataframe(
-        display_df[final_cols],
-        column_config=col_config,
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(display_df[table_columns], column_config=col_config, use_container_width=True, hide_index=True, height=560)
 
-    st.info("Klicken Sie auf 'Ticker-Detailansicht' in der Sidebar für tiefergehende Analysen eines einzelnen Wertpapiers.")
+    symbols = sorted({str(v) for v in display_df.get("symbol_at_trade", pd.Series(dtype="object")).dropna().tolist()})
+    if symbols:
+        st.markdown("#### Schnell-Drilldown")
+        selected_symbol = st.selectbox(
+            "Ticker für Kontextvorschau",
+            options=symbols,
+            index=0,
+            help="Für vollständige Analyse nutze danach die Seite Detailansicht.",
+        )
+        detail = service.get_ticker_detail(selected_symbol, accumulate=True)
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Trades", f"{int(detail.metrics.get('trade_count') or 0):,}")
+        avg_price = detail.metrics.get("avg_price")
+        d2.metric("Ø Preis", f"${float(avg_price):,.2f}" if avg_price is not None else "-")
+        total_qty = detail.metrics.get("total_qty")
+        d3.metric("Gesamtmenge", f"{float(total_qty):,.0f}" if total_qty is not None else "-")
+        profile = detail.company_profile or {}
+        d4.metric("Sektor", profile.get("sector") or "-")
+        st.caption("Für vollständigen Deep Dive: Seite **Detailansicht** öffnen.")
