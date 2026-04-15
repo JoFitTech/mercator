@@ -12,6 +12,7 @@ from src.config.settings import (
     MySqlTargetSettings,
     Settings,
 )
+from src.domain_rules import ScoreGatePolicy
 from src.services import factory as factory_module
 
 
@@ -82,7 +83,7 @@ def test_build_all_disables_import_service_when_fmp_key_invalid(monkeypatch) -> 
     monkeypatch.setattr(factory_module, "AppFilterSettingsRepository", lambda _client: object())
     monkeypatch.setattr(factory_module, "AppRuntimePreferencesRepository", lambda _client: object())
     monkeypatch.setattr(factory_module, "DashboardService", lambda *_args: object())
-    monkeypatch.setattr(factory_module, "AnalysisService", lambda *_args: object())
+    monkeypatch.setattr(factory_module, "AnalysisService", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(factory_module, "FmpClient", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("invalid key")))
 
     class _RuntimeSettingsServiceStub:
@@ -96,6 +97,9 @@ def test_build_all_disables_import_service_when_fmp_key_invalid(monkeypatch) -> 
                 profile_gate_filter_statuses=("PASS",),
             )
 
+        def load_score_gate_policy(self):
+            return ScoreGatePolicy()
+
     monkeypatch.setattr(factory_module, "AppSettingsService", _RuntimeSettingsServiceStub)
 
     _dashboard, _analysis, import_service, _runtime = factory_module.ServiceFactory.build_all(
@@ -107,4 +111,3 @@ def test_build_all_disables_import_service_when_fmp_key_invalid(monkeypatch) -> 
     assert import_service is None
     assert factory_module.ServiceFactory.last_import_issue is not None
     assert "FMP-Konfiguration ungueltig" in factory_module.ServiceFactory.last_import_issue
-

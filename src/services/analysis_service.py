@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import pandas as pd
 
+from src.data_sources.fmp_client import FmpClient
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
+from src.domain_rules import ScoreGatePolicy, classify_score, normalize_symbol, sanitize_symbol_options
 from src.models.analysis_result import AnalysisResult
 from src.services.accumulation_service import AccumulationService
 
@@ -21,6 +24,7 @@ SCORE_CLASS_B = 60  # 60-79
 SCORE_CLASS_C = 40  # 40-59
 SCORE_CLASS_D = 20  # 20-39
 # CLASS_E: < 20
+LOGGER = logging.getLogger(__name__)
 
 def _classify_score(score: float | None) -> str | None:
     """Weist einen numerischen Score einer fachlichen Klasse A-E zu."""
@@ -45,9 +49,90 @@ class AnalysisService:
         self,
         trade_repo: InsiderTradeMySqlRepository,
         company_repo: CompanyMySqlRepository,
+        score_gate_policy: ScoreGatePolicy | None = None,
+        fmp_client: FmpClient | None = None,
     ) -> None:
         self.trade_repo = trade_repo
         self.company_repo = company_repo
+        self.score_gate_policy = score_gate_policy or ScoreGatePolicy()
+        self.fmp_client = fmp_client
+
+    def list_ticker_options(self) -> list[str]:
+        """Liefert ausschließlich symbolbasierte, bereinigte Tickeroptionen."""
+
+        symbols = self.trade_repo.fetch_all_symbols() + self.company_repo.fetch_all_symbols()
+        return sanitize_symbol_options(symbols)
+
+    @staticmethod
+    def _to_profile_view_model(profile: dict) -> dict:
+        """Mappt DB/API-Felder konsistent in die UI-Profilansicht."""
+
+        return {
+            "symbol": profile.get("current_symbol") or profile.get("symbol"),
+            "company_name": profile.get("company_name") or profile.get("companyName"),
+            "market_cap": profile.get("market_cap") or profile.get("mktCap"),
+            "sector": profile.get("sector"),
+            "industry": profile.get("industry"),
+            "country": profile.get("country"),
+            "exchange_full_name": profile.get("exchange_full_name") or profile.get("exchangeFullName") or profile.get("exchange"),
+            "description": profile.get("description"),
+            "isin": profile.get("isin"),
+            "cik": profile.get("company_cik") or profile.get("cik"),
+            "ceo": profile.get("ceo"),
+            "full_time_employees": profile.get("full_time_employees") or profile.get("fullTimeEmployees"),
+            "currency": profile.get("currency") or "USD",
+            "website": profile.get("website"),
+        }
+
+    def _load_or_fetch_company_profile(self, symbol: str) -> tuple[dict, str]:
+        normalized_symbol = normalize_symbol(symbol)
+        if not normalized_symbol:
+            LOGGER.warning("Company lookup übersprungen: ungültiges Symbol `%s`", symbol)
+            return {}, "invalid_symbol"
+
+        profile = self.company_repo.get_company_by_current_symbol(normalized_symbol)
+        if profile:
+            LOGGER.info("Company lookup symbol=%s source=mysql", normalized_symbol)
+            return self._to_profile_view_model(profile), "mysql"
+
+        LOGGER.info("Company lookup symbol=%s source=mysql_miss", normalized_symbol)
+        if self.fmp_client is None:
+            LOGGER.warning("Company lookup symbol=%s ohne API2-Fallback (FMP-Client fehlt)", normalized_symbol)
+            return {}, "no_api2"
+
+        try:
+            api_profile = self.fmp_client.fetch_company_profile(normalized_symbol)
+            if not api_profile:
+                LOGGER.warning("Company lookup symbol=%s API2 lieferte leere Antwort", normalized_symbol)
+                return {}, "api2_empty"
+            # Root-cause-Fix: Detailansicht brach bei Stub-Profilen ab. Bei MySQL-Miss
+            # laden wir jetzt symbolbasiert nach und persistieren sofort im Clean-Store.
+            company_payload = {
+                "company_key": f"SYM:{normalized_symbol}",
+                "company_cik": api_profile.get("cik"),
+                "current_symbol": normalize_symbol(api_profile.get("symbol")) or normalized_symbol,
+                "company_name": api_profile.get("companyName"),
+                "profile_status": "FETCHED",
+                "profile_reason": None,
+                "market_cap": api_profile.get("mktCap"),
+                "currency": api_profile.get("currency"),
+                "isin": api_profile.get("isin"),
+                "exchange": api_profile.get("exchangeShortName") or api_profile.get("exchange"),
+                "exchange_full_name": api_profile.get("exchangeFullName") or api_profile.get("exchange"),
+                "industry": api_profile.get("industry"),
+                "sector": api_profile.get("sector"),
+                "country": api_profile.get("country"),
+                "website": api_profile.get("website"),
+                "description": api_profile.get("description"),
+                "ceo": api_profile.get("ceo"),
+                "full_time_employees": api_profile.get("fullTimeEmployees"),
+            }
+            self.company_repo.upsert_company(company_payload)
+            LOGGER.info("Company lookup symbol=%s source=api2_fetched", normalized_symbol)
+            return self._to_profile_view_model(company_payload | api_profile), "api2"
+        except Exception:
+            LOGGER.exception("Company lookup symbol=%s API2-Fallback fehlgeschlagen", normalized_symbol)
+            return {}, "api2_failed"
 
     def compute_trade_score(self, trade: dict | pd.Series) -> tuple[float, str | None]:
         """Berechnet den Gesamtscore für einen Trade basierend auf 5 Dimensionen.
@@ -174,6 +259,8 @@ class AnalysisService:
 
         normalized["score"] = pd.to_numeric(normalized["score"], errors="coerce")
         normalized["score_class"] = normalized["score_class"].where(normalized["score_class"].notna(), None)
+        normalized["score_status"] = normalized["score"].apply(lambda v: classify_score(v, self.score_gate_policy)[0])
+        normalized["score_status_color"] = normalized["score"].apply(lambda v: classify_score(v, self.score_gate_policy)[1])
         return normalized
 
     def get_filtered_trades(
@@ -202,21 +289,20 @@ class AnalysisService:
 
         return df
 
-    def get_ticker_detail(self, company_key: str, accumulate: bool = True) -> AnalysisResult:
-        """Liefert Profil, letzte Trades und Basiskennzahlen für einen Company-Key."""
-        # 1. Suche nach company_key
-        trades = self.trade_repo.fetch_trades(filters={"company_key": company_key}, limit=500)
-        
-        # 2. Fallback: Suche nach symbol_at_trade, falls company_key nichts liefert (Finding 3)
+    def get_ticker_detail(self, symbol: str, accumulate: bool = True) -> AnalysisResult:
+        """Liefert Profil, letzte Trades und Basiskennzahlen für ein Symbol."""
+        normalized_symbol = normalize_symbol(symbol)
+        if not normalized_symbol:
+            return AnalysisResult(title="Ticker-Detail", note="Ungültiges Symbol.")
+
+        trades = self.trade_repo.fetch_trades(filters={"symbol": normalized_symbol}, limit=500)
         if trades.empty:
-            trades = self.trade_repo.fetch_trades(filters={"symbol": company_key}, limit=500)
+            trades = self.trade_repo.fetch_trades(filters={"company_key": f"SYM:{normalized_symbol}"}, limit=500)
+            if trades.empty:
+                trades = self.trade_repo.fetch_trades(filters={"company_key": f"CIK:{normalized_symbol}"}, limit=500)
             
         trades = self._ensure_trade_columns(trades)
-        profile_df = self.company_repo.fetch_company(company_key)
-        
-        # Falls immer noch kein Profil, versuche es über den Symbol-Lookup im Company-Repo
-        if profile_df.empty:
-            profile_df = pd.DataFrame([self.company_repo.get_company_by_symbol(company_key)] if self.company_repo.get_company_by_symbol(company_key) else [])
+        profile, profile_source = self._load_or_fetch_company_profile(normalized_symbol)
 
         can_accumulate = False
         if not trades.empty and "transaction_date" in trades.columns:
@@ -250,11 +336,12 @@ class AnalysisService:
         # Rohdaten mit Group-ID mitschicken
         raw_rows = trades.to_dict(orient="records")
         
-        profile = profile_df.iloc[0].to_dict() if not profile_df.empty else {}
-        note = "Keine Profildaten gefunden." if profile_df.empty else "Profildaten verfügbar."
+        note = "Profildaten verfügbar." if profile else "Unternehmensprofil derzeit nicht verfügbar"
+        if not profile:
+            LOGGER.warning("Company lookup symbol=%s blieb leer source=%s", normalized_symbol, profile_source)
         
         return AnalysisResult(
-            title=f"Ticker-Detail {company_key}",
+            title=f"Ticker-Detail {normalized_symbol}",
             metrics=metrics,
             rows=rows,
             raw_rows=raw_rows,

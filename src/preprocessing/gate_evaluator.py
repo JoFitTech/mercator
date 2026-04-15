@@ -26,6 +26,7 @@ class GateRules:
     excluded_transaction_types: tuple[str, ...] = ("A-Award", "M-Exempt")
     required_form_type: str = "4"
     required_security_name: str = "Common Stock"
+    required_validation_status: str = "VALID"
 
 
 class GateEvaluator:
@@ -68,6 +69,8 @@ class GateEvaluator:
             return GateDecision(status=GATE_FAIL, reason="Datum nicht parsebar")
         if qty <= 0:
             return GateDecision(status=GATE_FAIL, reason="Ungültige Stückzahl")
+        if validation_status != self.rules.required_validation_status.upper():
+            return GateDecision(status=GATE_FAIL, reason="Validation-Status nicht zulässig")
         if validation_status == "PRICE_INVALID":
             return GateDecision(status=GATE_FAIL, reason="Preis fachlich ungültig")
         if price <= 0:
