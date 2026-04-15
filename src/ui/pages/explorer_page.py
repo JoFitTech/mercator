@@ -79,14 +79,14 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             st.session_state.explorer_filters[k] = v
             st.session_state[f"exp_widget_{k}"] = v
 
-    # Reset-Logik
+    # Reset-Logik (als Callback für stabile Widget-Resets)
     def do_reset():
         st.session_state.explorer_filters = defaults.copy()
         for k, v in defaults.items():
+            # Widget-State via Session-State-Keys löschen oder auf Default setzen
             st.session_state[f"exp_widget_{k}"] = v
         if settings_service is not None:
             settings_service.save_filter("explorer", "filters", st.session_state.explorer_filters)
-        st.rerun()
 
     # 3. Layout: Golden Ratio (ca. 35/65 Split)
     filter_col, result_col = st.columns([0.35, 0.65], gap="large")
@@ -150,10 +150,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 )
 
             apply_filters = st.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
-            reset_filters = st.form_submit_button("Zurücksetzen", use_container_width=True)
-
-            if reset_filters:
-                do_reset()
+            st.form_submit_button("Zurücksetzen", use_container_width=True, on_click=do_reset)
 
             if apply_filters:
                 st.session_state.explorer_filters.update(
@@ -199,6 +196,10 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         if data.empty:
             st.info("Keine Treffer für die aktuelle Filterkombination.")
             return
+
+        # Explizite Nachfilterung der Richtung (Finding 2: Guard gegen inkonsistente Repo/Agg-Ergebnisse)
+        if filters_state["direction"] != "Alle" and "direction" in data.columns:
+            data = data[data["direction"] == filters_state["direction"]]
 
         if "gate_status" in data.columns:
             data = data[data["gate_status"].fillna("UNKNOWN").astype(str).str.upper().isin(filters_state["gate_statuses"])]

@@ -153,34 +153,6 @@ def render_dashboard_page(
     left, right = st.columns([0.64, 0.36])
 
     with left:
-        st.subheader("Trade Value über Zeit")
-        if not payload["buy_sell_volume"].empty:
-            chart_df = payload["buy_sell_volume"].set_index("event_date")
-            st.area_chart(chart_df, height=320)
-        else:
-            st.info("Keine Zeitreihendaten verfügbar.")
-
-        st.subheader("Sektorverteilung")
-        if not payload["sector_distribution"].empty:
-            sector_df = payload["sector_distribution"].sort_values("count", ascending=False).head(12)
-            st.bar_chart(sector_df.set_index("sector"), horizontal=True, height=320)
-        else:
-            st.info("Keine Sektordaten verfügbar.")
-
-    with right:
-        st.subheader("Richtungsbalance")
-        if not payload["trades"].empty:
-            counts = payload["trades"]["direction"].value_counts()
-            buy_c = int(counts.get("BUY", 0))
-            sell_c = int(counts.get("SELL", 0))
-            total = buy_c + sell_c
-            ratio = buy_c / total if total else 0
-            st.metric("BUY", f"{buy_c:,}")
-            st.metric("SELL", f"{sell_c:,}")
-            st.progress(ratio, text=f"BUY-Quote {ratio:.0%}")
-        else:
-            st.info("Keine Richtungsdaten verfügbar.")
-
         st.subheader("Top-Kandidaten (Vorschau)")
         trades_df = payload["trades"].copy()
         if not trades_df.empty:
@@ -197,10 +169,8 @@ def render_dashboard_page(
                 "direction",
                 "score",
                 "score_class",
-                "score_status",
                 "trade_value_estimated",
                 "gate_status",
-                "validation_status",
             ]
             for col in preview_cols:
                 if col not in trades_df.columns:
@@ -215,15 +185,41 @@ def render_dashboard_page(
                     "direction": st.column_config.TextColumn("Richtung", width="small"),
                     "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
                     "score_class": st.column_config.TextColumn("Klasse", width="small"),
-                    "score_status": st.column_config.TextColumn("Status", width="small"),
                     "trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
                     "gate_status": st.column_config.TextColumn("Gate", width="small"),
-                    "validation_status": st.column_config.TextColumn("Validation", width="small"),
                 },
                 height=310,
             )
         else:
             st.info("Keine Kandidaten verfügbar.")
+
+        st.subheader("Trade Value über Zeit")
+        if not payload["buy_sell_volume"].empty:
+            chart_df = payload["buy_sell_volume"].set_index("event_date")
+            st.area_chart(chart_df, height=320)
+        else:
+            st.info("Keine Zeitreihendaten verfügbar.")
+
+    with right:
+        st.subheader("Richtungsbalance")
+        if not payload["trades"].empty:
+            counts = payload["trades"]["direction"].value_counts()
+            buy_c = int(counts.get("BUY", 0))
+            sell_c = int(counts.get("SELL", 0))
+            total = buy_c + sell_c
+            ratio = buy_c / total if total else 0
+            st.metric("BUY", f"{buy_c:,}")
+            st.metric("SELL", f"{sell_c:,}")
+            st.progress(ratio, text=f"BUY-Quote {ratio:.0%}")
+        else:
+            st.info("Keine Richtungsdaten verfügbar.")
+
+        st.subheader("Sektorverteilung")
+        if not payload["sector_distribution"].empty:
+            sector_df = payload["sector_distribution"].sort_values("count", ascending=False).head(12)
+            st.bar_chart(sector_df.set_index("sector"), horizontal=True, height=350)
+        else:
+            st.info("Keine Sektordaten verfügbar.")
 
     if advanced_mode and not payload["timeline_distribution"].empty:
         st.subheader("Import-Historie (Advanced)")

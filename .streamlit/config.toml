@@ -1,7 +1,7 @@
 [server]
 headless = true
 enableCORS = false
-enableXsrfProtection = true
+enableXsrfProtection = false
 port = 8501
 
 [client]
@@ -9,4 +9,6 @@ showErrorDetails = false
 
 [browser]
 gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
 

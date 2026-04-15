@@ -119,14 +119,13 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
                         "Zeitraum",
                         "reporting_name",
                         "direction",
-                        "accumulated_trade_count",
-                        "accumulated_qty",
-                        "accumulated_avg_price_weighted",
                         "accumulated_trade_value_estimated",
                         "score",
                         "score_class",
-                        "score_status",
                         "gate_status",
+                        "accumulated_trade_count",
+                        "accumulated_qty",
+                        "accumulated_avg_price_weighted",
                         "validation_status",
                     ],
                 ),
@@ -134,14 +133,13 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
                     "Zeitraum": st.column_config.TextColumn("Zeitraum", width="medium"),
                     "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
                     "direction": st.column_config.TextColumn("Richtung", width="small"),
-                    "accumulated_trade_count": st.column_config.NumberColumn("#Trades", format="%d", width="small"),
-                    "accumulated_qty": st.column_config.NumberColumn("Stück", format="%d"),
-                    "accumulated_avg_price_weighted": st.column_config.NumberColumn("Ø Preis", format="$%.2f"),
-                    "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
+                    "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="large"),
                     "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
                     "score_class": st.column_config.TextColumn("Klasse", width="small"),
-                    "score_status": st.column_config.TextColumn("Status", width="small"),
                     "gate_status": st.column_config.TextColumn("Gate", width="small"),
+                    "accumulated_trade_count": st.column_config.NumberColumn("#Trades", format="%d", width="small"),
+                    "accumulated_qty": st.column_config.NumberColumn("Stück", format="%d", width="medium"),
+                    "accumulated_avg_price_weighted": st.column_config.NumberColumn("Ø Preis", format="$%.2f", width="medium"),
                     "validation_status": st.column_config.TextColumn("Validation", width="small"),
                 },
                 use_container_width=True,
@@ -151,8 +149,8 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
 
     with tab2:
         if not result.metrics.get("can_enrich"):
-            st.error("### Company Context nicht verfügbar")
-            st.info("Für Symbole mit Status **FAIL** werden keine Unternehmensprofile geladen oder angezeigt.")
+            st.info("### Unternehmensprofil nicht verfügbar")
+            st.write("Gemäß den Fachregeln werden für Symbole mit Status **FAIL** keine erweiterten Unternehmensdaten geladen oder angezeigt. Dies dient der Datenökonomie und Fokus auf valide Kandidaten.")
         elif not profile:
             st.warning("Unternehmensprofil derzeit nicht verfügbar")
         else:

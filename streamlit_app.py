@@ -320,13 +320,14 @@ def main() -> None:
     """Konfiguriert Navigation und rendert die gewählte Seite."""
     st.set_page_config(page_title="Mercator", layout="wide")
     
-    # Initiale Session-State-Werte deterministisch setzen (Finding 5)
+    # Initiale Session-State-Werte deterministisch setzen (Finding 5: Reload-Härtung)
     if "initialized" not in st.session_state:
         st.session_state["initialized"] = True
-        if "advanced_mode" not in st.session_state:
-            st.session_state["advanced_mode"] = False
-        if "selected_ticker" not in st.session_state:
-            st.session_state["selected_ticker"] = None
+        st.session_state["advanced_mode"] = False
+        st.session_state["selected_ticker"] = None
+        # Standard-Ziel für MySQL explizit initialisieren
+        if MYSQL_TARGET_STATE_KEY not in st.session_state:
+            st.session_state[MYSQL_TARGET_STATE_KEY] = "local"
 
     _inject_global_styles()
     st.sidebar.title("Mercator")
