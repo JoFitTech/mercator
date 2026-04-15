@@ -258,9 +258,9 @@ def test_explorer_filter_cycle_no_crash(mercator_page: Page) -> None:
     ticker_input.clear()
     ticker_input.fill("MSFT")
 
-     # Richtung setzen
-     direction_select = mercator_page.get_by_label("Richtung", exact=False).first
-     direction_select.select_option("BUY")
+    # Richtung setzen
+    direction_select = mercator_page.get_by_label("Richtung", exact=False).first
+    direction_select.select_option("BUY")
 
     # Filter anwenden
     apply_btn = mercator_page.get_by_role("button", name="Filter anwenden", exact=False)
