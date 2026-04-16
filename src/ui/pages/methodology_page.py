@@ -7,53 +7,66 @@ import streamlit as st
 
 def render_methodology_page() -> None:
     """Rendert die methodische Einordnung für das Uni-Projekt."""
-    st.title("Mercator")
-    st.markdown("### Methodik & Architektur")
-    st.write(
-        "Diese Anwendung liest einen öffentlich verfügbaren Datensatz ein, verarbeitet ihn mit Pandas, "
-        "speichert Roh- und Zieldaten in MongoDB und MySQL und stellt die Ergebnisse anschließend "
-        "in einer interaktiven Streamlit-Oberfläche dar."
-    )
+    st.title("Methodik & Architektur")
+    st.caption("Technische Dokumentation der Pipeline, Datenmodelle und Verarbeitungsregeln.")
 
     st.markdown("---")
-    st.subheader("Architektur-Übersicht")
-    st.markdown(
-        """
-        - **Datenquelle:** Financial Modeling Prep (FMP) API.
-        - **Datenfluss:** FMP Feed → Normalisierung → Deduplizierung → Gate-Prüfung → Persistenz → UI.
-        - **Zwei-Datenbank-Strategie:**
-            - **MongoDB:** Speicherung der semi-strukturierten Rohdaten (`insider_trades_raw`) und Profile (`companies`).
-            - **MySQL:** Relationale Speicherung bereinigter und strukturierter Daten für schnelles Reporting und Joins.
-        """
-    )
+    
+    with st.container(border=True):
+        st.subheader("Übersicht")
+        st.write(
+            "Mercator ist eine analytische Plattform zur Identifikation relevanter Insidertrades. "
+            "Die Anwendung folgt einer strikten 7-Stufen-Pipeline von der Rohdatenerfassung bis zur visuellen Analyse."
+        )
+
+    st.markdown("### 1. Datenpipeline")
+    cols = st.columns(4)
+    with cols[0]:
+        st.markdown("**Ingestion**")
+        st.caption("FMP API Feed")
+    with cols[1]:
+        st.markdown("**Validation**")
+        st.caption("Type & Integrity")
+    with cols[2]:
+        st.markdown("**Enrichment**")
+        st.caption("Company Profiles")
+    with cols[3]:
+        st.markdown("**Persistence**")
+        st.caption("Mongo & MySQL")
 
     st.markdown("---")
-    st.subheader("Verarbeitungsschritte")
+    
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("**1. Normalisierung & Reinigung**")
-        st.caption("Typkonvertierung (Dates, Floats), Feldmapping und Bereinigung technischer Fehler.")
-        st.markdown("**2. Deduplizierung**")
-        st.caption("Erzeugung eines technischen SHA256-Hashes (`dedupe_key`) über Kernattribute zur Vermeidung von Dubletten.")
+        st.subheader("Speicherstrategie")
+        st.markdown(
+            """
+            - **Raw Layer (MongoDB):** Unveränderte JSON-Antworten der API. Dient als Audit-Log und Quelle für Re-Imports.
+            - **Clean Layer (MySQL):** Strukturiert, normalisiert und indiziert. Basis für alle UI-Abfragen und Aggregationen.
+            """
+        )
     with col2:
-        st.markdown("**3. Gate-Prüfung**")
-        st.caption("Lokale Evaluierung nach vordefinierten Regeln (z.B. Mindestwert, Transaktionstyp) zur Relevanzprüfung.")
-        st.markdown("**4. Profil-Anreicherung**")
-        st.caption("Automatisches Nachladen von Unternehmensmetadaten für Datensätze mit `Gate-PASS` (inkl. 7-Tage Caching).")
+        st.subheader("Verarbeitungsregeln")
+        st.markdown(
+            """
+            - **Deduplizierung:** Hash-basierter Abgleich über Ticker, Insider, Datum und Menge.
+            - **Gate-Prüfung:** Automatisches Aussortieren von Rauschen (z.B. Kleinstbeträge < 100k, automatische Zuteilungen).
+            """
+        )
 
     st.markdown("---")
-    st.subheader("Verwendete FMP-Endpunkte (MVP-Scope)")
+    st.subheader("Scoring-Modell")
+    st.write("Jeder Trade wird anhand von Marktvolatilität, Insider-Historie und Trade-Volumen bewertet (Klassen A-F).")
+    
+    st.markdown("### Technische Endpunkte")
     st.code(
-        "GET /insider-trading/latest?page={page}&limit={limit}\n"
+        "GET /insider-trading/latest\n"
         "GET /profile-cik?cik={CIK}\n"
-        "GET /profile?symbol={SYMBOL}  # Fallback\n"
-        "GET /insider-trading/search?symbol={SYMBOL}  # optionaler Backfill",
+        "GET /profile?symbol={SYMBOL}",
         language="text",
     )
 
     st.markdown("---")
-    st.subheader("Einschränkungen (MVP-Grenzen)")
     st.info(
-        "Dieses Projekt dient akademischen Zwecken. Es enthält kein Echtzeit-Trading, "
-        "keine Broker-Anbindung, kein Login-/Rollenmodell und keine Mail-Automation."
+        "🎓 Projekt im Rahmen des Moduls Datenbanken 2. Fokus auf hybride Datenhaltung und Performance."
     )

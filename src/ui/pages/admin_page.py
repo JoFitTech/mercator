@@ -292,8 +292,6 @@ def render_admin_page(
 ) -> None:
     """Rendert das Admin-Dashboard."""
 
-    st.set_page_config(page_title="Admin Dashboard", layout="wide")
-
     st.markdown("# 🔐 Admin Dashboard")
     st.markdown("---")
 
@@ -305,13 +303,12 @@ def render_admin_page(
     admin_service = AdminDashboardService(settings, mysql_client, mongo_available)
 
     # Tabs für verschiedene Bereiche
-    tab_stats, tab_mysql, tab_mongo, tab_sync, tab_score_gates = st.tabs(
+    tab_stats, tab_mysql, tab_mongo, tab_sync = st.tabs(
         [
             "📊 Statistiken",
             "🗄️ MySQL Management",
             "🍃 MongoDB Management",
             "🔄 Synchronisation",
-            "🎯 Score & Gates",
         ]
     )
 
@@ -610,74 +607,3 @@ def render_admin_page(
                 "ℹ️ Erweiterte Sync-Funktionen: In Zukunft können hier bidirektionale Sync, "
                 "Konflikt-Auflösung und selektive Synchronisation konfiguriert werden."
             )
-
-    with tab_score_gates:
-        st.markdown("## 🎯 Score & Gates")
-        if settings_service is None:
-            st.warning("Einstellungsservice nicht verfügbar. Änderungen können nicht persistiert werden.")
-            return
-
-        policy = settings_service.load_score_gate_policy()
-        st.caption("Diese Regeln werden zentral gespeichert und beim Start geladen.")
-        c1, c2, c3 = st.columns(3)
-        fail_max = c1.number_input("score_threshold_fail_max", value=float(policy.score_threshold_fail_max), step=1.0)
-        hold_min = c2.number_input("score_threshold_hold_min", value=float(policy.score_threshold_hold_min), step=1.0)
-        pass_min = c3.number_input("score_threshold_pass_min", value=float(policy.score_threshold_pass_min), step=1.0)
-
-        s1, s2, s3 = st.columns(3)
-        fail_label = s1.text_input("FAIL Label", value=policy.fail_label)
-        hold_label = s2.text_input("HOLD Label", value=policy.hold_label)
-        pass_label = s3.text_input("PASS Label", value=policy.pass_label)
-
-        g1, g2, g3 = st.columns(3)
-        req_validation = g1.text_input("validation_status ==", value=policy.gate_validation_status_required)
-        req_form_type = g2.text_input("formType ==", value=policy.gate_form_type_required)
-        req_security = g3.text_input("securityName ==", value=policy.gate_security_name_required)
-
-        h1, h2, h3 = st.columns(3)
-        allowed_aod = h1.text_input(
-            "acquisitionOrDisposition in",
-            value=",".join(policy.gate_allowed_acquisition_or_disposition),
-        )
-        excluded_tt = h2.text_input(
-            "transactionType not in",
-            value=",".join(policy.gate_excluded_transaction_types),
-        )
-        min_trade_value = h3.number_input("Mindest-Trade-Value", min_value=0, value=int(policy.gate_min_trade_value), step=1000)
-
-        btn_save, btn_reload = st.columns(2)
-        if btn_save.button("Score/Gates speichern", use_container_width=True, type="primary"):
-            try:
-                if not (fail_max <= hold_min <= pass_min):
-                    st.error("Ungültige Schwellenwerte: fail_max <= hold_min <= pass_min muss gelten.")
-                else:
-                    new_policy = ScoreGatePolicy(
-                        score_threshold_fail_max=fail_max,
-                        score_threshold_hold_min=hold_min,
-                        score_threshold_pass_min=pass_min,
-                        fail_label=fail_label.strip().upper() or "FAIL",
-                        hold_label=hold_label.strip().upper() or "HOLD",
-                        pass_label=pass_label.strip().upper() or "PASS",
-                        fail_color=policy.fail_color,
-                        hold_color=policy.hold_color,
-                        pass_color=policy.pass_color,
-                        gate_validation_status_required=req_validation.strip().upper() or "VALID",
-                        gate_form_type_required=req_form_type.strip() or "4",
-                        gate_security_name_required=req_security.strip() or "Common Stock",
-                        gate_allowed_acquisition_or_disposition=tuple(
-                            value.strip().upper() for value in allowed_aod.split(",") if value.strip()
-                        ) or ("A", "D"),
-                        gate_excluded_transaction_types=tuple(
-                            value.strip() for value in excluded_tt.split(",") if value.strip()
-                        ) or ("A-Award", "M-Exempt"),
-                        gate_min_trade_value=int(min_trade_value),
-                    )
-                    settings_service.save_score_gate_policy(new_policy)
-                    st.success("Score- und Gate-Konfiguration gespeichert und aktiviert.")
-                    st.rerun()
-            except Exception as exc:
-                st.error(f"Speichern fehlgeschlagen: {exc}")
-
-        if btn_reload.button("Neu laden", use_container_width=True):
-            refreshed = settings_service.load_score_gate_policy()
-            st.info(f"Neu geladen: HOLD ab {refreshed.score_threshold_hold_min}, PASS ab {refreshed.score_threshold_pass_min}.")

@@ -9,6 +9,7 @@ from src.preprocessing.gate_evaluator import GATE_FAIL, GATE_PASS, GATE_PENDING
 from src.services.app_settings_service import AppSettingsService, RuntimeSettings
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
+from src.ui.components.context_bar import render_context_bar
 
 
 EMPTY_DATA_MESSAGE = (
@@ -74,17 +75,23 @@ def render_dashboard_page(
     runtime_settings_service: AppSettingsService | None = None,
 ) -> None:
     """Rendert KPI-Karten und fokussierte Diagramme für den Gesamtüberblick."""
-    st.title("Overview")
-    st.caption("Systemzustand, Datenabdeckung und Marktmuster als schnelle Entscheidungsbasis für den Explorer.")
+    st.title("Dashboard")
+    st.caption("Systemzustand, Datenabdeckung und Marktmuster.")
+
+    # Context Bar Daten vorbereiten
+    target = settings.mysql.mysql_active_target if settings else "default"
+    payload = _get_dashboard_payload(service, target) if service else {"last_update": None, "clean_records": 0, "raw_records": 0, "company_profiles": 0, "gate_pass_records": 0, "trades": pd.DataFrame(), "buy_sell_volume": pd.DataFrame(), "sector_distribution": pd.DataFrame(), "timeline_distribution": pd.DataFrame()}
+
+    render_context_bar(
+        active_filters=["Gesamtmarkt"],
+        last_update=payload.get("last_update"),
+        mysql_target=target,
+    )
 
     if settings is not None and settings.review_mode:
-        st.warning("Review Instance - Read Only (Import und Löschaktionen sind deaktiviert).")
+        st.warning("Review Instance - Read Only.")
 
     advanced_mode = st.session_state.get("advanced_mode", False)
-    runtime_settings = runtime_settings_service.load() if runtime_settings_service else None
-
-    if runtime_settings is not None and runtime_settings_service is not None:
-        _render_runtime_preferences(runtime_settings_service, runtime_settings)
 
     if settings is not None:
         with st.expander("Import", expanded=advanced_mode):
@@ -144,11 +151,23 @@ def render_dashboard_page(
     elif payload["clean_records"] == 0:
         st.info("Keine bereinigten Daten gefunden. Rohdaten sind vorhanden (%s)." % payload["raw_records"])
 
-    k1, k2, k3, k4 = st.columns(4)
+    # KPI Zeile (Spec: max 5)
+    k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Rohdaten (Mongo)", f"{payload['raw_records']:,}")
     k2.metric("Bereinigte Trades", f"{payload['clean_records']:,}")
     k3.metric("Profile", f"{payload['company_profiles']:,}")
     k4.metric("Gate PASS", f"{payload.get('gate_pass_records', 0):,}")
+    
+    # Richtungsbalance KPI integrieren
+    if not payload["trades"].empty:
+        counts = payload["trades"]["direction"].value_counts()
+        buy_c = int(counts.get("BUY", 0))
+        sell_c = int(counts.get("SELL", 0))
+        total = buy_c + sell_c
+        ratio = buy_c / total if total else 0
+        k5.metric("BUY-Quote", f"{ratio:.0%}")
+    else:
+        k5.metric("BUY-Quote", "-")
 
     left, right = st.columns([0.64, 0.36])
 
@@ -201,19 +220,6 @@ def render_dashboard_page(
             st.info("Keine Zeitreihendaten verfügbar.")
 
     with right:
-        st.subheader("Richtungsbalance")
-        if not payload["trades"].empty:
-            counts = payload["trades"]["direction"].value_counts()
-            buy_c = int(counts.get("BUY", 0))
-            sell_c = int(counts.get("SELL", 0))
-            total = buy_c + sell_c
-            ratio = buy_c / total if total else 0
-            st.metric("BUY", f"{buy_c:,}")
-            st.metric("SELL", f"{sell_c:,}")
-            st.progress(ratio, text=f"BUY-Quote {ratio:.0%}")
-        else:
-            st.info("Keine Richtungsdaten verfügbar.")
-
         st.subheader("Sektorverteilung")
         if not payload["sector_distribution"].empty:
             sector_df = payload["sector_distribution"].sort_values("count", ascending=False).head(12)

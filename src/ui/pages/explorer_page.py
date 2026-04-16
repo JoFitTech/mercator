@@ -9,6 +9,8 @@ import streamlit as st
 
 from src.services.analysis_service import AnalysisService
 from src.services.app_settings_service import AppSettingsService
+from src.ui.components.context_bar import render_context_bar
+from src.ui.components.status_badges import score_class_badge, status_badge
 
 
 PRIMARY_DIRECTIONS = ["Alle", "BUY", "SELL"]
@@ -54,10 +56,12 @@ def _render_filter_summary(filters: dict[str, Any]) -> None:
     st.caption("Aktive Filter: " + (" · ".join(parts) if parts else "Keine (Standardansicht)"))
 
 
+from src.ui.components.tables import render_smart_table
+
 def render_explorer_page(service: AnalysisService, settings_service: AppSettingsService | None = None) -> None:
     """Rendert Filter und Screener-Tabelle für Insider-Trades."""
-    st.title("Explorer")
-    st.caption("Fokussierter Screener für Trade-Relevanz, Richtung, Gate-/Validierungsstatus und schnellen Drilldown.")
+    st.title("Trades")
+    st.caption("Fokussierter Screener für Trade-Relevanz und Richtung.")
 
     defaults = _default_filters()
     
@@ -68,28 +72,29 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             st.session_state.explorer_filters = persisted if isinstance(persisted, dict) else defaults.copy()
         else:
             st.session_state.explorer_filters = defaults.copy()
-        
-        # Initial-Sync für Widgets
-        for k, v in st.session_state.explorer_filters.items():
-            st.session_state[f"exp_widget_{k}"] = v
+    
+    # Context Bar rendern
+    filters_state = st.session_state.explorer_filters
+    active_chips = []
+    if filters_state.get("symbol"): active_chips.append(f"Ticker: {filters_state['symbol']}")
+    if filters_state.get("direction") != "Alle": active_chips.append(f"Richtung: {filters_state['direction']}")
+    if int(filters_state.get("min_value", 0)) > 100000: active_chips.append(f">{int(filters_state['min_value']):,}")
+    
+    render_context_bar(
+        active_filters=active_chips if active_chips else ["Standardansicht"],
+        mysql_target=st.session_state.get("mysql_runtime_target", "local")
+    )
 
-    # Sicherstellen, dass alle Keys vorhanden sind
-    for k, v in defaults.items():
-        if k not in st.session_state.explorer_filters:
-            st.session_state.explorer_filters[k] = v
-            st.session_state[f"exp_widget_{k}"] = v
-
-    # Reset-Logik (als Callback für stabile Widget-Resets)
+    # Reset-Logik
     def do_reset():
         st.session_state.explorer_filters = defaults.copy()
-        for k, v in defaults.items():
-            # Widget-State via Session-State-Keys löschen oder auf Default setzen
-            st.session_state[f"exp_widget_{k}"] = v
         if settings_service is not None:
             settings_service.save_filter("explorer", "filters", st.session_state.explorer_filters)
+        # Wir verzichten auf explizites Widget-Key-Setting hier, um Exceptions zu vermeiden.
+        # Streamlit wird beim Rerun die Widgets neu laden.
 
     # 3. Layout: Golden Ratio (ca. 35/65 Split)
-    filter_col, result_col = st.columns([0.35, 0.65], gap="large")
+    filter_col, result_col = st.columns([0.30, 0.70], gap="large")
 
     with filter_col:
         with st.form("explorer_filters_form", border=True):
@@ -97,56 +102,54 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             
             symbol = st.text_input(
                 "Ticker", 
+                value=st.session_state.explorer_filters.get("symbol", ""),
                 placeholder="z. B. AAPL",
                 help="Suche nach Ticker (z.B. AAPL, TSLA). Eingabe wird durch 'Filter anwenden' übernommen.",
-                key="exp_widget_symbol"
             )
             reporting = st.text_input(
                 "Insider (Name)", 
+                value=st.session_state.explorer_filters.get("reporting_name", ""),
                 placeholder="z. B. Tim Cook",
-                key="exp_widget_reporting_name"
             )
             
             direction = st.selectbox(
                 "Richtung",
                 PRIMARY_DIRECTIONS,
-                index=PRIMARY_DIRECTIONS.index(st.session_state.get("exp_widget_direction", "Alle")),
-                key="exp_widget_direction"
+                index=PRIMARY_DIRECTIONS.index(st.session_state.explorer_filters.get("direction", "Alle")),
             )
             
             min_value = st.number_input(
                 "Min. Trade Value ($)",
                 min_value=0,
+                value=int(st.session_state.explorer_filters.get("min_value", 100000)),
                 step=50_000,
-                key="exp_widget_min_value"
             )
 
-            with st.expander("Erweiterte Filter", expanded=False):
+            with st.expander("Status & Details", expanded=False):
                 limit = st.select_slider(
                     "Max. Zeilen", 
                     options=[250, 500, 1000, 2000], 
-                    key="exp_widget_limit"
+                    value=st.session_state.explorer_filters.get("limit", 1000)
                 )
                 accumulate = st.toggle(
                     "Trades akkumulieren", 
-                    key="exp_widget_accumulate",
+                    value=st.session_state.explorer_filters.get("accumulate", True),
                     help="Fasst Trades desselben Insiders innerhalb von 3 Tagen zusammen."
                 )
                 show_raw = st.toggle(
                     "Einzeltrades anzeigen", 
-                    key="exp_widget_show_raw",
-                    help="Zeigt Rohdaten direkt aus MySQL ohne Akkumulation."
+                    value=st.session_state.explorer_filters.get("show_raw", False),
                 )
 
                 gate_statuses = st.multiselect(
                     "Gate-Status",
                     options=["PASS", "PENDING", "FAIL"],
-                    key="exp_widget_gate_statuses"
+                    default=st.session_state.explorer_filters.get("gate_statuses", ["PASS", "PENDING", "FAIL"])
                 )
                 validation_statuses = st.multiselect(
                     "Validation",
                     options=["VALID", "INVALID", "UNCHECKED"],
-                    key="exp_widget_validation_statuses"
+                    default=st.session_state.explorer_filters.get("validation_statuses", ["VALID", "INVALID", "UNCHECKED"])
                 )
 
             apply_filters = st.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
@@ -215,11 +218,17 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         if score_col is not None:
             data = data.sort_values(by=[score_col, value_col], ascending=[False, False], na_position="last")
 
-        k1, k2, k3, k4 = st.columns(4)
+        # KPI Zeile (Spec: max 5)
+        k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Treffer", f"{len(data):,}")
         k2.metric("BUY", f"{int((data.get('direction', pd.Series(dtype='object')) == 'BUY').sum()):,}")
         k3.metric("Gate PASS", f"{int((data.get('gate_status', pd.Series(dtype='object')).astype(str).str.upper() == 'PASS').sum()):,}")
         k4.metric("Ø Score", f"{pd.to_numeric(data.get('score'), errors='coerce').mean():.1f}" if "score" in data.columns else "-")
+        
+        # BUY-Quote als 5. KPI (Spec Konformität)
+        buy_count = int((data.get('direction', pd.Series(dtype='object')) == 'BUY').sum())
+        total_count = len(data)
+        k5.metric("BUY-Quote", f"{(buy_count/total_count):.0%}" if total_count > 0 else "-")
 
         st.subheader("Trade-Arbeitsfläche")
 
@@ -329,11 +338,9 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 "price": st.column_config.NumberColumn("Preis", format="$%.2f"),
             }
 
-        event = st.dataframe(
+        event = render_smart_table(
             display_df[table_columns],
             column_config=col_config,
-            use_container_width=True,
-            hide_index=True,
             height=560,
             on_select="rerun",
             selection_mode="single-row",
@@ -345,23 +352,40 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             st.session_state["selected_ticker"] = selected_ticker
             st.success(f"Ausgewählt: **{selected_ticker}**. Gehe zur 'Detailansicht' für eine vollständige Analyse.")
 
+        # Quick Drilldown (Spec: Zahlen müssen lesbar sein)
         symbols = sorted({str(v) for v in display_df.get("symbol_at_trade", pd.Series(dtype="object")).dropna().tolist()})
         if symbols:
             st.markdown("---")
-            st.markdown("#### Schnell-Drilldown")
+            st.subheader("Quick Drilldown")
+            
+            # Falls kein Ticker selektiert wurde, nimm den ersten
+            current_selection = st.session_state.get("selected_ticker")
+            if current_selection not in symbols:
+                current_selection = symbols[0]
+            
             selected_symbol = st.selectbox(
-                "Ticker für Kontextvorschau",
+                "Kontextvorschau für Ticker",
                 options=symbols,
-                index=0,
-                help="Für vollständige Analyse nutze danach die Seite Detailansicht.",
+                index=symbols.index(current_selection) if current_selection in symbols else 0,
             )
+            
             detail = service.get_ticker_detail(selected_symbol, accumulate=True)
-            d1, d2, d3, d4 = st.columns(4)
-            d1.metric("Trades", f"{int(detail.metrics.get('trade_count') or 0):,}")
-            avg_price = detail.metrics.get("avg_price")
-            d2.metric("Ø Preis", f"${float(avg_price):,.2f}" if avg_price is not None else "-")
-            total_qty = detail.metrics.get("total_qty")
-            d3.metric("Gesamtmenge", f"{float(total_qty):,.0f}" if total_qty is not None else "-")
             profile = detail.company_profile or {}
-            d4.metric("Sektor", profile.get("sector") or "-")
-            st.caption("Für vollständigen Deep Dive: Seite **Detailansicht** öffnen.")
+            
+            with st.container(border=True):
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("Trades", f"{int(detail.metrics.get('trade_count') or 0):,}")
+                avg_price = detail.metrics.get("avg_price")
+                d2.metric("Ø Preis", f"${float(avg_price):,.2f}" if avg_price is not None else "-")
+                
+                # Status mit Badge statt Metric (Spec)
+                with d3:
+                    st.write("**Bewertung**")
+                    score_class_badge(detail.metrics.get("score_class", "F"))
+                
+                with d4:
+                    st.write("**Gate**")
+                    status_badge(detail.metrics.get("overall_status", "UNKNOWN"), status_type=detail.metrics.get("overall_status", "INFO"))
+                
+            st.caption(f"**Unternehmensprofil:** {profile.get('company_name', 'N/A')} · {profile.get('sector', 'N/A')}")
+            st.caption("Für vollständigen Deep Dive: Seite **Unternehmen** öffnen.")

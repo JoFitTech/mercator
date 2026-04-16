@@ -55,11 +55,19 @@ class DashboardService:
         if not trades_df.empty and "gate_status" in trades_df.columns:
             gate_pass_records = trades_df[trades_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
 
+        # Letzte Aktualisierung ermitteln
+        last_update = None
+        if not trades_df.empty:
+            last_update = trades_df["event_date"].max()
+            if pd.notna(last_update):
+                last_update = last_update.strftime("%d.%m.%Y %H:%M") if hasattr(last_update, "strftime") else str(last_update)
+
         payload = {
             "raw_records": raw_records,
             "clean_records": clean_records,
             "company_profiles": company_profiles,
             "gate_pass_records": gate_pass_records,
+            "last_update": last_update,
             "transaction_type_distribution": pd.DataFrame(),
             "sector_distribution": pd.DataFrame(),
             "timeline_distribution": pd.DataFrame(),

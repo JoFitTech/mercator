@@ -23,6 +23,7 @@ from src.ui.pages.explorer_page import render_explorer_page
 from src.ui.pages.methodology_page import render_methodology_page
 from src.ui.pages.ticker_detail_page import render_ticker_detail_page
 from src.ui.pages.admin_page import render_admin_page
+from src.ui.pages.settings_page import render_settings_page
 from src.utils.logging_utils import get_logger
 
 MYSQL_TARGET_STATE_KEY = "mysql_runtime_target"
@@ -396,31 +397,26 @@ def main() -> None:
         render_dashboard_page(dashboard_service, import_service, settings, runtime_settings_service)
 
     def _explorer() -> None:
-        if analysis_service is None:
-            st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
-            return
         render_explorer_page(analysis_service, runtime_settings_service)
 
     def _ticker_detail() -> None:
-        if analysis_service is None:
-            st.warning("MySQL nicht erreichbar. Analysefunktionen eingeschränkt.")
-            return
         render_ticker_detail_page(analysis_service)
 
     def _admin() -> None:
         client = mysql_resolution.client if mysql_resolution else None
         render_admin_page(settings, client, db_status.mongo.is_connected, runtime_settings_service)
 
-    pages = [st.Page(_dashboard, title="Overview", icon=":material/dashboard:", default=True)]
-    if analysis_service is not None:
-        pages.extend(
-            [
-                st.Page(_explorer, title="Explorer", icon=":material/table_view:"),
-                st.Page(_ticker_detail, title="Detailansicht", icon=":material/insights:"),
-            ]
-        )
-    pages.append(st.Page(render_methodology_page, title="Methodik", icon=":material/schema:"))
-    pages.append(st.Page(_admin, title="Admin", icon=":material/admin_panel_settings:"))
+    def _settings() -> None:
+        render_settings_page(runtime_settings_service)
+
+    pages = [
+        st.Page(_dashboard, title="Dashboard", icon=":material/dashboard:", default=True),
+        st.Page(_explorer, title="Trades", icon=":material/table_view:"),
+        st.Page(_ticker_detail, title="Unternehmen", icon=":material/business:"),
+        st.Page(render_methodology_page, title="Methodik", icon=":material/menu_book:"),
+        st.Page(_admin, title="Admin", icon=":material/admin_panel_settings:"),
+        st.Page(_settings, title="Einstellungen", icon=":material/settings:"),
+    ]
     nav = st.navigation(pages)
     nav.run()
 
