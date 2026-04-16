@@ -85,3 +85,14 @@ def test_upsert_company_ignores_non_sql_fields() -> None:
     assert client.conn.cursor_instance.params is not None
     assert "profile_payload" not in client.conn.cursor_instance.params
     assert client.conn.cursor_instance.params["company_key"] == "CIK:0000320193"
+
+
+def test_upsert_company_sets_trade_republic_defaults() -> None:
+    client = _DummyClient()
+    repo = CompanyRepository(cast(Any, client))
+    repo.upsert_company({"company_key": "SYM:ABC", "current_symbol": "ABC"})
+
+    params = client.conn.cursor_instance.params or {}
+    assert params["trade_republic_universe_status"] == "UNKNOWN"
+    assert params["trade_republic_match_method"] == "NONE"
+    assert params["trade_republic_match_confidence"] == "LOW"

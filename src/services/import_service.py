@@ -17,6 +17,10 @@ from src.preprocessing.gate_evaluator import (
     GateEvaluator,
 )
 from src.preprocessing.cleaning import normalize_insider_trade
+from src.services.trade_republic_universe_service import (
+    TradeRepublicUniverseIngestionService,
+    TradeRepublicUniverseMatchingService,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +48,8 @@ class ImportService:
         company_mysql_repo: CompanyMySqlRepository | None,
         profile_fetch_statuses: tuple[str, ...] = (GATE_PASS, GATE_PENDING),
         allow_write: bool = True,
+        tr_ingestion_service: TradeRepublicUniverseIngestionService | None = None,
+        tr_matching_service: TradeRepublicUniverseMatchingService | None = None,
     ) -> None:
         self.fmp_client = fmp_client
         self.gate_evaluator = gate_evaluator
@@ -53,6 +59,8 @@ class ImportService:
         self.company_mysql_repo = company_mysql_repo
         self.profile_fetch_statuses = tuple(status.upper() for status in profile_fetch_statuses)
         self.allow_write = allow_write
+        self.tr_ingestion_service = tr_ingestion_service
+        self.tr_matching_service = tr_matching_service
 
     def run_hourly_import(
         self,
@@ -72,6 +80,8 @@ class ImportService:
             raise RuntimeError(f"Der Datenimport konnte nicht gestartet werden: {exc}") from exc
 
         normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]
+        if self.tr_ingestion_service is not None:
+            self.tr_ingestion_service.refresh_if_stale(force=False)
 
         # Fachregel: API-2-Abfrage für Pre-Gate PASS und HOLD.
         effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING}
@@ -94,6 +104,7 @@ class ImportService:
 
         # 2. Schritt: Einmaliges Upsert pro Firma
         for company_key, item in unique_company_stubs.items():
+            self._apply_trade_republic_match(item)
             self._upsert_company_stub(item, fetched_at)
 
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
@@ -141,6 +152,7 @@ class ImportService:
                 continue
 
             company = self._normalize_company_profile(profile, trade=trade, fetched_at=fetched_at)
+            self._apply_trade_republic_match(company)
             self.company_mongo_repo.upsert_profile(company)
             if self.company_mysql_repo is not None:
                 self.company_mysql_repo.upsert_company(company)
@@ -150,6 +162,7 @@ class ImportService:
 
         # Score nach Profilanreicherung neu berechnen (MarketCap/Validity kann sich ändern)
         for item in normalized:
+            self._apply_trade_republic_match(item)
             score_value, score_class = self._compute_trade_score(item)
             item["score"] = score_value
             item["score_value"] = score_value
@@ -287,3 +300,27 @@ class ImportService:
         self.company_mongo_repo.upsert_profile(company_stub)
         if self.company_mysql_repo is not None:
             self.company_mysql_repo.upsert_company(company_stub)
+
+    def _apply_trade_republic_match(self, record: dict[str, Any]) -> None:
+        if self.tr_matching_service is None:
+            record.setdefault("trade_republic_universe_status", "UNKNOWN")
+            record.setdefault("trade_republic_match_method", "NONE")
+            record.setdefault("trade_republic_match_confidence", "LOW")
+            return
+        try:
+            result = self.tr_matching_service.match_company(
+                company_isin=record.get("isin"),
+                symbol=record.get("current_symbol") or record.get("symbol") or record.get("symbol_at_trade"),
+                company_name=record.get("company_name") or record.get("raw_payload", {}).get("companyName"),
+            )
+            record["trade_republic_universe_status"] = result.status
+            record["trade_republic_match_method"] = result.match_method
+            record["trade_republic_match_confidence"] = result.match_confidence
+            record["trade_republic_source_refreshed_at"] = result.source_refreshed_at
+            record["trade_republic_reference_isin"] = result.reference_isin
+            record["trade_republic_reference_name"] = result.reference_name
+        except Exception:
+            LOGGER.exception("TR matching fehlgeschlagen.")
+            record["trade_republic_universe_status"] = "UNKNOWN"
+            record["trade_republic_match_method"] = "NONE"
+            record["trade_republic_match_confidence"] = "LOW"

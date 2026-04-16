@@ -85,6 +85,9 @@ class AnalysisService:
             "full_time_employees": profile.get("full_time_employees") or profile.get("fullTimeEmployees"),
             "currency": profile.get("currency") or "USD",
             "website": profile.get("website"),
+            "trade_republic_universe_status": profile.get("trade_republic_universe_status"),
+            "trade_republic_match_method": profile.get("trade_republic_match_method"),
+            "trade_republic_match_confidence": profile.get("trade_republic_match_confidence"),
         }
 
     def _load_or_fetch_company_profile(self, symbol: str) -> tuple[dict, str]:
@@ -264,6 +267,20 @@ class AnalysisService:
         normalized["score_class"] = normalized["score_class"].where(normalized["score_class"].notna(), None)
         normalized["score_status"] = normalized["score"].apply(lambda v: classify_score(v, self.score_gate_policy)[0])
         normalized["score_status_color"] = normalized["score"].apply(lambda v: classify_score(v, self.score_gate_policy)[1])
+        if "trade_republic_universe_status" not in normalized.columns:
+            normalized["trade_republic_universe_status"] = pd.NA
+        if "company_trade_republic_universe_status" in normalized.columns:
+            normalized["trade_republic_universe_status"] = (
+                normalized["trade_republic_universe_status"]
+                .fillna(normalized["company_trade_republic_universe_status"])
+            )
+        normalized["trade_republic_universe_status"] = (
+            normalized["trade_republic_universe_status"]
+            .fillna("UNKNOWN")
+            .astype(str)
+            .str.upper()
+            .replace({"": "UNKNOWN"})
+        )
         return normalized
 
     def get_filtered_trades(
@@ -283,6 +300,9 @@ class AnalysisService:
         # Invariante A & F sicherstellen: Filter auf Rohdaten vor Aggregation
         if min_value > 0:
             df = df[df["trade_value_estimated"] >= min_value]
+        tr_filter = str((filters or {}).get("trade_republic_universe_status") or "").strip().upper()
+        if tr_filter and tr_filter != "ALL":
+            df = df[df["trade_republic_universe_status"] == tr_filter]
 
         if accumulate and not df.empty:
             if "transaction_date" not in df.columns:

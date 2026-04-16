@@ -10,10 +10,11 @@ import streamlit as st
 from src.services.analysis_service import AnalysisService
 from src.services.app_settings_service import AppSettingsService
 from src.ui.components.context_bar import render_context_bar
-from src.ui.components.status_badges import score_class_badge, status_badge
+from src.ui.components.page_scaffold import render_empty_state, render_page_header
 
 
 PRIMARY_DIRECTIONS = ["Alle", "BUY", "SELL"]
+TR_UNIVERSE_OPTIONS = ["Alle", "Im Universum", "Nicht im Universum", "Unbekannt"]
 
 
 def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
@@ -35,6 +36,7 @@ def _default_filters() -> dict[str, Any]:
         "show_raw": False,
         "gate_statuses": ["PASS", "PENDING", "FAIL"],
         "validation_statuses": ["VALID", "INVALID", "UNCHECKED"],
+        "trade_republic": "Alle",
     }
 
 
@@ -52,6 +54,8 @@ def _render_filter_summary(filters: dict[str, Any]) -> None:
         parts.append(f"Gate: **{', '.join(filters['gate_statuses'])}**")
     if filters.get("validation_statuses") and len(filters["validation_statuses"]) < 3:
         parts.append(f"Validation: **{', '.join(filters['validation_statuses'])}**")
+    if filters.get("trade_republic") != "Alle":
+        parts.append(f"Trade Republic: **{filters['trade_republic']}**")
 
     st.caption("Aktive Filter: " + (" · ".join(parts) if parts else "Keine (Standardansicht)"))
 
@@ -60,8 +64,7 @@ from src.ui.components.tables import render_smart_table
 
 def render_explorer_page(service: AnalysisService, settings_service: AppSettingsService | None = None) -> None:
     """Rendert Filter und Screener-Tabelle für Insider-Trades."""
-    st.title("Trades")
-    st.caption("Fokussierter Screener für Trade-Relevanz und Richtung.")
+    render_page_header("Trades", "Fokussierter Screener für Trade-Relevanz und Richtung.")
 
     defaults = _default_filters()
     
@@ -79,6 +82,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
     if filters_state.get("symbol"): active_chips.append(f"Ticker: {filters_state['symbol']}")
     if filters_state.get("direction") != "Alle": active_chips.append(f"Richtung: {filters_state['direction']}")
     if int(filters_state.get("min_value", 0)) > 100000: active_chips.append(f">{int(filters_state['min_value']):,}")
+    if filters_state.get("trade_republic", "Alle") != "Alle": active_chips.append(f"Trade Republic: {filters_state['trade_republic']}")
     
     render_context_bar(
         active_filters=active_chips if active_chips else ["Standardansicht"],
@@ -124,6 +128,12 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 value=int(st.session_state.explorer_filters.get("min_value", 100000)),
                 step=50_000,
             )
+            trade_republic = st.selectbox(
+                "Trade Republic",
+                TR_UNIVERSE_OPTIONS,
+                index=TR_UNIVERSE_OPTIONS.index(st.session_state.explorer_filters.get("trade_republic", "Alle")),
+                help="Status bezogen auf das offizielle Trade-Republic-Handelsuniversum (nicht Live-Handelbarkeit).",
+            )
 
             with st.expander("Status & Details", expanded=False):
                 limit = st.select_slider(
@@ -167,6 +177,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                         "show_raw": bool(show_raw),
                         "gate_statuses": gate_statuses if gate_statuses else ["PASS", "PENDING", "FAIL"],
                         "validation_statuses": validation_statuses if validation_statuses else ["VALID", "INVALID", "UNCHECKED"],
+                        "trade_republic": trade_republic,
                     }
                 )
                 if settings_service is not None:
@@ -188,6 +199,13 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             "reporting_name": filters_state["reporting_name"] or None,
             "acquisition_or_disposition": api_direction,
         }
+        tr_map = {
+            "Alle": "ALL",
+            "Im Universum": "IN_UNIVERSE",
+            "Nicht im Universum": "NOT_IN_UNIVERSE",
+            "Unbekannt": "UNKNOWN",
+        }
+        query_filters["trade_republic_universe_status"] = tr_map.get(filters_state.get("trade_republic", "Alle"), "ALL")
 
         data = service.get_filtered_trades(
             filters=query_filters,
@@ -197,7 +215,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         )
 
         if data.empty:
-            st.info("Keine Treffer für die aktuelle Filterkombination.")
+            render_empty_state("Keine Treffer für die aktuelle Filterkombination.")
             return
 
         # Explizite Nachfilterung der Richtung (Finding 2: Guard gegen inkonsistente Repo/Agg-Ergebnisse)
@@ -210,7 +228,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             data = data[data["validation_status"].fillna("UNKNOWN").astype(str).str.upper().isin(filters_state["validation_statuses"])]
 
         if data.empty:
-            st.info("Keine Treffer nach Gate-/Validation-Filter.")
+            render_empty_state("Keine Treffer nach Gate-/Validation-Filter.")
             return
 
         score_col = "score" if "score" in data.columns else None
@@ -238,6 +256,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 [
                     "symbol_at_trade",
                     "direction",
+                    "trade_republic_universe_status",
                     "score",
                     "score_class",
                     "score_status",
@@ -257,6 +276,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             table_columns = [
                 "symbol_at_trade",
                 "direction",
+                "trade_republic_universe_status",
                 "score",
                 "score_class",
                 "score_status",
@@ -274,6 +294,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             col_config = {
                 "symbol_at_trade": st.column_config.TextColumn("Ticker", width="small"),
                 "direction": st.column_config.TextColumn("Richtung", width="small"),
+                "trade_republic_universe_status": st.column_config.TextColumn("Trade Republic", width="small"),
                 "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
                 "score_class": st.column_config.TextColumn("Klasse", width="small"),
                 "score_status": st.column_config.TextColumn("Status", width="small"),
@@ -293,6 +314,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 [
                     "symbol_at_trade",
                     "direction",
+                    "trade_republic_universe_status",
                     "score",
                     "score_class",
                     "score_status",
@@ -310,6 +332,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             table_columns = [
                 "symbol_at_trade",
                 "direction",
+                "trade_republic_universe_status",
                 "score",
                 "score_class",
                 "score_status",
@@ -325,6 +348,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             col_config = {
                 "symbol_at_trade": st.column_config.TextColumn("Ticker", width="small"),
                 "direction": st.column_config.TextColumn("Richtung", width="small"),
+                "trade_republic_universe_status": st.column_config.TextColumn("Trade Republic", width="small"),
                 "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
                 "score_class": st.column_config.TextColumn("Klasse", width="small"),
                 "score_status": st.column_config.TextColumn("Status", width="small"),
