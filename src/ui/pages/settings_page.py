@@ -6,11 +6,11 @@ import streamlit as st
 from src.services.app_settings_service import AppSettingsService, RuntimeSettings
 from src.preprocessing.gate_evaluator import GATE_FAIL, GATE_PASS, GATE_PENDING
 from src.ui.components.context_bar import render_context_bar
+from src.ui.components.page_scaffold import render_error_state, render_page_header
 
 def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
     """Rendert die zentralen App-Einstellungen."""
-    st.title("Einstellungen")
-    st.caption("Konfiguration globaler Analyse-Parameter, Gate-Regeln und System-Präferenzen.")
+    render_page_header("Einstellungen", "Konfiguration globaler Analyse-Parameter, Gate-Regeln und System-Präferenzen.")
 
     render_context_bar(active_filters=["System-Config"])
 
@@ -90,7 +90,7 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
                 st.success("Einstellungen erfolgreich gespeichert.")
                 st.rerun()
             except Exception as e:
-                st.error(f"Fehler beim Speichern: {e}")
+                render_error_state(f"Fehler beim Speichern: {e}")
 
         if s2.button("Auf System-Defaults zurücksetzen", use_container_width=True):
             runtime_settings_service.reset()

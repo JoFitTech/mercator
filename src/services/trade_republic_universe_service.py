@@ -21,6 +21,7 @@ LOGGER = logging.getLogger(__name__)
 TR_STATUS_IN = "IN_UNIVERSE"
 TR_STATUS_NOT_IN = "NOT_IN_UNIVERSE"
 TR_STATUS_UNKNOWN = "UNKNOWN"
+ISIN_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 
 
 @dataclass(slots=True)
@@ -75,21 +76,38 @@ class TradeRepublicUniverseIngestionService:
             response.raise_for_status()
             payload = response.text
             parsed = self.parse_universe_csv(payload)
-            self._store_snapshot(parsed, source_payload=payload)
+            if parsed.total_rows == 0 and parsed.valid_rows == 0:
+                raise ValueError("TR universe source is empty or not parseable as CSV.")
+            self._store_snapshot(parsed.instruments, source_payload=payload)
+            LOGGER.info(
+                "TR universe refresh success source=%s rows_total=%s rows_valid=%s rows_invalid=%s",
+                self.settings.trade_republic_universe_url,
+                parsed.total_rows,
+                parsed.valid_rows,
+                parsed.invalid_rows,
+            )
             return True, "refreshed"
-        except Exception:
+        except Exception as exc:
             LOGGER.exception("TR universe refresh fehlgeschlagen.")
+            self._store_error(str(exc))
             return False, "refresh_failed"
 
     @staticmethod
-    def parse_universe_csv(raw_text: str) -> list[TradeRepublicUniverseInstrument]:
-        if not raw_text.strip():
-            return []
+    def parse_universe_csv(raw_text: str) -> "TradeRepublicUniverseParseResult":
+        stripped = raw_text.strip()
+        if not stripped:
+            return TradeRepublicUniverseParseResult([], 0, 0, 0)
+        if "," not in stripped.splitlines()[0]:
+            return TradeRepublicUniverseParseResult([], 0, 0, 0)
         reader = csv.DictReader(io.StringIO(raw_text))
         items: list[TradeRepublicUniverseInstrument] = []
+        total_rows = 0
+        invalid_rows = 0
         for row in reader:
-            isin = str(row.get("isin") or row.get("ISIN") or "").strip().upper()
-            if not isin:
+            total_rows += 1
+            isin = str(row.get("isin") or row.get("ISIN") or "").strip().upper().replace(" ", "")
+            if not isin or not ISIN_PATTERN.match(isin):
+                invalid_rows += 1
                 continue
             symbol = str(row.get("symbol") or row.get("ticker") or row.get("Symbol") or "").strip().upper() or None
             name = str(row.get("instrument_name") or row.get("name") or row.get("Name") or "").strip() or None
@@ -104,7 +122,12 @@ class TradeRepublicUniverseIngestionService:
                     asset_class=asset_class,
                 )
             )
-        return items
+        return TradeRepublicUniverseParseResult(
+            instruments=items,
+            total_rows=total_rows,
+            valid_rows=len(items),
+            invalid_rows=invalid_rows,
+        )
 
     def _store_snapshot(self, items: list[TradeRepublicUniverseInstrument], source_payload: str) -> None:
         if self.mysql_client is None:
@@ -144,6 +167,25 @@ class TradeRepublicUniverseIngestionService:
                         last_error = NULL
                     """,
                     (self.settings.trade_republic_universe_url, refreshed_at, snapshot_hash, len(items)),
+                )
+            conn.commit()
+
+    def _store_error(self, error_text: str) -> None:
+        if self.mysql_client is None:
+            return
+        now_ts = datetime.now(UTC).replace(tzinfo=None)
+        with self.mysql_client.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO trade_republic_universe_meta
+                    (source_url, source_last_refreshed_at, source_hash, instrument_count, last_error)
+                    VALUES (%s, NULL, NULL, 0, %s)
+                    ON DUPLICATE KEY UPDATE
+                        last_error = VALUES(last_error),
+                        updated_at = %s
+                    """,
+                    (self.settings.trade_republic_universe_url, error_text[:1000], now_ts),
                 )
             conn.commit()
 
@@ -197,6 +239,7 @@ class TradeRepublicUniverseMatchingService:
                             by_isin.get("instrument_name"),
                         )
                     if refreshed_at:
+                        LOGGER.info("TR match no ISIN hit isin=%s status=%s", isin, TR_STATUS_NOT_IN)
                         return TradeRepublicMatchResult(TR_STATUS_NOT_IN, "NONE", "HIGH", refreshed_at, None, None)
 
                 if sym and normalized_name:
@@ -220,6 +263,16 @@ class TradeRepublicUniverseMatchingService:
                             row.get("instrument_name"),
                         )
                     if len(candidates) == 0 and refreshed_at:
+                        LOGGER.info("TR match no symbol+name hit symbol=%s name=%s", sym, company_name)
                         return TradeRepublicMatchResult(TR_STATUS_NOT_IN, "NONE", "MEDIUM", refreshed_at, None, None)
 
+        LOGGER.info("TR match fallback UNKNOWN symbol=%s isin=%s", sym, isin)
         return TradeRepublicMatchResult(TR_STATUS_UNKNOWN, "NONE", "LOW", None, None, None)
+
+
+@dataclass(slots=True)
+class TradeRepublicUniverseParseResult:
+    instruments: list[TradeRepublicUniverseInstrument]
+    total_rows: int
+    valid_rows: int
+    invalid_rows: int

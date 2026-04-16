@@ -10,7 +10,7 @@ import streamlit as st
 from src.services.analysis_service import AnalysisService
 from src.services.app_settings_service import AppSettingsService
 from src.ui.components.context_bar import render_context_bar
-from src.ui.components.status_badges import score_class_badge, status_badge
+from src.ui.components.page_scaffold import render_empty_state, render_page_header
 
 
 PRIMARY_DIRECTIONS = ["Alle", "BUY", "SELL"]
@@ -64,8 +64,7 @@ from src.ui.components.tables import render_smart_table
 
 def render_explorer_page(service: AnalysisService, settings_service: AppSettingsService | None = None) -> None:
     """Rendert Filter und Screener-Tabelle für Insider-Trades."""
-    st.title("Trades")
-    st.caption("Fokussierter Screener für Trade-Relevanz und Richtung.")
+    render_page_header("Trades", "Fokussierter Screener für Trade-Relevanz und Richtung.")
 
     defaults = _default_filters()
     
@@ -216,7 +215,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         )
 
         if data.empty:
-            st.info("Keine Treffer für die aktuelle Filterkombination.")
+            render_empty_state("Keine Treffer für die aktuelle Filterkombination.")
             return
 
         # Explizite Nachfilterung der Richtung (Finding 2: Guard gegen inkonsistente Repo/Agg-Ergebnisse)
@@ -229,7 +228,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
             data = data[data["validation_status"].fillna("UNKNOWN").astype(str).str.upper().isin(filters_state["validation_statuses"])]
 
         if data.empty:
-            st.info("Keine Treffer nach Gate-/Validation-Filter.")
+            render_empty_state("Keine Treffer nach Gate-/Validation-Filter.")
             return
 
         score_col = "score" if "score" in data.columns else None

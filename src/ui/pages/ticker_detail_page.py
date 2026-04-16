@@ -9,6 +9,7 @@ import streamlit as st
 
 from src.services.analysis_service import AnalysisService
 from src.ui.components.context_bar import render_context_bar
+from src.ui.components.page_scaffold import render_empty_state, render_page_header
 from src.ui.components.status_badges import gate_badge, score_class_badge, status_badge, validation_badge
 
 
@@ -40,8 +41,7 @@ def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFram
 
 def render_ticker_detail_page(service: AnalysisService) -> None:
     """Rendert die Detailansicht für ein ausgewähltes Symbol."""
-    st.title("Unternehmen")
-    st.caption("Deep Dive: Profil, Trade-Historie und Score-Analyse.")
+    render_page_header("Unternehmen", "Deep Dive: Profil, Trade-Historie und Score-Analyse.")
 
     try:
         all_symbols = service.list_ticker_options()
@@ -64,7 +64,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     )
 
     if not selected_symbol:
-        st.info("Bitte wählen Sie ein Symbol aus dem Explorer oder der Liste.")
+        render_empty_state("Bitte wählen Sie ein Symbol aus dem Explorer oder der Liste.")
         return
 
     result = service.get_ticker_detail(selected_symbol, accumulate=True)
@@ -121,7 +121,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
     with tab_trades:
         st.subheader("Insider Trades (Akkumuliert)")
         if not result.rows:
-            st.info(f"Keine Transaktionen für {selected_symbol} gefunden.")
+            render_empty_state(f"Keine Transaktionen für {selected_symbol} gefunden.")
         else:
             df_display = pd.DataFrame(result.rows)
             # Spaltenbereinigung und Formatting hier (verkürzt für das Beispiel)

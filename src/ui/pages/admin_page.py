@@ -9,6 +9,7 @@ from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_client import MySqlClient
 from src.domain_rules import ScoreGatePolicy
 from src.services.app_settings_service import AppSettingsService
+from src.ui.components.page_scaffold import render_page_header
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
@@ -86,6 +87,22 @@ class AdminDashboardService:
                         stats["trade_republic_meta"] = cursor.fetchone() or {}
                     except Exception:
                         stats["trade_republic_meta"] = {}
+                    try:
+                        cursor.execute(
+                            "SELECT COUNT(*) AS cnt FROM companies "
+                            "WHERE COALESCE(trade_republic_universe_status, 'UNKNOWN') = 'UNKNOWN'"
+                        )
+                        stats["trade_republic_unknown_count"] = int((cursor.fetchone() or {}).get("cnt", 0))
+                    except Exception:
+                        stats["trade_republic_unknown_count"] = 0
+                    try:
+                        cursor.execute(
+                            "SELECT COUNT(*) AS cnt FROM companies "
+                            "WHERE COALESCE(trade_republic_universe_status, 'UNKNOWN') = 'IN_UNIVERSE'"
+                        )
+                        stats["trade_republic_in_universe_count"] = int((cursor.fetchone() or {}).get("cnt", 0))
+                    except Exception:
+                        stats["trade_republic_in_universe_count"] = 0
 
             return stats
         except Exception as e:
@@ -300,7 +317,7 @@ def render_admin_page(
 ) -> None:
     """Rendert das Admin-Dashboard."""
 
-    st.markdown("# 🔐 Admin Dashboard")
+    render_page_header("Admin", "Datenquellen, Speicher und Synchronisationskontrolle.")
     st.markdown("---")
 
     delete_blocked = settings.review_mode or settings.disable_admin_delete
@@ -374,6 +391,8 @@ def render_admin_page(
                     st.write(f"**Quelle:** {tr_meta.get('source_url', '-')}")
                     st.write(f"**Letzte Aktualisierung:** {tr_meta.get('source_last_refreshed_at', '-')}")
                     st.write(f"**Instrumente:** {tr_meta.get('instrument_count', 0)}")
+                    st.write(f"**Gematcht (IN_UNIVERSE):** {mysql_stats.get('trade_republic_in_universe_count', 0)}")
+                    st.write(f"**UNKNOWN:** {mysql_stats.get('trade_republic_unknown_count', 0)}")
                     st.write(f"**Fehlerstatus:** {tr_meta.get('last_error') or 'Kein Fehler'}")
                 else:
                     st.warning("Fehler beim Abrufen von MySQL-Statistiken")

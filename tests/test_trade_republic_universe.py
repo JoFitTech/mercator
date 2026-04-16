@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
+from types import SimpleNamespace
 
 import pandas as pd
+import requests
 
 from src.services.analysis_service import AnalysisService
 from src.services.trade_republic_universe_service import (
@@ -49,9 +51,13 @@ class _StubCursor:
 class _StubConn:
     def __init__(self, scripted):
         self._scripted = scripted
+        self.committed = False
 
     def cursor(self, **_kwargs):
         return _StubCursor(self._scripted)
+
+    def commit(self):
+        self.committed = True
 
     def __enter__(self):
         return self
@@ -72,12 +78,21 @@ class _StubClient:
 def test_parse_universe_csv_filters_invalid_rows() -> None:
     payload = "isin,symbol,instrument_name,country,type\nDE000BASF111,BASF,BASF SE,DE,Stock\n,,Broken,DE,Stock\n"
     parsed = TradeRepublicUniverseIngestionService.parse_universe_csv(payload)
-    assert len(parsed) == 1
-    assert parsed[0].isin == "DE000BASF111"
+    assert parsed.valid_rows == 1
+    assert parsed.invalid_rows == 1
+    assert parsed.instruments[0].isin == "DE000BASF111"
 
 
 def test_parse_universe_csv_empty_source() -> None:
-    assert TradeRepublicUniverseIngestionService.parse_universe_csv("") == []
+    parsed = TradeRepublicUniverseIngestionService.parse_universe_csv("")
+    assert parsed.total_rows == 0
+    assert parsed.instruments == []
+
+
+def test_parse_universe_csv_unexpected_format() -> None:
+    parsed = TradeRepublicUniverseIngestionService.parse_universe_csv("not,a,real\nbut-no-isin")
+    assert parsed.valid_rows == 0
+    assert parsed.total_rows >= 1
 
 
 def test_matching_exact_isin_match() -> None:
@@ -137,3 +152,19 @@ def test_analysis_service_trade_republic_filter() -> None:
     out = service.get_filtered_trades(filters={"trade_republic_universe_status": "IN_UNIVERSE"}, accumulate=False)
     assert len(out) == 1
     assert out.iloc[0]["symbol_at_trade"] == "AAA"
+
+
+def test_refresh_if_stale_handles_download_error(monkeypatch) -> None:
+    class _FailingGet:
+        def __call__(self, *_args, **_kwargs):
+            raise requests.RequestException("boom")
+
+    monkeypatch.setattr("src.services.trade_republic_universe_service.requests.get", _FailingGet())
+    settings = SimpleNamespace(
+        trade_republic_universe_url="https://example.com/universe.csv",
+        trade_republic_refresh_ttl_hours=24,
+    )
+    service = TradeRepublicUniverseIngestionService(settings=settings, mysql_client=_StubClient([]))  # type: ignore[arg-type]
+    refreshed, reason = service.refresh_if_stale(force=True)
+    assert refreshed is False
+    assert reason == "refresh_failed"
