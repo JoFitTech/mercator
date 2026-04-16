@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from src.config.settings import AppSettings
@@ -77,6 +78,9 @@ def render_dashboard_page(
     """Rendert KPI-Karten und fokussierte Diagramme für den Gesamtüberblick."""
     st.title("Dashboard")
     st.caption("Systemzustand, Datenabdeckung und Marktmuster.")
+
+    # Laufzeit-Einstellungen laden
+    runtime_settings = runtime_settings_service.load() if runtime_settings_service else None
 
     # Context Bar Daten vorbereiten
     target = settings.mysql.mysql_active_target if settings else "default"

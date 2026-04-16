@@ -51,13 +51,56 @@ class DashboardService:
         except Exception:
             company_profiles = 0
 
+        # 0. Datenvorbereitung (Spalten vereinheitlichen)
+        if not trades_df.empty:
+            # event_date erzeugen
+            date_col = "transaction_date" if "transaction_date" in trades_df.columns else "filing_date"
+            if date_col not in trades_df.columns:
+                trades_df["event_date"] = pd.NaT
+            else:
+                trades_df["event_date"] = pd.to_datetime(trades_df[date_col], errors="coerce").dt.date
+
+            # direction erzeugen
+            if "acquisition_or_disposition" in trades_df.columns:
+                trades_df["direction"] = (
+                    trades_df["acquisition_or_disposition"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                    .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
+                    .fillna("UNKNOWN")
+                )
+            else:
+                trades_df["direction"] = "UNKNOWN"
+
+            # trade_value_estimated sicherstellen
+            if "trade_value_estimated" not in trades_df.columns:
+                trades_df["trade_value_estimated"] = 0
+
+            # sector sicherstellen
+            if "sector" not in trades_df.columns:
+                trades_df["sector"] = "Unknown"
+            trades_df["sector"] = trades_df["sector"].fillna("").astype(str)
+            trades_df["sector"] = trades_df["sector"].str.strip().replace("", "Unknown")
+
+            # transaction_type sicherstellen
+            if "transaction_type" not in trades_df.columns:
+                trades_df["transaction_type"] = "Unknown"
+            trades_df["transaction_type"] = trades_df["transaction_type"].fillna("Unknown")
+
+            # gate_status sicherstellen
+            if "gate_status" not in trades_df.columns:
+                trades_df["gate_status"] = "Unknown"
+            trades_df["gate_status"] = trades_df["gate_status"].fillna("Unknown")
+
         # Gate-PASS berechnen
         if not trades_df.empty and "gate_status" in trades_df.columns:
             gate_pass_records = trades_df[trades_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
 
         # Letzte Aktualisierung ermitteln
         last_update = None
-        if not trades_df.empty:
+        if not trades_df.empty and "event_date" in trades_df.columns:
             last_update = trades_df["event_date"].max()
             if pd.notna(last_update):
                 last_update = last_update.strftime("%d.%m.%Y %H:%M") if hasattr(last_update, "strftime") else str(last_update)
@@ -78,34 +121,6 @@ class DashboardService:
         if trades_df.empty:
             return payload
 
-        # Vorbereitungen für Charts
-        date_col = "transaction_date" if "transaction_date" in trades_df.columns else "filing_date"
-        if date_col not in trades_df.columns:
-            trades_df["event_date"] = pd.NaT
-        else:
-            trades_df["event_date"] = pd.to_datetime(trades_df[date_col], errors="coerce").dt.date
-
-        if "acquisition_or_disposition" in trades_df.columns:
-            trades_df["direction"] = (
-                trades_df["acquisition_or_disposition"]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .str.upper()
-                .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
-                .fillna("UNKNOWN")
-            )
-        else:
-            trades_df["direction"] = "UNKNOWN"
-
-        if "trade_value_estimated" not in trades_df.columns:
-            trades_df["trade_value_estimated"] = 0
-
-        if "sector" not in trades_df.columns:
-            trades_df["sector"] = "Unknown"
-        trades_df["sector"] = trades_df["sector"].fillna("").astype(str)
-        trades_df["sector"] = trades_df["sector"].str.strip().replace("", "Unknown")
-
         # 1. Transaktionstypen
         payload["transaction_type_distribution"] = (
             trades_df.groupby("transaction_type", dropna=False).size().reset_index(name="count")
@@ -125,12 +140,15 @@ class DashboardService:
         )
         
         # 4. Zeitverlauf Anzahl (Filing Date oder Transaction Date)
-        timeline_col = "filing_date" if "filing_date" in trades_df.columns else date_col
-        payload["timeline_distribution"] = (
-            trades_df.assign(e_date=pd.to_datetime(trades_df[timeline_col], errors="coerce").dt.date)
-            .groupby("e_date", dropna=False)
-            .size()
-            .reset_index(name="count")
-        )
+        t_col = "filing_date" if "filing_date" in trades_df.columns else ("transaction_date" if "transaction_date" in trades_df.columns else None)
+        if t_col:
+            payload["timeline_distribution"] = (
+                trades_df.assign(e_date=pd.to_datetime(trades_df[t_col], errors="coerce").dt.date)
+                .groupby("e_date", dropna=False)
+                .size()
+                .reset_index(name="count")
+            )
+        else:
+            payload["timeline_distribution"] = pd.DataFrame(columns=["e_date", "count"])
         
         return payload
