@@ -20,7 +20,6 @@ from src.services.mysql_sync_service import MySqlSyncService
 from src.services.factory import ServiceFactory
 from src.ui.pages.dashboard_page import render_dashboard_page
 from src.ui.pages.explorer_page import render_explorer_page
-from src.ui.pages.methodology_page import render_methodology_page
 from src.ui.pages.ticker_detail_page import render_ticker_detail_page
 from src.ui.pages.admin_page import render_admin_page
 from src.ui.pages.settings_page import render_settings_page
@@ -390,7 +389,7 @@ def main() -> None:
 
     if not db_status.mysql.is_connected and not db_status.mongo.is_connected:
         st.error("Keine Datenbankverbindung verfügbar.")
-        render_methodology_page()
+        st.info("Bitte Datenbanken starten und Seite neu laden.")
         return
 
     def _dashboard() -> None:
@@ -413,7 +412,6 @@ def main() -> None:
         st.Page(_dashboard, title="Dashboard", icon=":material/dashboard:", default=True),
         st.Page(_explorer, title="Trades", icon=":material/table_view:"),
         st.Page(_ticker_detail, title="Unternehmen", icon=":material/business:"),
-        st.Page(render_methodology_page, title="Methodik", icon=":material/menu_book:"),
         st.Page(_admin, title="Admin", icon=":material/admin_panel_settings:"),
         st.Page(_settings, title="Einstellungen", icon=":material/settings:"),
     ]

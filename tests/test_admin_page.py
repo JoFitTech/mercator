@@ -98,6 +98,8 @@ def _build_settings(review_mode: bool = False, disable_admin_delete: bool = Fals
         disable_import=False,
         disable_admin_delete=disable_admin_delete,
         ui_test_mode=False,
+        trade_republic_universe_url="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",
+        trade_republic_refresh_ttl_hours=24,
     )
 
 
@@ -126,4 +128,3 @@ def test_clear_mysql_companies_blocked_in_review_mode() -> None:
 
     assert success is False
     assert "deaktiviert" in message.lower()
-

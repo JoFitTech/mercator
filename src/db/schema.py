@@ -32,6 +32,12 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         is_fund BOOLEAN NULL,
         profile_updated_at DATETIME NULL,
         source_system VARCHAR(32) NOT NULL DEFAULT 'fmp',
+        trade_republic_universe_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+        trade_republic_match_method VARCHAR(32) NOT NULL DEFAULT 'NONE',
+        trade_republic_match_confidence VARCHAR(16) NOT NULL DEFAULT 'LOW',
+        trade_republic_source_refreshed_at DATETIME NULL,
+        trade_republic_reference_isin VARCHAR(32) NULL,
+        trade_republic_reference_name VARCHAR(255) NULL,
         sync_version BIGINT NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -69,6 +75,12 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         score_class CHAR(1) NULL,
         profile_status VARCHAR(32) NOT NULL DEFAULT 'NOT_REQUESTED',
         profile_reason VARCHAR(255) NULL,
+        trade_republic_universe_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+        trade_republic_match_method VARCHAR(32) NOT NULL DEFAULT 'NONE',
+        trade_republic_match_confidence VARCHAR(16) NOT NULL DEFAULT 'LOW',
+        trade_republic_source_refreshed_at DATETIME NULL,
+        trade_republic_reference_isin VARCHAR(32) NULL,
+        trade_republic_reference_name VARCHAR(255) NULL,
         source_url VARCHAR(512) NULL,
         dedupe_key CHAR(64) NOT NULL,
         fetched_at DATETIME NOT NULL,
@@ -83,6 +95,34 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         INDEX idx_insider_trades_gate_status (gate_status),
         CONSTRAINT fk_insider_trades_company_key
             FOREIGN KEY (company_key) REFERENCES companies(company_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS trade_republic_universe_reference (
+        isin VARCHAR(32) NOT NULL,
+        symbol VARCHAR(32) NULL,
+        instrument_name VARCHAR(255) NULL,
+        country VARCHAR(64) NULL,
+        asset_class VARCHAR(64) NULL,
+        source_url VARCHAR(512) NOT NULL,
+        source_last_refreshed_at DATETIME NOT NULL,
+        source_hash CHAR(64) NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (isin),
+        INDEX idx_tr_universe_symbol (symbol)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS trade_republic_universe_meta (
+        source_url VARCHAR(512) NOT NULL,
+        source_last_refreshed_at DATETIME NULL,
+        source_hash CHAR(64) NULL,
+        instrument_count INT NOT NULL DEFAULT 0,
+        last_error TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (source_url)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """

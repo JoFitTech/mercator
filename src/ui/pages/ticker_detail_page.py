@@ -99,6 +99,9 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
         st.write(f"**Branche:** {profile.get('industry', '-')}")
         st.write(f"**Marktkap:** {format_mcap(profile.get('market_cap'), profile.get('currency', 'USD'))}")
         st.write(f"**Börse:** {profile.get('exchange_full_name', '-')}")
+        tr_status = profile.get("trade_republic_universe_status") or "UNKNOWN"
+        st.write(f"**Trade Republic:** {tr_status}")
+        st.caption("Status zeigt nur die Zugehörigkeit zum offiziellen TR-Universum, nicht Live-Handelbarkeit.")
         if profile.get("website"):
             st.link_button("🌐 Website", profile["website"], use_container_width=True)
     

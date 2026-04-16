@@ -78,6 +78,14 @@ class AdminDashboardService:
                     stats["database_size_mb"] = (
                         result["size_mb"] if result["size_mb"] else 0
                     )
+                    try:
+                        cursor.execute(
+                            "SELECT source_url, source_last_refreshed_at, instrument_count, last_error "
+                            "FROM trade_republic_universe_meta ORDER BY source_last_refreshed_at DESC LIMIT 1"
+                        )
+                        stats["trade_republic_meta"] = cursor.fetchone() or {}
+                    except Exception:
+                        stats["trade_republic_meta"] = {}
 
             return stats
         except Exception as e:
@@ -361,6 +369,12 @@ def render_admin_page(
                         st.write(f"**Host:** {active_target.host}")
                         st.write(f"**Port:** {active_target.port}")
                         st.write(f"**Datenbank:** {active_target.database}")
+                    tr_meta = mysql_stats.get("trade_republic_meta") or {}
+                    st.markdown("#### Trade Republic Datenquelle")
+                    st.write(f"**Quelle:** {tr_meta.get('source_url', '-')}")
+                    st.write(f"**Letzte Aktualisierung:** {tr_meta.get('source_last_refreshed_at', '-')}")
+                    st.write(f"**Instrumente:** {tr_meta.get('instrument_count', 0)}")
+                    st.write(f"**Fehlerstatus:** {tr_meta.get('last_error') or 'Kein Fehler'}")
                 else:
                     st.warning("Fehler beim Abrufen von MySQL-Statistiken")
             else:
