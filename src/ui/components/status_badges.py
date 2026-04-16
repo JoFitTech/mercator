@@ -59,3 +59,19 @@ def gate_badge(status: str) -> None:
 def validation_badge(status: str) -> None:
     """Badge für den Validierungsstatus."""
     status_badge(status, status_type=status)
+
+
+def trade_republic_universe_badge(status: str) -> None:
+    """Badge für Trade-Republic-Universumsstatus."""
+    normalized = (status or "UNKNOWN").upper()
+    label_map = {
+        "IN_UNIVERSE": "Im Universum",
+        "NOT_IN_UNIVERSE": "Nicht im Universum",
+        "UNKNOWN": "Unbekannt",
+    }
+    style_map = {
+        "IN_UNIVERSE": "SUCCESS",
+        "NOT_IN_UNIVERSE": "WARNING",
+        "UNKNOWN": "INFO",
+    }
+    status_badge(label_map.get(normalized, "Unbekannt"), style_map.get(normalized, "INFO"))

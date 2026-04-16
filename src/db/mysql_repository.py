@@ -48,12 +48,18 @@ class CompanyRepository:
                 company_key, company_cik, current_symbol, company_name, profile_status, profile_reason, first_seen_at, last_seen_at, market_cap, price, currency, isin, cusip,
                 exchange, exchange_full_name, industry, sector, country, website,
                 description, ceo, full_time_employees, ipo_date, is_etf,
-                is_actively_trading, is_adr, is_fund, profile_updated_at, source_system, sync_version, created_at, updated_at
+                is_actively_trading, is_adr, is_fund, profile_updated_at, source_system,
+                trade_republic_universe_status, trade_republic_match_method, trade_republic_match_confidence,
+                trade_republic_source_refreshed_at, trade_republic_reference_isin, trade_republic_reference_name,
+                sync_version, created_at, updated_at
             ) VALUES (
                 %(company_key)s, %(company_cik)s, %(current_symbol)s, %(company_name)s, %(profile_status)s, %(profile_reason)s, %(first_seen_at)s, %(last_seen_at)s, %(market_cap)s, %(price)s, %(currency)s, %(isin)s, %(cusip)s,
                 %(exchange)s, %(exchange_full_name)s, %(industry)s, %(sector)s, %(country)s, %(website)s,
                 %(description)s, %(ceo)s, %(full_time_employees)s, %(ipo_date)s, %(is_etf)s,
-                %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s, %(source_system)s, %(sync_version)s, %(created_at)s, %(updated_at)s
+                %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s, %(source_system)s,
+                %(trade_republic_universe_status)s, %(trade_republic_match_method)s, %(trade_republic_match_confidence)s,
+                %(trade_republic_source_refreshed_at)s, %(trade_republic_reference_isin)s, %(trade_republic_reference_name)s,
+                %(sync_version)s, %(created_at)s, %(updated_at)s
             )
             ON DUPLICATE KEY UPDATE
                 company_cik = COALESCE(VALUES(company_cik), company_cik),
@@ -90,6 +96,12 @@ class CompanyRepository:
                 is_fund = VALUES(is_fund),
                 profile_updated_at = VALUES(profile_updated_at),
                 source_system = VALUES(source_system),
+                trade_republic_universe_status = VALUES(trade_republic_universe_status),
+                trade_republic_match_method = VALUES(trade_republic_match_method),
+                trade_republic_match_confidence = VALUES(trade_republic_match_confidence),
+                trade_republic_source_refreshed_at = VALUES(trade_republic_source_refreshed_at),
+                trade_republic_reference_isin = VALUES(trade_republic_reference_isin),
+                trade_republic_reference_name = VALUES(trade_republic_reference_name),
                 sync_version = VALUES(sync_version),
                 created_at = COALESCE(created_at, VALUES(created_at)),
                 updated_at = VALUES(updated_at)
@@ -137,6 +149,12 @@ class CompanyRepository:
             "is_fund": company.get("is_fund"),
             "profile_updated_at": company.get("profile_updated_at"),
             "source_system": company.get("source_system", "fmp"),
+            "trade_republic_universe_status": company.get("trade_republic_universe_status", "UNKNOWN"),
+            "trade_republic_match_method": company.get("trade_republic_match_method", "NONE"),
+            "trade_republic_match_confidence": company.get("trade_republic_match_confidence", "LOW"),
+            "trade_republic_source_refreshed_at": company.get("trade_republic_source_refreshed_at"),
+            "trade_republic_reference_isin": company.get("trade_republic_reference_isin"),
+            "trade_republic_reference_name": company.get("trade_republic_reference_name"),
             "sync_version": int(company.get("sync_version") or 1),
             "created_at": inferred_created_at,
             "updated_at": inferred_updated_at,
@@ -255,13 +273,19 @@ class InsiderTradeRepository:
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
                 trade_value_estimated, validation_status, gate_status, gate_reason, score, score_class,
-                profile_status, profile_reason, source_url, dedupe_key, fetched_at
+                profile_status, profile_reason, source_url,
+                trade_republic_universe_status, trade_republic_match_method, trade_republic_match_confidence,
+                trade_republic_source_refreshed_at, trade_republic_reference_isin, trade_republic_reference_name,
+                dedupe_key, fetched_at
             ) VALUES (
                 %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
                 %(trade_value_estimated)s, %(validation_status)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
-                %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(profile_status)s, %(profile_reason)s, %(source_url)s,
+                %(trade_republic_universe_status)s, %(trade_republic_match_method)s, %(trade_republic_match_confidence)s,
+                %(trade_republic_source_refreshed_at)s, %(trade_republic_reference_isin)s, %(trade_republic_reference_name)s,
+                %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
                 company_key = VALUES(company_key),
@@ -287,6 +311,12 @@ class InsiderTradeRepository:
                 profile_status = VALUES(profile_status),
                 profile_reason = VALUES(profile_reason),
                 source_url = VALUES(source_url),
+                trade_republic_universe_status = VALUES(trade_republic_universe_status),
+                trade_republic_match_method = VALUES(trade_republic_match_method),
+                trade_republic_match_confidence = VALUES(trade_republic_match_confidence),
+                trade_republic_source_refreshed_at = VALUES(trade_republic_source_refreshed_at),
+                trade_republic_reference_isin = VALUES(trade_republic_reference_isin),
+                trade_republic_reference_name = VALUES(trade_republic_reference_name),
                 fetched_at = VALUES(fetched_at)
         """
         fields = [
@@ -294,7 +324,10 @@ class InsiderTradeRepository:
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
             "trade_value_estimated", "validation_status", "gate_status", "gate_reason", "score", "score_class",
-            "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
+            "profile_status", "profile_reason", "source_url",
+            "trade_republic_universe_status", "trade_republic_match_method", "trade_republic_match_confidence",
+            "trade_republic_source_refreshed_at", "trade_republic_reference_isin", "trade_republic_reference_name",
+            "dedupe_key", "fetched_at"
         ]
         params = {k: trade.get(k) for k in fields}
         params["score"] = trade.get("score", trade.get("score_value"))
@@ -507,7 +540,11 @@ class InsiderTradeRepository:
                 c.is_fund,
                 c.current_symbol,
                 c.source_system AS company_source_system,
-                c.sync_version AS company_sync_version
+                c.sync_version AS company_sync_version,
+                c.trade_republic_universe_status AS company_trade_republic_universe_status,
+                c.trade_republic_match_method AS company_trade_republic_match_method,
+                c.trade_republic_match_confidence AS company_trade_republic_match_confidence,
+                c.trade_republic_source_refreshed_at AS company_trade_republic_source_refreshed_at
             FROM insider_trades t
             LEFT JOIN companies c ON c.company_key = t.company_key
             {where_sql}
@@ -766,4 +803,3 @@ class AppRuntimePreferencesRepository:
             with conn.cursor() as cursor:
                 cursor.execute(sql, params)
             conn.commit()
-

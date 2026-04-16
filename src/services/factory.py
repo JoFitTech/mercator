@@ -20,6 +20,10 @@ from src.services.app_settings_service import AppSettingsService
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.services.analysis_service import AnalysisService
+from src.services.trade_republic_universe_service import (
+    TradeRepublicUniverseIngestionService,
+    TradeRepublicUniverseMatchingService,
+)
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
@@ -93,6 +97,8 @@ class ServiceFactory:
                     company_mysql_repo=company_repo,
                     profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
                     allow_write=not (settings.review_mode or settings.disable_import),
+                    tr_ingestion_service=TradeRepublicUniverseIngestionService(settings, mysql_client),
+                    tr_matching_service=TradeRepublicUniverseMatchingService(mysql_client),
                 )
             except ValueError as exc:
                 ServiceFactory.last_import_issue = (

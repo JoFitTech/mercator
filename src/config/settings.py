@@ -481,6 +481,8 @@ class AppSettings:
     disable_import: bool
     disable_admin_delete: bool
     ui_test_mode: bool
+    trade_republic_universe_url: str
+    trade_republic_refresh_ttl_hours: int
 
 
 def load_settings() -> AppSettings:
@@ -530,6 +532,11 @@ def load_settings() -> AppSettings:
         disable_import=_read_bool_env("MERCATOR_DISABLE_IMPORT", default=False),
         disable_admin_delete=_read_bool_env("MERCATOR_DISABLE_ADMIN_DELETE", default=False),
         ui_test_mode=_read_bool_env("MERCATOR_UI_TEST_MODE", default=False),
+        trade_republic_universe_url=_read_string_env(
+            "TRADE_REPUBLIC_UNIVERSE_URL",
+            default="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",
+        ),
+        trade_republic_refresh_ttl_hours=_read_int_env("TRADE_REPUBLIC_REFRESH_TTL_HOURS", default=24),
     )
 
     if not _SETTINGS_DEBUG_LOGGED:

@@ -11,6 +11,7 @@ from src.services.app_settings_service import AppSettingsService, RuntimeSetting
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.ui.components.context_bar import render_context_bar
+from src.ui.components.page_scaffold import render_page_header, render_warning_state
 
 
 EMPTY_DATA_MESSAGE = (
@@ -76,8 +77,7 @@ def render_dashboard_page(
     runtime_settings_service: AppSettingsService | None = None,
 ) -> None:
     """Rendert KPI-Karten und fokussierte Diagramme für den Gesamtüberblick."""
-    st.title("Dashboard")
-    st.caption("Systemzustand, Datenabdeckung und Marktmuster.")
+    render_page_header("Dashboard", "Systemzustand, Datenabdeckung und Marktmuster.")
 
     # Laufzeit-Einstellungen laden
     runtime_settings = runtime_settings_service.load() if runtime_settings_service else None
@@ -135,7 +135,7 @@ def render_dashboard_page(
                             % (summary.fetched_feed_records, summary.fetched_profiles)
                         )
                     except RuntimeError as exc:
-                        st.warning(str(exc))
+                        render_warning_state(str(exc))
                     except Exception as exc:
                         st.error(f"Unerwarteter Fehler beim Datenimport: {exc}")
 
