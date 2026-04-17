@@ -114,7 +114,7 @@ def _render_database_sidebar_status(
     else:
         selected_target = st.session_state.get(MYSQL_TARGET_STATE_KEY, configured_target)
 
-    # Gecachten DB-Check nutzen
+    # Gecachter DB-Erreichbarkeits-Check (TTL 15 s).
     mysql_connected, active_target, used_fallback, mongo_connected = _cached_db_status(
         mysql_uri_local=f"{settings.mysql.local_mysql.host}:{settings.mysql.local_mysql.port}",
         mysql_uri_uni=f"{settings.mysql.uni_mysql.host}:{settings.mysql.uni_mysql.port}",
@@ -149,17 +149,17 @@ def _render_database_sidebar_status(
 
     with st.sidebar.expander("System-Health", expanded=True):
         if status.mysql.is_connected:
-            mysql_text = f"MySQL: `{status.mysql.active_target}`"
-            if status.mysql.used_fallback:
-                mysql_text += " (Fallback)"
+            mysql_text = "MySQL: bereit"
+            if advanced_mode:
+                mysql_text = f"MySQL: verbunden (`{status.mysql.active_target}`)"
             st.success(mysql_text, icon="✅")
         else:
-            st.error("MySQL: getrennt", icon="❌")
-
+            st.error("MySQL: nicht erreichbar", icon="❌")
+            
         if status.mongo.is_connected:
-            st.success("MongoDB: verbunden", icon="✅")
+            st.success("MongoDB: bereit", icon="✅")
         else:
-            st.warning("MongoDB: getrennt", icon="⚠️")
+            st.warning("MongoDB: offline", icon="⚠️")
 
         if not status.mysql.is_connected and not status.mongo.is_connected:
             st.error("Offline: Keine DB erreichbar.")
@@ -406,32 +406,52 @@ def main() -> None:
     status_service = DatabaseStatusService()
     mysql_resolution, db_status = _render_database_sidebar_status(status_service, settings, st.session_state.get("advanced_mode", False))
 
-    # Navigation
-    def _dashboard() -> None:
-        render_dashboard_page(dashboard_service, import_service, settings, runtime_settings_service)
+    # Navigation Definition
+    if "nav_pages" not in st.session_state:
+        # Wir definieren die Page-Funktionen als Closures, die erst beim Ausführen Services bauen.
+        # Das verhindert unnötige DB-Hits beim Initialisieren der Sidebar.
+        
+        def dash_wrapper():
+            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+                load_settings(), mysql_resolution, db_status
+            )
+            render_dashboard_page(dashboard_service, import_service, load_settings(), runtime_settings_service)
 
-    def _explorer() -> None:
-        render_explorer_page(analysis_service, runtime_settings_service)
+        def explorer_wrapper():
+            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+                load_settings(), mysql_resolution, db_status
+            )
+            render_explorer_page(analysis_service, runtime_settings_service)
 
-    def _ticker_detail() -> None:
-        render_ticker_detail_page(analysis_service)
+        def ticker_wrapper():
+            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+                load_settings(), mysql_resolution, db_status
+            )
+            render_ticker_detail_page(analysis_service)
 
-    def _admin() -> None:
-        client = mysql_resolution.client if mysql_resolution else None
-        render_admin_page(settings, client, db_status.mongo.is_connected, runtime_settings_service)
+        def admin_wrapper():
+            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+                load_settings(), mysql_resolution, db_status
+            )
+            client = mysql_resolution.client if mysql_resolution else None
+            render_admin_page(load_settings(), client, db_status.mongo.is_connected, runtime_settings_service)
 
-    def _settings() -> None:
-        render_settings_page(runtime_settings_service)
+        def settings_wrapper():
+            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+                load_settings(), mysql_resolution, db_status
+            )
+            render_settings_page(runtime_settings_service)
 
-    pages = [
-        st.Page(_dashboard, title="Dashboard", icon=":material/dashboard:", default=True),
-        st.Page(_explorer, title="Trades", icon=":material/table_view:"),
-        st.Page(_ticker_detail, title="Unternehmen", icon=":material/business:"),
-        st.Page(_admin, title="Admin", icon=":material/admin_panel_settings:"),
-        st.Page(_settings, title="Einstellungen", icon=":material/settings:"),
-    ]
+        st.session_state.nav_pages = {
+            "Dashboard": st.Page(dash_wrapper, title="Dashboard", icon=":material/dashboard:", default=True),
+            "Trades": st.Page(explorer_wrapper, title="Trades", icon=":material/table_view:"),
+            "Unternehmen": st.Page(ticker_wrapper, title="Unternehmen", icon=":material/business:"),
+            "Admin": st.Page(admin_wrapper, title="Admin", icon=":material/admin_panel_settings:"),
+            "Einstellungen": st.Page(settings_wrapper, title="Einstellungen", icon=":material/settings:"),
+        }
     
-    nav = st.navigation(pages)
+    # st.navigation braucht eine Liste
+    nav = st.navigation(list(st.session_state.nav_pages.values()), position="sidebar")
     
     # Sidebar Footer / Tools
     st.sidebar.markdown("---")
@@ -452,17 +472,14 @@ def main() -> None:
             except Exception as e:
                 st.sidebar.error(f"Fehler: {e}")
 
-    dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
-        settings,
-        mysql_resolution,
-        db_status,
-    )
-
     if not db_status.mysql.is_connected and not db_status.mongo.is_connected:
         st.error("Keine Datenbankverbindung verfügbar.")
         st.info("Bitte Datenbanken starten und Seite neu laden.")
         return
 
+    # WICHTIG: nav.run() muss der einzige Ort sein, der die Seiteninhalte rendert.
+    # Alle Service-Initialisierungen sollten innerhalb der Page-Funktionen passieren
+    # oder gecacht sein.
     nav.run()
 
 

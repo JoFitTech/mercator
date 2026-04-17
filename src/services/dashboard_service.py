@@ -44,7 +44,7 @@ class DashboardService:
         payload = {
             **kpis,
             **charts,
-            "trades": trades_df,
+            "trades": trades_df[trades_df["dashboard_valid"] == True] if "dashboard_valid" in trades_df.columns else trades_df,
             "last_update": self._get_last_update_str(trades_df),
         }
         
@@ -114,8 +114,11 @@ class DashboardService:
                 "avg_score": 0.0,
             }
 
-        # Nur valide Trades für Dashboard-Metriken (außer profile_count, das ist globaler/scope-bezogen)
-        valid_df = df[df["dashboard_valid"] == True]
+        # Nur valide Trades für Dashboard-Metriken und Tabellenanzeige im Dashboard
+        if "dashboard_valid" in df.columns:
+            valid_df = df[df["dashboard_valid"] == True]
+        else:
+            valid_df = df # Fallback falls Spalte fehlt (sollte nicht passieren)
         
         gate_passed = valid_df[valid_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
         

@@ -387,12 +387,51 @@ def render_admin_page(
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("#### MySQL")
-            if st.button("Schema reparieren", use_container_width=True):
-                admin_service.rebuild_mysql_schema()
-            if st.button("TR Universum Refresh", use_container_width=True):
-                admin_service.refresh_tr_universe()
+            if st.button("Schema reparieren", use_container_width=True, help="Initialisiert oder aktualisiert das Tabellen-Schema"):
+                with st.spinner("Repariere Schema..."):
+                    success, msg = admin_service.rebuild_mysql_schema()
+                    if success: st.success(msg)
+                    else: st.error(msg)
+            
+            if st.button("TR Universum Refresh", use_container_width=True, help="Aktualisiert die Liste der handelbaren Ticker von Trade Republic"):
+                with st.spinner("Aktualisiere TR-Universum..."):
+                    success, msg = admin_service.refresh_tr_universe()
+                    if success: st.success(msg)
+                    else: st.warning(msg)
         
         with col2:
             st.markdown("#### Gefahrenzone")
-            if st.button("Alle MySQL Daten loeschen", use_container_width=True, type="secondary"):
-                st.warning("Wirklich loeschen?")
+            
+            # MySQL Löschen
+            with st.popover("MySQL Daten loeschen", use_container_width=True):
+                st.error("### ACHTUNG: Datenverlust")
+                st.write("Dies löscht alle verarbeiteten Insider-Trades und Firmendaten in MySQL.")
+                st.write("Rohdaten in MongoDB bleiben erhalten.")
+                
+                # Sicherheits-Checkbox
+                confirm_mysql = st.checkbox("Ich bin mir der Konsequenzen bewusst", key="confirm_mysql_delete")
+                if st.button("JETZT MySQL LÖSCHEN", type="primary", use_container_width=True, disabled=not confirm_mysql):
+                    with st.spinner("Lösche MySQL Daten..."):
+                        success, msg = admin_service.clear_mysql_all()
+                        if success:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
+            # MongoDB Löschen (nur im Advanced Mode sichtbar)
+            if st.session_state.get("advanced_mode", False):
+                with st.popover("MongoDB Rohdaten loeschen", use_container_width=True):
+                    st.error("### KRITISCHE AKTION: Rohdatenverlust")
+                    st.write("Dies löscht alle importierten Rohdaten in MongoDB.")
+                    st.write("Daten können nur durch neuen API-Import wiederhergestellt werden.")
+                    
+                    confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete")
+                    if st.button("JETZT MongoDB LÖSCHEN", type="primary", use_container_width=True, disabled=not confirm_mongo):
+                        with st.spinner("Lösche MongoDB Daten..."):
+                            success, msg = admin_service.clear_mongo_all()
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)

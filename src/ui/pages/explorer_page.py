@@ -84,12 +84,13 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         api_direction = "D"
 
     # Daten laden
-    data = service.get_filtered_trades(
-        filters={"acquisition_or_disposition": api_direction},
-        limit=1000,
-        accumulate=scope.get("accumulate", True),
-        min_value=0,
-    )
+    with st.spinner("Lade Trades..."):
+        data = service.get_filtered_trades(
+            filters={"acquisition_or_disposition": api_direction},
+            limit=1000,
+            accumulate=scope.get("accumulate", True),
+            min_value=0,
+        )
 
     if data.empty:
         render_empty_state("Keine Treffer für den aktuellen Scope.")

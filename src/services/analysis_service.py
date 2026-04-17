@@ -377,10 +377,16 @@ class AnalysisService:
 
         display_trades = self._ensure_trade_columns(display_trades)
 
+        # Berechnung Durchschnitts-Score
+        avg_score = float(trades["score"].dropna().mean()) if (not trades.empty and "score" in trades.columns and not trades["score"].dropna().empty) else 0.0
+        score_class = _classify_score(avg_score)
+
         metrics = {
             "trade_count": int(len(trades)),
             "avg_price": float(trades["price"].dropna().mean()) if (not trades.empty and "price" in trades.columns and not trades["price"].dropna().empty) else None,
             "total_qty": float(trades["qty"].dropna().sum()) if (not trades.empty and "qty" in trades.columns and not trades["qty"].dropna().empty) else None,
+            "overall_score": avg_score,
+            "score_class": score_class,
             "overall_status": overall_status,
             "can_enrich": company_context_allowed,
         }

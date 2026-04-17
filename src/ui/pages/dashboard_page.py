@@ -96,9 +96,22 @@ def render_dashboard_page(
 
     # 3. SUCH- UND SCOPE-LEISTE
     filters = render_dashboard_scope_bar(service)
+    
+    # 3b. CONTEXT BAR (Aktive Filter & Stand)
+    active_chips = []
+    if filters.get("symbol"): active_chips.append(f"Ticker: {filters['symbol']}")
+    if filters.get("reporting_name"): active_chips.append(f"Insider: {filters['reporting_name']}")
+    if filters.get("sector") and filters["sector"] != "All": active_chips.append(f"Sektor: {filters['sector']}")
+    
+    render_context_bar(
+        active_filters=active_chips,
+        last_update=date.today().strftime("%d.%m.%Y"), # Dummy oder aus Payload
+        mysql_target=st.session_state.get("mysql_runtime_target", "local")
+    )
 
     # Daten laden basierend auf Scope
-    payload = service.build_dashboard_payload(filters=filters)
+    with st.spinner("Lade Dashboard-Daten..."):
+        payload = service.build_dashboard_payload(filters=filters)
 
     # 4. KPI-ZEILE (4 Karten)
     render_dashboard_kpis(payload)
@@ -130,7 +143,7 @@ def render_dashboard_header(import_service: ImportService | None) -> None:
 
     col_title, col_actions = st.columns([0.6, 0.4], vertical_alignment="center")
     with col_title:
-        st.title("Dashboard")
+        st.markdown('<h1 style="margin: 0; padding: 0; line-height: 1;">Dashboard</h1>', unsafe_allow_html=True)
     
     with col_actions:
         # Drei Buttons auf gleicher Höhe: Refresh, Import, Settings
@@ -138,23 +151,27 @@ def render_dashboard_header(import_service: ImportService | None) -> None:
         
         with btn_col1:
             if st.button("Refresh", use_container_width=True, help="Dashboard Scope aktualisieren"):
-                st.rerun()
+                with st.spinner("Aktualisiere..."):
+                    st.rerun()
         
         with btn_col2:
             if st.button("Import", use_container_width=True, type="secondary", help="Daten von API laden"):
                 if import_service:
-                    with st.spinner("Import läuft..."):
+                    with st.status("Import läuft...") as status:
                         try:
                             import_service.run_hourly_import()
-                            st.success("Import abgeschlossen")
+                            status.update(label="Import abgeschlossen", state="complete")
+                            st.toast("Import erfolgreich abgeschlossen")
                             st.rerun()
                         except Exception as e:
+                            status.update(label=f"Fehler: {e}", state="error")
                             st.error(f"Import fehlgeschlagen: {e}")
                 else:
                     st.error("Import-Service nicht verfügbar")
         
         with btn_col3:
-            if st.button("Settings", use_container_width=True, help="Konfiguration öffnen"):
+            label = "Settings" # Kein Emoji
+            if st.button(label, use_container_width=True, help="Konfiguration öffnen"):
                 st.session_state["show_settings"] = not st.session_state.get("show_settings", False)
                 st.rerun()
 
@@ -373,33 +390,30 @@ def render_dashboard_table(payload: dict) -> None:
         st.info("Keine Trades gefunden")
         return
 
-    # In dieser Version nutzen wir die Tabellenauswahl zur Navigation
-    # Erste Spalte "Detail" als Text ohne Emoji
-    trades_df["Detail"] = "Open"
-    
-    # Spaltenreihenfolge
+    # Spaltenreihenfolge für Dashboard (kompakt)
     display_cols = [
-        "Detail", "symbol_at_trade", "reporting_name", "sector", "direction",
-        "trade_value_estimated", "score_value", "gate_status", 
-        "validation_status", "filing_date"
+        "symbol_at_trade", "reporting_name", "direction",
+        "trade_value_estimated", "score_value", "gate_status", "transaction_date"
     ]
     
     # Sicherstellen dass alle existieren
     for col in display_cols:
         if col not in trades_df.columns:
-            trades_df[col] = None
+            if col == "score_value" and "score" in trades_df.columns:
+                trades_df["score_value"] = trades_df["score"]
+            elif col == "transaction_date" and "transaction_date" not in trades_df.columns and "filing_date" in trades_df.columns:
+                trades_df["transaction_date"] = trades_df["filing_date"]
+            else:
+                trades_df[col] = None
 
     col_config = {
-        "Detail": st.column_config.TextColumn("Details", width="small", help="Zeile auswählen für Details"),
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small"),
         "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
-        "sector": st.column_config.TextColumn("Sector", width="medium"),
         "direction": st.column_config.TextColumn("Richtung", width="small"),
-        "trade_value_estimated": st.column_config.NumberColumn("Value", format="$%.2f"),
-        "score_value": st.column_config.NumberColumn("Score", format="%.2f"),
+        "trade_value_estimated": st.column_config.NumberColumn("Value", format="$%d"),
+        "score_value": st.column_config.NumberColumn("Score", format="%.1f"),
         "gate_status": st.column_config.TextColumn("Gate"),
-        "validation_status": st.column_config.TextColumn("Validation"),
-        "filing_date": st.column_config.DateColumn("Date"),
+        "transaction_date": st.column_config.DateColumn("Date", format="DD.MM.YY"),
     }
     
     # Render table mit Auswahl

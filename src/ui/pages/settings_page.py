@@ -29,7 +29,7 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
             "Profil-Lookup Modus",
             options=["cik_primary_symbol_fallback", "symbol_only"],
             index=0 if runtime_settings.lookup_mode == "cik_primary_symbol_fallback" else 1,
-            help="Wie sollen Unternehmensprofile gesucht werden?"
+            help="cik_primary_symbol_fallback: Nutzt CIK für stabilere Verknüpfung (empfohlen). symbol_only: Schnellerer Match nur über Ticker."
         )
 
         st.markdown("---")
@@ -98,11 +98,12 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
             st.rerun()
 
     st.markdown("---")
-    st.subheader("Advanced Mode")
-    advanced_mode = st.session_state.get("advanced_mode", False)
-    if advanced_mode:
-        st.success("Advanced Mode ist aktuell AKTIVIERT.")
-        st.write("Dies schaltet zusätzliche Debug-Informationen und DB-Management-Tools frei.")
-    else:
-        st.info("Advanced Mode ist aktuell DEAKTIVIERT.")
-        st.write("Aktivieren Sie ihn in der Sidebar für erweiterte Funktionen.")
+    st.subheader("Experten-Einstellungen")
+    advanced_mode = st.toggle(
+        "Advanced Mode aktivieren", 
+        value=st.session_state.get("advanced_mode", False),
+        help="Schaltet zusätzliche Debug-Informationen und DB-Management-Tools frei (z.B. im Admin-Bereich)."
+    )
+    st.session_state["advanced_mode"] = advanced_mode
+    # Synchronisiere mit Sidebar (st.toggle in sidebar nutzt key="advanced_mode_toggle")
+    st.session_state["advanced_mode_toggle"] = advanced_mode

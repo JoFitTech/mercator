@@ -15,12 +15,12 @@ from src.ui.components.tables import render_trade_table
 
 
 def format_mcap(value: Any, currency: str = "USD") -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return f"- {currency}"
+    if value is None or (isinstance(value, float) and pd.isna(value)) or value == 0:
+        return "Keine Daten verfügbar"
     try:
         return f"{float(value):,.0f} {currency}"
     except (ValueError, TypeError):
-        return f"- {currency}"
+        return "Keine Daten verfügbar"
 
 
 def format_number(value: Any, format_spec: str = "{:,.2f}", na_rep: str = "-") -> str:
@@ -119,11 +119,11 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
             status_badge(status, status_type=status)
             
             if status == "FAIL":
-                st.error("Ausschlusskriterium gegriffen.")
+                st.error("Dieses Unternehmen erfüllt aktuell die Gate-Kriterien (z.B. Mindestumsatz, Rechtsform) nicht. Daher werden keine vertieften Profildaten von externen APIs geladen.")
             
             st.markdown("---")
             st.write("**Unternehmensprofil**")
             st.write(f"**Marktkap:** {format_mcap(profile.get('market_cap'), profile.get('currency', 'USD'))}")
-            st.write(f"**Börse:** {profile.get('exchange_short_name', '-')}")
+            st.write(f"**Börse:** {profile.get('exchange_full_name', profile.get('exchange')) or 'Keine Angabe'}")
             if profile.get("website"):
                 st.link_button("Website öffnen", profile["website"], use_container_width=True)
