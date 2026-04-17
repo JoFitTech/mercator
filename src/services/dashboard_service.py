@@ -26,25 +26,45 @@ class DashboardService:
     def build_dashboard_payload(self, filters: dict | None = None) -> dict:
         """Liefert KPIs und vorbereitete DataFrames für Charts basierend auf Filtern."""
         filters = filters or {}
+        
+        # WICHTIG: Wir erzwingen dashboard_valid = True NICHT mehr auf Query-Ebene,
+        # damit wir auch invalide Trades für die Diagnose im Scope haben.
+        if "dashboard_valid" in filters:
+            del filters["dashboard_valid"]
+            
         try:
-            # Wir rufen fetch_trades mit Filtern auf
+            # Wir rufen fetch_trades mit Filtern auf (ohne dashboard_valid Filter)
             trades_df = self.trade_repo.fetch_trades(limit=10000, filters=filters)
         except Exception:
             trades_df = pd.DataFrame()
             
-        # Grundlegende Bereinigung/Transformation des DataFrames für das Dashboard
+        # Grundlegende Bereinigung/Transformation des DataFrames
         trades_df = self._prepare_dataframe(trades_df)
 
-        # KPIs berechnen (basierend auf dem gefilterten Scope)
-        kpis = self._compute_kpis(trades_df)
+        # Subsets bilden
+        valid_df = pd.DataFrame()
+        invalid_df = pd.DataFrame()
+        
+        if not trades_df.empty:
+            valid_df = trades_df[trades_df["dashboard_valid"] == True].copy()
+            invalid_df = trades_df[trades_df["dashboard_valid"] == False].copy()
 
-        # Diagrammdaten vorbereiten (basierend auf dem gefilterten Scope)
-        charts = self._prepare_charts(trades_df)
+        # KPIs berechnen (basierend auf valid_df)
+        kpis = self._compute_kpis(valid_df, trades_df)
+
+        # Diagrammdaten vorbereiten (basierend auf valid_df)
+        charts = self._prepare_charts(valid_df)
+        
+        # Diagnose-Infos
+        diagnostics = self._compute_diagnostics(trades_df, valid_df, invalid_df, filters)
 
         payload = {
             **kpis,
             **charts,
-            "trades": trades_df[trades_df["dashboard_valid"] == True] if "dashboard_valid" in trades_df.columns else trades_df,
+            **diagnostics,
+            "trades_all_scoped": trades_df,
+            "trades_valid": valid_df,
+            "trades_invalid": invalid_df,
             "last_update": self._get_last_update_str(trades_df),
         }
         
@@ -82,19 +102,19 @@ class DashboardService:
             df["trade_value_estimated"] = 0
         df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce").fillna(0)
 
-        # sector sicherstellen (für Charts und KPIs)
+        # sector sicherstellen
         if "sector" not in df.columns:
             df["sector"] = None
         
-        # Dashboard Validity (falls nicht schon in der DB berechnet oder als Fallback)
+        # Dashboard Validity
         if "dashboard_valid" not in df.columns:
-            # Fallback-Logik falls Spalte fehlt
+            # Fallback-Logik
             df["dashboard_valid"] = df.apply(
                 lambda x: pd.notna(x.get("symbol")) and 
                           pd.notna(x.get("price")) and x.get("price", 0) > 0 and
                           pd.notna(x.get("qty")) and x.get("qty", 0) > 0 and
                           x.get("direction") != "UNKNOWN" and
-                          pd.notna(x.get("sector")) and str(x.get("sector")).lower() not in ("unknown", "n/a", ""),
+                          pd.notna(x.get("sector")) and str(x.get("sector")).lower() not in ("unknown", "n/a", "", "none"),
                 axis=1
             )
         else:
@@ -103,9 +123,9 @@ class DashboardService:
 
         return df
 
-    def _compute_kpis(self, df: pd.DataFrame) -> dict:
-        """Berechnet die Dashboard-KPIs."""
-        if df.empty:
+    def _compute_kpis(self, valid_df: pd.DataFrame, all_df: pd.DataFrame) -> dict:
+        """Berechnet die Dashboard-KPIs basierend auf validen Daten."""
+        if valid_df.empty:
             return {
                 "valid_trades_count": 0,
                 "gate_passed_count": 0,
@@ -114,17 +134,10 @@ class DashboardService:
                 "avg_score": 0.0,
             }
 
-        # Nur valide Trades für Dashboard-Metriken und Tabellenanzeige im Dashboard
-        if "dashboard_valid" in df.columns:
-            valid_df = df[df["dashboard_valid"] == True]
-        else:
-            valid_df = df # Fallback falls Spalte fehlt (sollte nicht passieren)
-        
         gate_passed = valid_df[valid_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
         
-        # Profile: Anzahl der erfolgreich aufgelösten Profile im aktuellen Scope
-        # (Hier: Eindeutige Symbole mit FETCHED Status oder vorhandenem Sektor)
-        profiles = df[df["profile_status"].astype(str).str.upper() == "FETCHED"]["company_key"].nunique()
+        # Profile: Anzahl der erfolgreich aufgelösten Profile im aktuellen Scope (alle Trades)
+        profiles = all_df[all_df["profile_status"].astype(str).str.upper() == "FETCHED"]["company_key"].nunique()
         
         buy_trades = valid_df[valid_df["direction"] == "BUY"].shape[0]
         buy_quote = (buy_trades / valid_df.shape[0]) if not valid_df.empty else 0.0
@@ -139,19 +152,83 @@ class DashboardService:
             "avg_score": avg_score,
         }
 
-    def _prepare_charts(self, df: pd.DataFrame) -> dict:
+    def _compute_diagnostics(self, all_df: pd.DataFrame, valid_df: pd.DataFrame, invalid_df: pd.DataFrame, filters: dict) -> dict:
+        """Berechnet Diagnosewerte und Gründe für fehlende Daten."""
+        
+        unresolved_sector_count = 0
+        missing_sector_count = 0
+        missing_price_count = 0
+        missing_qty_count = 0
+        unknown_direction_count = 0
+        
+        if not invalid_df.empty:
+            # Sektor Diagnose
+            if "sector_resolution_status" in invalid_df.columns:
+                unresolved_sector_count = invalid_df[invalid_df["sector_resolution_status"] == "UNRESOLVED"].shape[0]
+            
+            # Fehlende Sektoren (None, Empty, Unknown, N/A)
+            sector_vals = invalid_df["sector"].astype(str).str.lower()
+            missing_sector_count = invalid_df[
+                (invalid_df["sector"].isna()) | 
+                (sector_vals.isin(["", "none", "unknown", "n/a"]))
+            ].shape[0]
+            
+            # Preis/Menge
+            if "price" in invalid_df.columns:
+                missing_price_count = invalid_df[(invalid_df["price"].isna()) | (invalid_df["price"] <= 0)].shape[0]
+            if "qty" in invalid_df.columns:
+                missing_qty_count = invalid_df[(invalid_df["qty"].isna()) | (invalid_df["qty"] <= 0)].shape[0]
+                
+            # Richtung
+            unknown_direction_count = invalid_df[invalid_df["direction"] == "UNKNOWN"].shape[0]
+
+        # Empty/Warning Reasons
+        empty_reason = None
+        warning_reason = None
+        
+        if all_df.empty:
+            date_from = filters.get("date_from")
+            date_to = filters.get("date_to")
+            
+            # Variante B: Zusatzdiagnose Zeitbereich in DB
+            extreme_dates = self.trade_repo.get_extreme_dates()
+            db_min = extreme_dates.get("min_date")
+            db_max = extreme_dates.get("max_date")
+            
+            if date_from and date_to:
+                empty_reason = f"Im Zeitraum {date_from} bis {date_to} wurden keine Trades gefunden."
+                if db_min and db_max:
+                    empty_reason += f" In der Datenbank sind jedoch Trades vom {db_min} bis {db_max} vorhanden."
+            else:
+                empty_reason = "Keine Trades im aktuellen Scope gefunden."
+                if db_min and db_max:
+                    empty_reason += f" Die Datenbank enthält Trades im Zeitraum {db_min} bis {db_max}."
+        elif valid_df.empty:
+            warning_reason = "Im aktuellen Scope sind Trades vorhanden, aber keine für das Dashboard validen Datensätze."
+            if unresolved_sector_count > 0 or missing_sector_count > 0:
+                warning_reason += " Häufigste Ursache: fehlende oder unresolved Sektorauflösung."
+            elif missing_price_count > 0 or missing_qty_count > 0:
+                warning_reason += " Häufigste Ursache: fehlende Preis- oder Mengeninformationen."
+
+        return {
+            "scoped_trades_count": all_df.shape[0],
+            "invalid_trades_count": invalid_df.shape[0],
+            "unresolved_sector_count": unresolved_sector_count,
+            "missing_sector_count": missing_sector_count,
+            "missing_price_count": missing_price_count,
+            "missing_qty_count": missing_qty_count,
+            "unknown_direction_count": unknown_direction_count,
+            "dashboard_empty_reason": empty_reason,
+            "dashboard_warning_reason": warning_reason
+        }
+
+    def _prepare_charts(self, valid_df: pd.DataFrame) -> dict:
         """Bereitet Daten für die Diagramme vor."""
         charts = {
             "sector_distribution_buy": pd.DataFrame(),
             "sector_distribution_sell": pd.DataFrame(),
             "timeline_distribution": pd.DataFrame(),
         }
-        
-        if df.empty:
-            return charts
-
-        # Nur valide Trades für Charts
-        valid_df = df[df["dashboard_valid"] == True].copy()
         
         if valid_df.empty:
             return charts

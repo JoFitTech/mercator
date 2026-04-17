@@ -116,6 +116,9 @@ def render_dashboard_page(
     # 4. KPI-ZEILE (4 Karten)
     render_dashboard_kpis(payload)
 
+    # 4b. DIAGNOSE-BLOCK (Nur falls scoped_trades > 0 aber valid_trades == 0)
+    render_dashboard_diagnostics(payload)
+
     # 5. SEKTOR-VERTEILUNG (2 Donuts)
     render_sector_distribution_block(payload)
 
@@ -262,9 +265,7 @@ def render_dashboard_scope_bar(service: DashboardService) -> dict:
     st.session_state.filters["sector"] = sector
 
     # Filter-Dict für Service bauen
-    filters = {
-        "dashboard_valid": True
-    }
+    filters = {}
     if symbol:
         filters["symbol"] = symbol
     if insider:
@@ -285,6 +286,37 @@ def render_dashboard_scope_bar(service: DashboardService) -> dict:
     
     return filters
 
+
+def render_dashboard_diagnostics(payload: dict) -> None:
+    """Rendert einen Diagnose-Block, falls zwar Daten im Scope sind, aber keine validen Dashboard-Daten."""
+    warning_reason = payload.get("dashboard_warning_reason")
+    empty_reason = payload.get("dashboard_empty_reason")
+    
+    if empty_reason:
+        st.info(empty_reason)
+        return
+
+    if warning_reason:
+        with st.container(border=True):
+            st.warning(f"### {warning_reason}")
+            
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1:
+                st.metric("Scoped Trades", payload.get("scoped_trades_count", 0))
+            with c2:
+                st.metric("Davon Valid", payload.get("valid_trades_count", 0))
+            with c3:
+                st.metric("Davon Invalid", payload.get("invalid_trades_count", 0))
+            with c4:
+                st.metric("Unresolved Sector", payload.get("unresolved_sector_count", 0))
+            with c5:
+                st.metric("Missing Sector", payload.get("missing_sector_count", 0))
+            
+            with st.expander("Details zur Datenqualität"):
+                st.write(f"- **Fehlender Preis:** {payload.get('missing_price_count', 0)} Trades")
+                st.write(f"- **Fehlende Menge:** {payload.get('missing_qty_count', 0)} Trades")
+                st.write(f"- **Unbekannte Richtung:** {payload.get('unknown_direction_count', 0)} Trades")
+                st.info("Hinweis: Trades benötigen ein Symbol, einen Sektor (resolved), Preis > 0, Menge > 0 und eine gültige Richtung (BUY/SELL), um in KPIs und Charts berücksichtigt zu werden.")
 
 def render_dashboard_kpis(payload: dict) -> None:
     """Rendert 4 KPI-Karten in einer Reihe."""
@@ -383,30 +415,54 @@ def render_trade_activity_chart(payload: dict) -> None:
 
 def render_dashboard_table(payload: dict) -> None:
     """Rendert die Übersichtstabelle mit Detail-Button."""
-    st.subheader("Übersichtstabelle")
-    trades_df = payload.get("trades", pd.DataFrame())
+    st.subheader("Übersicht Trades im Scope")
     
-    if trades_df.empty:
+    trades_all = payload.get("trades_all_scoped", pd.DataFrame())
+    trades_valid = payload.get("trades_valid", pd.DataFrame())
+    trades_invalid = payload.get("trades_invalid", pd.DataFrame())
+    
+    if trades_all.empty:
         st.info("Keine Trades gefunden")
+        return
+
+    # View Toggle
+    view_mode = st.radio(
+        "Tabellenansicht",
+        options=["Alle im Scope", "Nur Valid", "Nur Invalid"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="dashboard_table_view_mode"
+    )
+    
+    if view_mode == "Nur Valid":
+        display_df = trades_valid
+    elif view_mode == "Nur Invalid":
+        display_df = trades_invalid
+    else:
+        display_df = trades_all
+
+    if display_df.empty:
+        st.info(f"Keine Daten für Filter '{view_mode}' vorhanden.")
         return
 
     # Spaltenreihenfolge für Dashboard (kompakt)
     display_cols = [
-        "symbol_at_trade", "reporting_name", "direction",
+        "dashboard_valid", "symbol_at_trade", "reporting_name", "direction",
         "trade_value_estimated", "score_value", "gate_status", "transaction_date"
     ]
     
     # Sicherstellen dass alle existieren
     for col in display_cols:
-        if col not in trades_df.columns:
-            if col == "score_value" and "score" in trades_df.columns:
-                trades_df["score_value"] = trades_df["score"]
-            elif col == "transaction_date" and "transaction_date" not in trades_df.columns and "filing_date" in trades_df.columns:
-                trades_df["transaction_date"] = trades_df["filing_date"]
+        if col not in display_df.columns:
+            if col == "score_value" and "score" in display_df.columns:
+                display_df["score_value"] = display_df["score"]
+            elif col == "transaction_date" and "transaction_date" not in display_df.columns and "filing_date" in display_df.columns:
+                display_df["transaction_date"] = display_df["filing_date"]
             else:
-                trades_df[col] = None
+                display_df[col] = None
 
     col_config = {
+        "dashboard_valid": st.column_config.CheckboxColumn("Valid", width="small", help="Dashboard-Gültigkeit"),
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small"),
         "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
         "direction": st.column_config.TextColumn("Richtung", width="small"),
@@ -418,7 +474,7 @@ def render_dashboard_table(payload: dict) -> None:
     
     # Render table mit Auswahl
     event = st.dataframe(
-        trades_df[display_cols],
+        display_df[display_cols],
         column_config=col_config,
         use_container_width=True,
         hide_index=True,
@@ -430,14 +486,8 @@ def render_dashboard_table(payload: dict) -> None:
     # Navigation bei Auswahl
     if event and event.get("selection", {}).get("rows"):
         selected_idx = event["selection"]["rows"][0]
-        selected_symbol = trades_df.iloc[selected_idx]["symbol_at_trade"]
+        selected_row = display_df.iloc[selected_idx]
+        selected_symbol = selected_row.get("symbol_at_trade")
         if selected_symbol:
             st.session_state["selected_ticker"] = selected_symbol
-            st.toast(f"Symbol {selected_symbol} ausgewählt. Wechsel zu Unternehmen für Details.")
-            # In Streamlit 1.35+ kann man switch_page nutzen
-            try:
-                # Da wir den exakten Pfad nicht kennen, versuchen wir die gängigsten Muster
-                # Oder wir belassen es beim Toast und dem gesetzten Session State.
-                pass
-            except Exception:
-                pass
+            st.success(f"Symbol {selected_symbol} ausgewählt. Bitte oben auf 'Unternehmen' wechseln.")

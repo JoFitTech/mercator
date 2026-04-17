@@ -616,6 +616,20 @@ class InsiderTradeRepository:
                 result = cursor.fetchone()
                 return str(result[0]) if result and result[0] is not None else None
 
+    def get_extreme_dates(self) -> dict[str, str | None]:
+        """Liefert das Datum des ältesten und neuesten Trades in der Datenbank."""
+        query = "SELECT MIN(filing_date), MAX(filing_date) FROM insider_trades"
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        "min_date": str(result[0]) if result[0] else None,
+                        "max_date": str(result[1]) if result[1] else None
+                    }
+                return {"min_date": None, "max_date": None}
+
 
 class CompanyMySqlRepository(CompanyRepository):
     """Kompatibilitätsklasse für bestehende Aufrufe im Projekt."""
