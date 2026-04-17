@@ -5,40 +5,31 @@ from __future__ import annotations
 import streamlit as st
 
 def status_badge(label: str, status_type: str = "INFO", help: str | None = None) -> None:
-    """Rendert ein farbiges Badge mit Text."""
+    """Rendert ein hochwertiges Badge (Apple-inspired)."""
     
-    # Farben basierend auf Mercator-Semantik
     colors = {
-        "PASS": {"bg": "rgba(40, 167, 69, 0.1)", "border": "rgba(40, 167, 69, 0.3)", "text": "#28a745"},
-        "SUCCESS": {"bg": "rgba(40, 167, 69, 0.1)", "border": "rgba(40, 167, 69, 0.3)", "text": "#28a745"},
-        "HOLD": {"bg": "rgba(255, 193, 7, 0.1)", "border": "rgba(255, 193, 7, 0.3)", "text": "#ffc107"},
-        "PENDING": {"bg": "rgba(255, 193, 7, 0.1)", "border": "rgba(255, 193, 7, 0.3)", "text": "#ffc107"},
-        "WARNING": {"bg": "rgba(255, 193, 7, 0.1)", "border": "rgba(255, 193, 7, 0.3)", "text": "#ffc107"},
-        "FAIL": {"bg": "rgba(220, 53, 69, 0.1)", "border": "rgba(220, 53, 69, 0.3)", "text": "#dc3545"},
-        "ERROR": {"bg": "rgba(220, 53, 69, 0.1)", "border": "rgba(220, 53, 69, 0.3)", "text": "#dc3545"},
-        "INVALID": {"bg": "rgba(220, 53, 69, 0.1)", "border": "rgba(220, 53, 69, 0.3)", "text": "#dc3545"},
-        "INFO": {"bg": "rgba(23, 162, 184, 0.1)", "border": "rgba(23, 162, 184, 0.3)", "text": "#17a2b8"},
-        "VALID": {"bg": "rgba(40, 167, 69, 0.1)", "border": "rgba(40, 167, 69, 0.3)", "text": "#28a745"},
+        "PASS": {"bg": "#E8F5E9", "text": "#2E7D32", "border": "#A5D6A7"},
+        "SUCCESS": {"bg": "#E8F5E9", "text": "#2E7D32", "border": "#A5D6A7"},
+        "PENDING": {"bg": "#FFF8E1", "text": "#F9A825", "border": "#FFE082"},
+        "WARNING": {"bg": "#FFF8E1", "text": "#F9A825", "border": "#FFE082"},
+        "FAIL": {"bg": "#FFEBEE", "text": "#C62828", "border": "#EF9A9A"},
+        "ERROR": {"bg": "#FFEBEE", "text": "#C62828", "border": "#EF9A9A"},
+        "INFO": {"bg": "#E3F2FD", "text": "#1565C0", "border": "#90CAF9"},
+        "NEUTRAL": {"bg": "#F5F5F5", "text": "#616161", "border": "#E0E0E0"},
     }
     
     config = colors.get(status_type.upper(), colors["INFO"])
     
-    badge_html = (
-        f'<span title="{help or ""}" style="'
+    st.markdown(
+        f'<span class="mercator-badge" style="'
         f'background-color: {config["bg"]}; '
-        f'border: 1px solid {config["border"]}; '
         f'color: {config["text"]}; '
-        f'padding: 2px 8px; '
-        f'border-radius: 4px; '
-        f'font-size: 0.75rem; '
-        f'font-weight: 600; '
-        f'text-transform: uppercase; '
-        f'letter-spacing: 0.05em; '
-        f'display: inline-block;'
-        f'">{label}</span>'
+        f'border: 1px solid {config["border"]}; '
+        f'padding: 2px 10px; border-radius: 6px; font-weight: 600; font-size: 0.7rem; '
+        f'letter-spacing: 0.03em; margin-right: 4px;'
+        f'">{label}</span>',
+        unsafe_allow_html=True
     )
-    
-    st.markdown(badge_html, unsafe_allow_html=True)
 
 def score_class_badge(score_class: str) -> None:
     """Spezialisiertes Badge für die Score-Klasse (A, B, C, D, F)."""

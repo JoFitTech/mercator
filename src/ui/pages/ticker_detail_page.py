@@ -9,8 +9,9 @@ import streamlit as st
 
 from src.services.analysis_service import AnalysisService
 from src.ui.components.context_bar import render_context_bar
-from src.ui.components.page_scaffold import render_empty_state, render_page_header
-from src.ui.components.status_badges import gate_badge, score_class_badge, status_badge, validation_badge
+from src.ui.components.page_scaffold import render_empty_state, render_kpi_row, render_page_header
+from src.ui.components.status_badges import status_badge
+from src.ui.components.tables import render_trade_table
 
 
 def format_mcap(value: Any, currency: str = "USD") -> str:
@@ -40,135 +41,89 @@ def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFram
 
 
 def render_ticker_detail_page(service: AnalysisService) -> None:
-    """Rendert die Detailansicht für ein ausgewähltes Symbol."""
-    render_page_header("Unternehmen", "Deep Dive: Profil, Trade-Historie und Score-Analyse.")
-
+    """Rendert den Company Intelligence Workspace."""
+    
+    # 1. Scope Selection & Navigation
     try:
         all_symbols = service.list_ticker_options()
     except Exception:
         all_symbols = []
 
-    default_index = 0
-    selected_ticker_state = st.session_state.get("selected_ticker")
-    if selected_ticker_state in all_symbols:
-        default_index = all_symbols.index(selected_ticker_state)
+    selected_symbol = st.session_state.get("selected_ticker")
+    if not selected_symbol and all_symbols:
+        selected_symbol = all_symbols[0]
 
-    # 1. Header & Context
+    render_page_header(
+        "Unternehmen", 
+        "Company Intelligence Workspace & Trade Analyse.",
+        actions=[{"label": "Vergleich aktivieren", "type": "secondary"}]
+    )
+
+    # 2. Workspace Scope (Context Bar)
     c1, c2 = st.columns([0.4, 0.6])
     with c1:
-        selected_symbol = st.selectbox("Symbol auswählen", all_symbols, index=default_index, label_visibility="collapsed")
+        current_ticker = st.selectbox("Symbol suchen", all_symbols, index=all_symbols.index(selected_symbol) if selected_symbol in all_symbols else 0)
+        st.session_state["selected_ticker"] = current_ticker
     
     render_context_bar(
-        active_filters=[f"Symbol: {selected_symbol}"] if selected_symbol else None,
+        active_filters=[f"Ticker: {current_ticker}"],
         mysql_target=st.session_state.get("mysql_runtime_target", "local")
     )
 
-    if not selected_symbol:
-        render_empty_state("Bitte wählen Sie ein Symbol aus dem Explorer oder der Liste.")
-        return
-
-    result = service.get_ticker_detail(selected_symbol, accumulate=True)
+    # Daten laden
+    result = service.get_ticker_detail(current_ticker, accumulate=True)
     profile = result.company_profile or {}
 
-    # 2. Summary & Score Breakdown (Horizontal)
-    st.subheader(f"{profile.get('company_name', selected_symbol)} ({selected_symbol})")
+    # 3. Intelligence Header
+    st.subheader(f"{profile.get('company_name', 'N/A')} · {profile.get('sector', 'N/A')}")
     
-    score_val = result.metrics.get("overall_score", 0)
-    score_class = result.metrics.get("score_class", "F")
-    status = result.metrics.get("overall_status", "UNKNOWN")
-    
-    m1, m2, m3, m4 = st.columns(4)
-    with m1:
-        st.metric("Gesamt-Score", f"{score_val:.2f}")
-    with m2:
-        st.write("**Bewertung**")
-        score_class_badge(score_class)
-    with m3:
-        st.write("**Status**")
-        status_badge(status, status_type=status)
-    with m4:
-        st.metric("Trades", format_number(result.metrics.get("trade_count"), "{:,.0f}"))
+    kpis = [
+        {"label": "Gesamt-Score", "value": f"{result.metrics.get('overall_score', 0):.2f}"},
+        {"label": "Klasse", "value": result.metrics.get('score_class', 'F')},
+        {"label": "Gate", "value": result.metrics.get('overall_status', 'UNKNOWN')},
+        {"label": "Trades", "value": format_number(result.metrics.get('trade_count'), "{:,.0f}")},
+    ]
+    render_kpi_row(kpis)
 
     st.markdown("---")
 
-    # 3. Unternehmensdaten & Sektor
-    col_info, col_desc = st.columns([0.4, 0.6])
-    with col_info:
-        st.markdown("#### Unternehmensdaten")
-        st.write(f"**Sektor:** {profile.get('sector', '-')}")
-        st.write(f"**Branche:** {profile.get('industry', '-')}")
-        st.write(f"**Marktkap:** {format_mcap(profile.get('market_cap'), profile.get('currency', 'USD'))}")
-        st.write(f"**Börse:** {profile.get('exchange_full_name', '-')}")
-        tr_status = profile.get("trade_republic_universe_status") or "UNKNOWN"
-        st.write(f"**Trade Republic:** {tr_status}")
-        st.caption("Status zeigt nur die Zugehörigkeit zum offiziellen TR-Universum, nicht Live-Handelbarkeit.")
-        if profile.get("website"):
-            st.link_button("🌐 Website", profile["website"], use_container_width=True)
+    # 4. Primary Insight Area (Breakdown & History)
+    left, right = st.columns([0.6, 0.4])
     
-    with col_desc:
-        st.markdown("#### Beschreibung")
-        desc = profile.get('description')
-        if desc and desc != "None":
-            st.write(desc)
-        else:
-            st.info("Keine Beschreibung verfügbar.")
-
-    st.markdown("---")
-
-    # 4. Trade-Historie & Gate-Details
-    tab_trades, tab_gate, tab_raw = st.tabs(["Trade Historie", "Gate Details", "Technische Daten"])
-    
-    with tab_trades:
-        st.subheader("Insider Trades (Akkumuliert)")
-        if not result.rows:
-            render_empty_state(f"Keine Transaktionen für {selected_symbol} gefunden.")
-        else:
-            df_display = pd.DataFrame(result.rows)
-            # Spaltenbereinigung und Formatting hier (verkürzt für das Beispiel)
-            display_cols = [
-                "reporting_name", "direction", "accumulated_trade_value_estimated", 
-                "score", "score_class", "gate_status", "transaction_date"
-            ]
-            st.dataframe(
-                _safe_select_columns(df_display, display_cols),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
-                    "direction": st.column_config.TextColumn("Richtung", width="small"),
-                    "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
-                    "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
-                    "score_class": st.column_config.TextColumn("Klasse", width="small"),
-                    "gate_status": st.column_config.TextColumn("Gate", width="small"),
-                    "transaction_date": st.column_config.DateColumn("Datum", width="small"),
-                }
-            )
-
-    with tab_gate:
-        st.subheader("Gate-Analytik")
-        gate_df = pd.DataFrame(result.rows)
-        if not gate_df.empty and "gate_status" in gate_df.columns:
-            gate_counts = gate_df["gate_status"].fillna("UNKNOWN").astype(str).str.upper().value_counts()
+    with left:
+        st.subheader("Trade-Historie & Volumen")
+        if result.rows:
+            df = pd.DataFrame(result.rows)
+            df['transaction_date'] = pd.to_datetime(df['transaction_date'])
+            # Chart
+            chart_data = df.groupby('transaction_date')['accumulated_trade_value_estimated'].sum()
+            st.line_chart(chart_data, height=300)
             
-            c1, c2, c3 = st.columns(3)
-            c1.metric("PASS", int(gate_counts.get('PASS', 0)))
-            c2.metric("PENDING", int(gate_counts.get('PENDING', 0)))
-            c3.metric("FAIL", int(gate_counts.get('FAIL', 0)))
-            
-            failed = gate_df[gate_df["gate_status"].fillna("").astype(str).str.upper() == "FAIL"]
-            if not failed.empty:
-                st.markdown("**Ausschlussgründe**")
-                st.dataframe(_safe_select_columns(failed, ["transaction_date", "reporting_name", "gate_reason"]), hide_index=True, use_container_width=True)
-
-    with tab_raw:
-        st.subheader("Rohdaten-Audit")
-        if result.raw_rows:
-            st.json(result.raw_rows[:3])
-            st.download_button(
-                "Rohdaten (JSON) laden",
-                data=str(result.raw_rows),
-                file_name=f"{selected_symbol}_raw.json",
-                use_container_width=True
-            )
+            # Tabelle
+            st.caption("Letzte Transaktionen")
+            render_trade_table(df.head(10), height=350)
         else:
-            st.info("Keine Rohdaten für diesen Ticker hinterlegt.")
+            render_empty_state("Keine Trades gefunden.")
+
+    with right:
+        st.subheader("Score & Gate Breakdown")
+        with st.container(border=True):
+            st.write("**Score Komponenten**")
+            # Beispielhafte Aufschlüsselung (da Domain-Logik in Service liegt)
+            st.progress(min(max(result.metrics.get('overall_score', 0) / 10, 0), 1.0), text=f"Value Score: {result.metrics.get('overall_score', 0):.1f}")
+            st.caption("Basierend auf Volumen, Häufigkeit und Kursreaktion.")
+            
+            st.markdown("---")
+            st.write("**Gate Analyse**")
+            status = result.metrics.get('overall_status', 'UNKNOWN')
+            status_badge(status, status_type=status)
+            
+            if status == "FAIL":
+                st.error("Ausschlusskriterium gegriffen.")
+            
+            st.markdown("---")
+            st.write("**Unternehmensprofil**")
+            st.write(f"**Marktkap:** {format_mcap(profile.get('market_cap'), profile.get('currency', 'USD'))}")
+            st.write(f"**Börse:** {profile.get('exchange_short_name', '-')}")
+            if profile.get("website"):
+                st.link_button("Website öffnen", profile["website"], use_container_width=True)

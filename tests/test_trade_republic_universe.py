@@ -75,6 +75,23 @@ class _StubClient:
         yield _StubConn(self._scripted)
 
 
+def test_parse_universe_csv_semicolon_dialect() -> None:
+    payload = "isin;symbol;instrument_name\nDE000BASF111;BASF;BASF SE\n"
+    parsed = TradeRepublicUniverseIngestionService.parse_universe_csv(payload)
+    assert parsed.valid_rows == 1
+    assert parsed.instruments[0].isin == "DE000BASF111"
+    assert parsed.instruments[0].symbol == "BASF"
+
+
+def test_parse_universe_csv_aliased_columns() -> None:
+    payload = "ISIN,Ticker,Name\nUS0378331005,AAPL,Apple Inc.\n"
+    parsed = TradeRepublicUniverseIngestionService.parse_universe_csv(payload)
+    assert parsed.valid_rows == 1
+    assert parsed.instruments[0].isin == "US0378331005"
+    assert parsed.instruments[0].symbol == "AAPL"
+    assert parsed.instruments[0].instrument_name == "Apple Inc."
+
+
 def test_parse_universe_csv_filters_invalid_rows() -> None:
     payload = "isin,symbol,instrument_name,country,type\nDE000BASF111,BASF,BASF SE,DE,Stock\n,,Broken,DE,Stock\n"
     parsed = TradeRepublicUniverseIngestionService.parse_universe_csv(payload)

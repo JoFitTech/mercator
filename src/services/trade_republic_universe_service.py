@@ -97,31 +97,56 @@ class TradeRepublicUniverseIngestionService:
         stripped = raw_text.strip()
         if not stripped:
             return TradeRepublicUniverseParseResult([], 0, 0, 0)
-        if "," not in stripped.splitlines()[0]:
-            return TradeRepublicUniverseParseResult([], 0, 0, 0)
-        reader = csv.DictReader(io.StringIO(raw_text))
+        
+        try:
+            # Versuche Trennzeichen zu erkennen (Spec: Defensives Parsing)
+            dialect = csv.Sniffer().sniff(stripped[:2000], delimiters=",;\t")
+        except Exception:
+            dialect = "excel" # Fallback
+
+        reader = csv.DictReader(io.StringIO(raw_text), dialect=dialect)
         items: list[TradeRepublicUniverseInstrument] = []
         total_rows = 0
         invalid_rows = 0
+        
+        # Spaltennamen normalisieren (case-insensitive & aliases)
+        fieldnames = [f.lower() for f in (reader.fieldnames or [])]
+        
+        def _get_val(row: dict, aliases: list[str]) -> str:
+            for a in aliases:
+                # Da DictReader die originalen keys nutzt, müssen wir diese finden
+                # (oder DictReader mit lowercase fieldnames füttern, aber das ist hacky)
+                for k, v in row.items():
+                    if k.lower() == a:
+                        return str(v or "").strip()
+            return ""
+
         for row in reader:
             total_rows += 1
-            isin = str(row.get("isin") or row.get("ISIN") or "").strip().upper().replace(" ", "")
-            if not isin or not ISIN_PATTERN.match(isin):
+            try:
+                isin = _get_val(row, ["isin"]).upper().replace(" ", "")
+                if not isin or not ISIN_PATTERN.match(isin):
+                    invalid_rows += 1
+                    continue
+                
+                symbol = _get_val(row, ["symbol", "ticker"]).upper() or None
+                name = _get_val(row, ["instrument_name", "name", "title"]) or None
+                country = _get_val(row, ["country", "land"]) or None
+                asset_class = _get_val(row, ["asset_class", "type", "assetclass"]) or None
+                
+                items.append(
+                    TradeRepublicUniverseInstrument(
+                        isin=isin,
+                        symbol=symbol,
+                        instrument_name=name,
+                        country=country,
+                        asset_class=asset_class,
+                    )
+                )
+            except Exception:
                 invalid_rows += 1
                 continue
-            symbol = str(row.get("symbol") or row.get("ticker") or row.get("Symbol") or "").strip().upper() or None
-            name = str(row.get("instrument_name") or row.get("name") or row.get("Name") or "").strip() or None
-            country = str(row.get("country") or row.get("Country") or "").strip() or None
-            asset_class = str(row.get("asset_class") or row.get("type") or row.get("Type") or "").strip() or None
-            items.append(
-                TradeRepublicUniverseInstrument(
-                    isin=isin,
-                    symbol=symbol,
-                    instrument_name=name,
-                    country=country,
-                    asset_class=asset_class,
-                )
-            )
+                
         return TradeRepublicUniverseParseResult(
             instruments=items,
             total_rows=total_rows,
@@ -134,27 +159,39 @@ class TradeRepublicUniverseIngestionService:
             return
         refreshed_at = datetime.now(UTC).replace(tzinfo=None)
         snapshot_hash = hashlib.sha256(source_payload.encode("utf-8")).hexdigest()
+        
+        # Batch-Insert Vorbereitung
+        data_to_insert = [
+            (
+                item.isin,
+                item.symbol,
+                item.instrument_name,
+                item.country,
+                item.asset_class,
+                self.settings.trade_republic_universe_url,
+                refreshed_at,
+                snapshot_hash,
+            )
+            for item in items
+        ]
+
         with self.mysql_client.connection() as conn:
             with conn.cursor() as cur:
+                # 1. Alte Referenzdaten löschen
                 cur.execute("DELETE FROM trade_republic_universe_reference")
-                for item in items:
-                    cur.execute(
+                
+                # 2. Neue Daten via executemany (Performance!)
+                if data_to_insert:
+                    cur.executemany(
                         """
                         INSERT INTO trade_republic_universe_reference
                         (isin, symbol, instrument_name, country, asset_class, source_url, source_last_refreshed_at, source_hash)
                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                         """,
-                        (
-                            item.isin,
-                            item.symbol,
-                            item.instrument_name,
-                            item.country,
-                            item.asset_class,
-                            self.settings.trade_republic_universe_url,
-                            refreshed_at,
-                            snapshot_hash,
-                        ),
+                        data_to_insert,
                     )
+                
+                # 3. Metadaten aktualisieren
                 cur.execute(
                     """
                     INSERT INTO trade_republic_universe_meta

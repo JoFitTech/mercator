@@ -11,7 +11,8 @@ from src.services.app_settings_service import AppSettingsService, RuntimeSetting
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.ui.components.context_bar import render_context_bar
-from src.ui.components.page_scaffold import render_page_header, render_warning_state
+from src.ui.components.page_scaffold import render_kpi_row, render_page_header, render_warning_state
+from src.ui.components.tables import render_trade_table
 
 
 EMPTY_DATA_MESSAGE = (
@@ -76,161 +77,81 @@ def render_dashboard_page(
     settings: AppSettings | None = None,
     runtime_settings_service: AppSettingsService | None = None,
 ) -> None:
-    """Rendert KPI-Karten und fokussierte Diagramme für den Gesamtüberblick."""
-    render_page_header("Dashboard", "Systemzustand, Datenabdeckung und Marktmuster.")
+    """Rendert das Dashboard als zentrale Hauptzentrale."""
+    
+    # 1. Page Header
+    render_page_header(
+        "Dashboard", 
+        "Systemzustand, Datenabdeckung und Marktmuster.",
+        actions=[{"label": "Refresh", "type": "primary"}]
+    )
 
-    # Laufzeit-Einstellungen laden
-    runtime_settings = runtime_settings_service.load() if runtime_settings_service else None
+    if service is None:
+        st.warning("MySQL nicht erreichbar. Analysefunktionen sind eingeschränkt.")
+        return
 
-    # Context Bar Daten vorbereiten
+    # Daten laden
     target = settings.mysql.mysql_active_target if settings else "default"
-    payload = _get_dashboard_payload(service, target) if service else {"last_update": None, "clean_records": 0, "raw_records": 0, "company_profiles": 0, "gate_pass_records": 0, "trades": pd.DataFrame(), "buy_sell_volume": pd.DataFrame(), "sector_distribution": pd.DataFrame(), "timeline_distribution": pd.DataFrame()}
+    payload = _get_dashboard_payload(service, target)
 
+    # 2. Context Bar
     render_context_bar(
         active_filters=["Gesamtmarkt"],
         last_update=payload.get("last_update"),
         mysql_target=target,
     )
 
-    if settings is not None and settings.review_mode:
-        st.warning("Review Instance - Read Only.")
-
-    advanced_mode = st.session_state.get("advanced_mode", False)
-
-    if settings is not None:
-        with st.expander("Import", expanded=advanced_mode):
-            c1, c2 = st.columns(2)
-            page = c1.number_input("Feed-Seite", min_value=0, step=1, value=settings.fmp.default_feed_page)
-            limit = c2.number_input("Feed-Limit", min_value=1, max_value=1000, step=10, value=settings.fmp.default_feed_limit)
-
-            status_options = [GATE_PASS, GATE_PENDING, GATE_FAIL]
-            selected_statuses = st.multiselect(
-                "Gate-Status für Profil-Anreicherung",
-                options=status_options,
-                default=list(runtime_settings.profile_gate_filter_statuses if runtime_settings else settings.fmp.profile_gate_filter_statuses),
-            )
-
-            import_blocked = settings.review_mode or settings.disable_import
-            if import_blocked:
-                st.info("Import ist im Review Mode deaktiviert.")
-
-            if st.button("Datenimport starten", type="primary", use_container_width=True, disabled=import_blocked):
-                if import_service is None:
-                    st.warning("Import-Service nicht verfügbar. Rohdatenspeicherung ist derzeit deaktiviert.")
-                    error_detail = st.session_state.get("import_service_error")
-                    if error_detail:
-                        # Formatiere mehrzeilige Fehlermeldungen
-                        with st.expander("📋 Technische Details"):
-                            st.code(error_detail, language="text")
-                else:
-                    try:
-                        with st.spinner("Import läuft..."):
-                            summary = import_service.run_hourly_import(
-                                page=int(page),
-                                limit=int(limit),
-                                profile_fetch_statuses=tuple(selected_statuses),
-                            )
-                        st.success(
-                            "Import abgeschlossen: %s Rohdatensätze, %s Profile geladen."
-                            % (summary.fetched_feed_records, summary.fetched_profiles)
-                        )
-                    except RuntimeError as exc:
-                        render_warning_state(str(exc))
-                    except Exception as exc:
-                        st.error(f"Unerwarteter Fehler beim Datenimport: {exc}")
-
-    if service is None:
-        st.warning("MySQL nicht erreichbar. Analysefunktionen sind eingeschränkt.")
-        if import_service is None:
-            st.info("Keine Datenverarbeitung verfügbar. Prüfe Datenbankverbindungen.")
-        return
-
-    # Gecachter Payload-Abruf (Finding 4)
-    target = settings.mysql.mysql_active_target if settings else "default"
-    payload = _get_dashboard_payload(service, target)
-
     if payload["clean_records"] == 0 and payload["raw_records"] == 0:
         st.warning(EMPTY_DATA_MESSAGE)
         return
-    elif payload["clean_records"] == 0:
-        st.info("Keine bereinigten Daten gefunden. Rohdaten sind vorhanden (%s)." % payload["raw_records"])
 
-    # KPI Zeile (Spec: max 5)
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Rohdaten (Mongo)", f"{payload['raw_records']:,}")
-    k2.metric("Bereinigte Trades", f"{payload['clean_records']:,}")
-    k3.metric("Profile", f"{payload['company_profiles']:,}")
-    k4.metric("Gate PASS", f"{payload.get('gate_pass_records', 0):,}")
+    # 3. KPI Row
+    kpi_data = [
+        {"label": "Valid Trades", "value": f"{payload['clean_records']:,}"},
+        {"label": "Gate Passed", "value": f"{payload.get('gate_pass_records', 0):,}"},
+        {"label": "Profile", "value": f"{payload['company_profiles']:,}"},
+    ]
     
-    # Richtungsbalance KPI integrieren
     if not payload["trades"].empty:
         counts = payload["trades"]["direction"].value_counts()
         buy_c = int(counts.get("BUY", 0))
-        sell_c = int(counts.get("SELL", 0))
-        total = buy_c + sell_c
+        total = len(payload["trades"])
         ratio = buy_c / total if total else 0
-        k5.metric("BUY-Quote", f"{ratio:.0%}")
-    else:
-        k5.metric("BUY-Quote", "-")
+        kpi_data.append({"label": "BUY-Quote", "value": f"{ratio:.0%}"})
+        
+        avg_score = payload["trades"]["score"].mean() if "score" in payload["trades"].columns else 0
+        kpi_data.append({"label": "Ø Score", "value": f"{avg_score:.2f}"})
 
-    left, right = st.columns([0.64, 0.36])
+    render_kpi_row(kpi_data)
 
-    with left:
-        st.subheader("Top-Kandidaten (Vorschau)")
-        trades_df = payload["trades"].copy()
-        if not trades_df.empty:
-            score_series = trades_df["score"] if "score" in trades_df.columns else 0
-            value_series = trades_df["trade_value_estimated"] if "trade_value_estimated" in trades_df.columns else 0
-            trades_df = trades_df.assign(
-                _score=score_series,
-                _value=value_series,
-            ).sort_values(by=["_score", "_value"], ascending=[False, False])
+    st.markdown("---")
 
-            preview_cols = [
-                "symbol_at_trade",
-                "reporting_name",
-                "direction",
-                "score",
-                "score_class",
-                "trade_value_estimated",
-                "gate_status",
-            ]
-            for col in preview_cols:
-                if col not in trades_df.columns:
-                    trades_df[col] = None
-            st.dataframe(
-                trades_df.head(8)[preview_cols],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "symbol_at_trade": st.column_config.TextColumn("Ticker", width="small"),
-                    "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
-                    "direction": st.column_config.TextColumn("Richtung", width="small"),
-                    "score": st.column_config.NumberColumn("Score", format="%.2f", width="small"),
-                    "score_class": st.column_config.TextColumn("Klasse", width="small"),
-                    "trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%.2f", width="medium"),
-                    "gate_status": st.column_config.TextColumn("Gate", width="small"),
-                },
-                height=310,
-            )
-        else:
-            st.info("Keine Kandidaten verfügbar.")
-
-        st.subheader("Trade Value über Zeit")
+    # 4. Primary Work Area (Charts)
+    st.subheader("Marktentwicklung & Muster")
+    c1, c2 = st.columns([0.65, 0.35])
+    
+    with c1:
+        st.caption("Trade Value über Zeit")
         if not payload["buy_sell_volume"].empty:
             chart_df = payload["buy_sell_volume"].set_index("event_date")
-            st.area_chart(chart_df, height=320)
+            st.area_chart(chart_df, height=350, use_container_width=True)
         else:
             st.info("Keine Zeitreihendaten verfügbar.")
 
-    with right:
-        st.subheader("Sektorverteilung")
+    with c2:
+        st.caption("Sektorverteilung (Top 10)")
         if not payload["sector_distribution"].empty:
-            sector_df = payload["sector_distribution"].sort_values("count", ascending=False).head(12)
-            st.bar_chart(sector_df.set_index("sector"), horizontal=True, height=350)
+            sector_df = payload["sector_distribution"].sort_values("count", ascending=False).head(10)
+            st.bar_chart(sector_df.set_index("sector"), horizontal=True, height=350, use_container_width=True)
         else:
             st.info("Keine Sektordaten verfügbar.")
 
-    if advanced_mode and not payload["timeline_distribution"].empty:
-        st.subheader("Import-Historie (Advanced)")
-        st.line_chart(payload["timeline_distribution"].set_index("e_date"))
+    st.markdown("---")
+
+    # 5. Secondary Insight Area (Table)
+    st.subheader("Top-Gelegenheiten (Vorschau)")
+    if not payload["trades"].empty:
+        trades_df = payload["trades"].sort_values(by="score", ascending=False).head(10)
+        render_trade_table(trades_df, height=400)
+    else:
+        st.info("Keine Trades zur Anzeige verfügbar.")

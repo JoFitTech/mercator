@@ -283,33 +283,91 @@ def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResoluti
 
 
 def _inject_global_styles() -> None:
-    """Setzt ein ruhiges, konsistentes UI-Grundlayout für Streamlit (unterstützt Darkmode)."""
+    """Setzt ein ruhiges, hochwertiges UI-Grundlayout für Mercator."""
     st.markdown(
         """
         <style>
-        /* Grundlayout anpassen ohne Farben zu forcieren */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        
+        html, body, [data-testid="stAppViewContainer"] {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        /* Grundlayout */
         [data-testid="stAppViewContainer"] .main .block-container {
-            max-width: 1360px;
-            padding-top: 1.25rem;
-            padding-bottom: 2rem;
+            max-width: 1440px;
+            padding-top: 1.5rem;
+            padding-right: 2rem;
+            padding-left: 2rem;
+            padding-bottom: 3rem;
         }
-        /* Sidebar Border */
+
+        /* Sidebar */
         [data-testid="stSidebar"] {
-            border-right: 1px solid rgba(128, 128, 128, 0.2);
+            border-right: 1px solid rgba(0, 0, 0, 0.05);
+            background-color: #f8f9fa;
         }
-        h1, h2, h3 {
-            letter-spacing: -0.01em;
+        [data-testid="stSidebarNav"] {
+            padding-top: 2rem;
         }
-        /* Metrics und DataFrames stylen, aber Hintergrundfarben variabel lassen */
+
+        /* Apple-inspired Card Look für Metrics */
         [data-testid="stMetric"] {
-            border: 1px solid rgba(128, 128, 128, 0.2);
+            background-color: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.05);
             border-radius: 12px;
-            padding: 0.7rem 0.8rem;
+            padding: 1rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
         }
+        [data-testid="stMetricLabel"] {
+            font-weight: 500 !important;
+            color: #6c757d !important;
+            font-size: 0.85rem !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-weight: 600 !important;
+            font-size: 1.6rem !important;
+            letter-spacing: -0.02em;
+        }
+
+        /* Tabellen & DataFrames */
         [data-testid="stDataFrame"] {
-            border: 1px solid rgba(128, 128, 128, 0.2);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+        }
+
+        /* Formulare & Container */
+        div[data-testid="stForm"] {
+            border: 1px solid rgba(0, 0, 0, 0.05);
             border-radius: 12px;
-            overflow: hidden;
+            background-color: #ffffff;
+        }
+
+        /* Badges & Chips Emulation */
+        .mercator-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        
+        /* Mono für technische Werte */
+        .mono {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+
+        /* Navigation Styling */
+        [data-testid="stSidebarNav"] ul li div a span {
+            font-weight: 500;
+        }
+        
+        /* Primary Color Overrides (falls Streamlit Standard genutzt wird) */
+        :root {
+            --primary-color: #007AFF; /* Apple Blue */
         }
         </style>
         """,
@@ -330,68 +388,25 @@ def main() -> None:
             st.session_state[MYSQL_TARGET_STATE_KEY] = "local"
 
     _inject_global_styles()
-    st.sidebar.title("Mercator")
-    st.sidebar.caption("Interaktive Datenanwendung für das Modul Datenbanken 2")
-
-    st.sidebar.markdown("### App-Konfiguration")
-    advanced_mode = st.sidebar.toggle("Erweiterte Ansicht (Advanced Mode)", value=st.session_state.get("advanced_mode", False))
-    st.session_state["advanced_mode"] = advanced_mode
-    st.sidebar.markdown("---")
-
-    settings = load_settings()
-    if settings.review_mode:
-        st.sidebar.warning("Review Mode: Read Only")
-        st.warning("Review Instance - Read Only")
-    if settings.ui_test_mode:
-        st.sidebar.info("UI Test Mode aktiv")
-
-    status_service = DatabaseStatusService()
-    mysql_resolution, db_status = _render_database_sidebar_status(status_service, settings, advanced_mode)
-
-    if advanced_mode:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### DB-Doctor")
-        if st.sidebar.button("Schema-Check & Reparatur (Alle Ziele)", help="Analysiert und repariert das Schema auf local und uni."):
-            try:
-                from src.scripts.init_mysql_schema import initialize_all_targets
-                with st.spinner("DB-Doctor analysiert..."):
-                    results = initialize_all_targets()
-                
-                for target, actions in results.items():
-                    if not actions:
-                        st.sidebar.success(f"{target}: Aktuell")
-                    elif any(a.startswith("FAILED") for a in actions):
-                        st.sidebar.error(f"{target}: Fehlerhaft")
-                        for a in actions: st.sidebar.caption(a)
-                    else:
-                        st.sidebar.warning(f"{target}: {len(actions)} Fixes")
-                        with st.sidebar.expander(f"Details {target}"):
-                            for a in actions: st.sidebar.write(f"- {a}")
-            except Exception as e:
-                st.sidebar.error(f"Doctor-Lauf fehlgeschlagen: {e}")
-
-    if db_status.mysql.is_connected and not (settings.review_mode or settings.disable_import):
-        _render_sync_controls(settings, mysql_resolution)
-    elif db_status.mysql.is_connected and settings.review_mode:
-        st.sidebar.info("Sync im Review Mode deaktiviert.")
-
-    dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
-        settings,
-        mysql_resolution,
-        db_status,
+    
+    # Sidebar Header
+    st.sidebar.markdown(
+        """
+        <div style="padding-bottom: 1rem;">
+            <h1 style="font-size: 1.5rem; margin-bottom: 0;">Mercator</h1>
+            <p style="font-size: 0.8rem; color: #6c757d;">Analytical Data Application</p>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
-    if db_status.mongo.is_connected and import_service is None:
-        detail = ServiceFactory.last_import_issue or "Import-Service konnte nicht initialisiert werden."
-        st.session_state["import_service_error"] = detail
-    else:
-        st.session_state.pop("import_service_error", None)
+    settings = load_settings()
+    
+    # System Status (Dezenter)
+    status_service = DatabaseStatusService()
+    mysql_resolution, db_status = _render_database_sidebar_status(status_service, settings, st.session_state.get("advanced_mode", False))
 
-    if not db_status.mysql.is_connected and not db_status.mongo.is_connected:
-        st.error("Keine Datenbankverbindung verfügbar.")
-        st.info("Bitte Datenbanken starten und Seite neu laden.")
-        return
-
+    # Navigation
     def _dashboard() -> None:
         render_dashboard_page(dashboard_service, import_service, settings, runtime_settings_service)
 
@@ -415,7 +430,39 @@ def main() -> None:
         st.Page(_admin, title="Admin", icon=":material/admin_panel_settings:"),
         st.Page(_settings, title="Einstellungen", icon=":material/settings:"),
     ]
+    
     nav = st.navigation(pages)
+    
+    # Sidebar Footer / Tools
+    st.sidebar.markdown("---")
+    advanced_mode = st.sidebar.toggle("Advanced Mode", value=st.session_state.get("advanced_mode", False), key="advanced_mode_toggle")
+    st.session_state["advanced_mode"] = advanced_mode
+
+    if advanced_mode:
+        if db_status.mysql.is_connected and not (settings.review_mode or settings.disable_import):
+            _render_sync_controls(settings, mysql_resolution)
+        
+        st.sidebar.markdown("### DB-Doctor")
+        if st.sidebar.button("Schema-Check & Reparatur"):
+            try:
+                from src.scripts.init_mysql_schema import initialize_all_targets
+                with st.spinner("DB-Doctor läuft..."):
+                    results = initialize_all_targets()
+                st.sidebar.success("Check abgeschlossen.")
+            except Exception as e:
+                st.sidebar.error(f"Fehler: {e}")
+
+    dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+        settings,
+        mysql_resolution,
+        db_status,
+    )
+
+    if not db_status.mysql.is_connected and not db_status.mongo.is_connected:
+        st.error("Keine Datenbankverbindung verfügbar.")
+        st.info("Bitte Datenbanken starten und Seite neu laden.")
+        return
+
     nav.run()
 
 
