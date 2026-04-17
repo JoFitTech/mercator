@@ -7,13 +7,13 @@ import streamlit as st
 import pandas as pd
 
 def render_context_bar(
-    active_filters: list[str] | None = None,
+    active_filters: dict[str, Any] | None = None,
     last_update: str | None = None,
     mysql_target: str | None = None,
     with_scope: bool = False,
     scope_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Rendert die Context Bar (Scope Area)."""
+    """Rendert die Context Bar (Scope Area) mit Filter-Chips."""
     
     container = st.container(border=True)
     with container:
@@ -27,11 +27,13 @@ def render_context_bar(
             with c3:
                 direction = st.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="scope_direction")
             with c4:
-                # Placeholder für weitere Filter
                 st.write("")
             with c5:
                 if st.button("Reset Filters", use_container_width=True):
-                    st.session_state.clear()
+                    # Nur Scope-relevante Keys löschen
+                    for key in ["scope_period", "scope_accumulate", "scope_direction", "selected_ticker"]:
+                        if key in st.session_state:
+                            del st.session_state[key]
                     st.rerun()
             
             return {
@@ -40,20 +42,32 @@ def render_context_bar(
                 "direction": direction
             }
 
-        # Fallback / Simple Mode
-        cols = st.columns([0.7, 0.3])
+        # Dashboard / Explorer Context Bar
+        cols = st.columns([0.7, 0.3], vertical_alignment="center")
         with cols[0]:
             if active_filters:
-                chips_html = "".join([
-                    f'<span class="mercator-badge" style="background-color: #e9ecef; color: #495057; margin-right: 6px;">{f}</span>'
-                    for f in active_filters
-                ])
-                st.markdown(f'<div style="display: flex; align-items: center; min-height: 32px;">{chips_html}</div>', unsafe_allow_html=True)
+                # Filtere leere oder Default-Werte aus
+                display_chips = []
+                for k, v in active_filters.items():
+                    if v and v not in ("All", "Alle", "All Time"):
+                        if isinstance(v, (list, tuple)) and len(v) == 2:
+                            display_chips.append(f"{k}: {v[0]} - {v[1]}")
+                        else:
+                            display_chips.append(f"{k}: {v}")
+                
+                if display_chips:
+                    chips_html = "".join([
+                        f'<span class="mercator-badge" style="background-color: #f1f3f5; color: #1c7ed6; border: 1px solid #d0ebff; padding: 4px 10px; margin-right: 8px; border-radius: 16px; font-size: 0.75rem;">{f}</span>'
+                        for f in display_chips
+                    ])
+                    st.markdown(f'<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px;">{chips_html}</div>', unsafe_allow_html=True)
+                else:
+                    st.caption("🌍 Gesamter Markt (keine Filter aktiv)")
             else:
-                st.caption("Kein Scope-Filter aktiv")
+                st.caption("🌍 Gesamter Markt")
         
         with cols[1]:
             if last_update:
-                st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: #6c757d;">Stand: <span class="mono">{last_update}</span></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: #adb5bd;">Stand: <span class="mono" style="color: #495057; font-weight: 500;">{last_update}</span> ({mysql_target or "local"})</div>', unsafe_allow_html=True)
 
     return {}

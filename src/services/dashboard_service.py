@@ -124,32 +124,62 @@ class DashboardService:
         return df
 
     def _compute_kpis(self, valid_df: pd.DataFrame, all_df: pd.DataFrame) -> dict:
-        """Berechnet die Dashboard-KPIs basierend auf validen Daten."""
-        if valid_df.empty:
+        """Berechnet Kennzahlen für das Dashboard-UI."""
+        if all_df.empty:
             return {
                 "valid_trades_count": 0,
                 "gate_passed_count": 0,
                 "profile_count": 0,
                 "buy_quote": 0.0,
+                "sell_quote": 0.0,
                 "avg_score": 0.0,
+                "trades_today": 0,
+                "trades_7d": 0,
+                "trades_30d": 0,
+                "total_volume": 0.0,
             }
 
-        gate_passed = valid_df[valid_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
-        
-        # Profile: Anzahl der erfolgreich aufgelösten Profile im aktuellen Scope (alle Trades)
+        gate_passed = all_df[all_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
         profiles = all_df[all_df["profile_status"].astype(str).str.upper() == "FETCHED"]["company_key"].nunique()
         
+        # BUY / SELL Verteilung (auf validen Daten)
         buy_trades = valid_df[valid_df["direction"] == "BUY"].shape[0]
-        buy_quote = (buy_trades / valid_df.shape[0]) if not valid_df.empty else 0.0
+        sell_trades = valid_df[valid_df["direction"] == "SELL"].shape[0]
+        total_valid = valid_df.shape[0]
+        
+        buy_quote = (buy_trades / total_valid) if total_valid > 0 else 0.0
+        sell_quote = (sell_trades / total_valid) if total_valid > 0 else 0.0
         
         avg_score = valid_df["score_value"].mean() if not valid_df.empty else 0.0
+        total_volume = valid_df["trade_value_estimated"].sum() if not valid_df.empty else 0.0
+
+        # Zeitliche Aggregation (basierend auf all_df für Marktüberblick)
+        today = pd.Timestamp.now().date()
+        last_7d = today - pd.Timedelta(days=7)
+        last_30d = today - pd.Timedelta(days=30)
+        
+        trades_today = 0
+        trades_7d = 0
+        trades_30d = 0
+        
+        if "event_date" in all_df.columns:
+            # Sicherstellen dass event_date datetime-ähnlich ist für Vergleiche
+            ev_dates = pd.to_datetime(all_df["event_date"]).dt.date
+            trades_today = all_df[ev_dates == today].shape[0]
+            trades_7d = all_df[ev_dates >= last_7d].shape[0]
+            trades_30d = all_df[ev_dates >= last_30d].shape[0]
 
         return {
-            "valid_trades_count": valid_df.shape[0],
+            "valid_trades_count": total_valid,
             "gate_passed_count": gate_passed,
             "profile_count": profiles,
             "buy_quote": buy_quote,
+            "sell_quote": sell_quote,
             "avg_score": avg_score,
+            "trades_today": trades_today,
+            "trades_7d": trades_7d,
+            "trades_30d": trades_30d,
+            "total_volume": total_volume,
         }
 
     def _compute_diagnostics(self, all_df: pd.DataFrame, valid_df: pd.DataFrame, invalid_df: pd.DataFrame, filters: dict) -> dict:

@@ -99,11 +99,17 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
 
     st.markdown("---")
     st.subheader("Experten-Einstellungen")
-    advanced_mode = st.toggle(
+    
+    def on_settings_advanced_mode_change():
+        val = st.session_state["advanced_mode_settings_toggle"]
+        st.session_state["advanced_mode"] = val
+        # Sync mit Sidebar-Widget-Key (wird beim nächsten Rerun übernommen)
+        st.session_state["advanced_mode_toggle"] = val
+
+    st.toggle(
         "Advanced Mode aktivieren", 
         value=st.session_state.get("advanced_mode", False),
+        key="advanced_mode_settings_toggle",
+        on_change=on_settings_advanced_mode_change,
         help="Schaltet zusätzliche Debug-Informationen und DB-Management-Tools frei (z.B. im Admin-Bereich)."
     )
-    st.session_state["advanced_mode"] = advanced_mode
-    # Synchronisiere mit Sidebar (st.toggle in sidebar nutzt key="advanced_mode_toggle")
-    st.session_state["advanced_mode_toggle"] = advanced_mode

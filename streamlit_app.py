@@ -434,7 +434,7 @@ def main() -> None:
                 load_settings(), mysql_resolution, db_status
             )
             client = mysql_resolution.client if mysql_resolution else None
-            render_admin_page(load_settings(), client, db_status.mongo.is_connected, runtime_settings_service)
+            render_admin_page(load_settings(), client, db_status.mongo.is_connected, runtime_settings_service, import_service)
 
         def settings_wrapper():
             dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
@@ -455,7 +455,17 @@ def main() -> None:
     
     # Sidebar Footer / Tools
     st.sidebar.markdown("---")
-    advanced_mode = st.sidebar.toggle("Advanced Mode", value=st.session_state.get("advanced_mode", False), key="advanced_mode_toggle")
+    
+    # Advanced Mode Logic mit sauberem Sync
+    def on_advanced_mode_sidebar_change():
+        st.session_state["advanced_mode"] = st.session_state["advanced_mode_toggle"]
+
+    advanced_mode = st.sidebar.toggle(
+        "Advanced Mode", 
+        value=st.session_state.get("advanced_mode", False), 
+        key="advanced_mode_toggle",
+        on_change=on_advanced_mode_sidebar_change
+    )
     st.session_state["advanced_mode"] = advanced_mode
 
     if advanced_mode:
