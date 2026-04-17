@@ -40,7 +40,7 @@ class AdminDashboardService:
         return bool(self.settings.review_mode or self.settings.disable_admin_delete)
 
     def _blocked_message(self) -> tuple[bool, str]:
-        return False, "❌ Löschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
+        return False, "Loeschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
 
     def get_mysql_stats(self) -> dict:
         """Holt Statistiken für MySQL-Datenbank."""
@@ -130,9 +130,9 @@ class AdminDashboardService:
             return {}
 
     def clear_mysql_companies(self) -> tuple[bool, str]:
-        """Löscht alle Einträge aus MySQL companies-Tabelle."""
+        """Loecht alle Eintraege aus MySQL companies-Tabelle."""
         if not self.mysql_client:
-            return False, "❌ MySQL-Verbindung nicht verfügbar."
+            return False, "MySQL-Verbindung nicht verfuegbar."
         if self._deletes_blocked():
             return self._blocked_message()
 
@@ -150,8 +150,8 @@ class AdminDashboardService:
                     if ref_count > 0:
                         return (
                             False,
-                            "❌ Löschung abgebrochen: companies ist referenziert (%s insider_trades). "
-                            "Lösche zuerst insider_trades oder nutze eine dedizierte Komplettlöschung."
+                            "Loeschung abgebrochen: companies ist referenziert (%s insider_trades). "
+                            "Loesche zuerst insider_trades oder nutze eine dedizierte Komplettloeschung."
                             % ref_count,
                         )
 
@@ -159,18 +159,18 @@ class AdminDashboardService:
                     deleted_count = cursor.rowcount
                     conn.commit()
 
-            msg = f"✅ {deleted_count} Unternehmen gelöscht"
-            LOGGER.info("MySQL companies gelöscht: %d Einträge", deleted_count)
+            msg = f"{deleted_count} Unternehmen geloescht"
+            LOGGER.info("MySQL companies geloescht: %d Eintraege", deleted_count)
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Löschen von companies: {e}"
+            error_msg = f"Fehler beim Loeschen von companies: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
     def clear_mysql_trades(self) -> tuple[bool, str]:
-        """Löscht alle Einträge aus MySQL insider_trades-Tabelle."""
+        """Loecht alle Eintraege aus MySQL insider_trades-Tabelle."""
         if not self.mysql_client:
-            return False, "❌ MySQL-Verbindung nicht verfügbar."
+            return False, "MySQL-Verbindung nicht verfuegbar."
         if self._deletes_blocked():
             return self._blocked_message()
 
@@ -181,18 +181,18 @@ class AdminDashboardService:
                     deleted_count = cursor.rowcount
                     conn.commit()
 
-            msg = f"✅ {deleted_count} Insidertrades gelöscht"
-            LOGGER.info("MySQL insider_trades gelöscht: %d Einträge", deleted_count)
+            msg = f"{deleted_count} Insidertrades geloescht"
+            LOGGER.info("MySQL insider_trades geloescht: %d Eintraege", deleted_count)
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Löschen von insider_trades: {e}"
+            error_msg = f"Fehler beim Loeschen von insider_trades: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
     def clear_mysql_all(self) -> tuple[bool, str]:
-        """Löscht alle Daten aus MySQL-Datenbank."""
+        """Loecht alle Daten aus MySQL-Datenbank."""
         if not self.mysql_client:
-            return False, "❌ MySQL-Verbindung nicht verfügbar."
+            return False, "MySQL-Verbindung nicht verfuegbar."
         if self._deletes_blocked():
             return self._blocked_message()
 
@@ -212,65 +212,65 @@ class AdminDashboardService:
                         total_deleted += cursor.rowcount
                     conn.commit()
 
-            msg = f"✅ MySQL Datenbank geleert: {total_deleted} Einträge gelöscht"
-            LOGGER.info("MySQL Datenbank komplett geleert: %d Einträge", total_deleted)
+            msg = f"MySQL Datenbank geleert: {total_deleted} Eintraege geloescht"
+            LOGGER.info("MySQL Datenbank komplett geleert: %d Eintraege", total_deleted)
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Leeren der MySQL-Datenbank: {e}"
+            error_msg = f"Fehler beim Leeren der MySQL-Datenbank: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
     def clear_mongo_companies(self) -> tuple[bool, str]:
-        """Löscht alle Einträge aus MongoDB companies-Collection."""
+        """Loecht alle Eintraege aus MongoDB companies-Collection."""
         if self._deletes_blocked():
             return self._blocked_message()
 
         if not self.mongo_available or not self.mongo_client:
-            return False, "❌ MongoDB nicht verfügbar"
+            return False, "MongoDB nicht verfuegbar"
 
         try:
             db = self.mongo_client.get_database()
             collection = db["companies"]
             result = collection.delete_many({})
 
-            msg = f"✅ {result.deleted_count} Unternehmen gelöscht"
+            msg = f"{result.deleted_count} Unternehmen geloescht"
             LOGGER.info("MongoDB companies geleert: %d Dokumente", result.deleted_count)
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Löschen von MongoDB companies: {e}"
+            error_msg = f"Fehler beim Loeschen von MongoDB companies: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
     def clear_mongo_trades(self) -> tuple[bool, str]:
-        """Löscht alle Einträge aus MongoDB insider_trades_raw-Collection."""
+        """Loecht alle Eintraege aus MongoDB insider_trades_raw-Collection."""
         if self._deletes_blocked():
             return self._blocked_message()
 
         if not self.mongo_available or not self.mongo_client:
-            return False, "❌ MongoDB nicht verfügbar"
+            return False, "MongoDB nicht verfuegbar"
 
         try:
             db = self.mongo_client.get_database()
             collection = db["insider_trades_raw"]
             result = collection.delete_many({})
 
-            msg = f"✅ {result.deleted_count} Insidertrades gelöscht"
+            msg = f"{result.deleted_count} Insidertrades geloescht"
             LOGGER.info(
                 "MongoDB insider_trades_raw geleert: %d Dokumente", result.deleted_count
             )
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Löschen von MongoDB insider_trades_raw: {e}"
+            error_msg = f"Fehler beim Loeschen von MongoDB insider_trades_raw: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
     def clear_mongo_all(self) -> tuple[bool, str]:
-        """Löscht alle Daten aus MongoDB."""
+        """Loecht alle Daten aus MongoDB."""
         if self._deletes_blocked():
             return self._blocked_message()
 
         if not self.mongo_available or not self.mongo_client:
-            return False, "❌ MongoDB nicht verfügbar"
+            return False, "MongoDB nicht verfuegbar"
 
         try:
             db = self.mongo_client.get_database()
@@ -282,11 +282,11 @@ class AdminDashboardService:
                 result = collection.delete_many({})
                 total_deleted += result.deleted_count
 
-            msg = f"✅ MongoDB Datenbank geleert: {total_deleted} Dokumente gelöscht"
+            msg = f"MongoDB Datenbank geleert: {total_deleted} Dokumente geloescht"
             LOGGER.info("MongoDB Datenbank komplett geleert: %d Dokumente", total_deleted)
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Leeren der MongoDB: {e}"
+            error_msg = f"Fehler beim Leeren der MongoDB: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
@@ -296,25 +296,25 @@ class AdminDashboardService:
         ingest = TradeRepublicUniverseIngestionService(self.settings, self.mysql_client)
         success, reason = ingest.refresh_if_stale(force=True)
         if success:
-            return True, "✅ Trade Republic Universum erfolgreich aktualisiert."
-        return False, f"⚠️ Refresh nicht durchgeführt: {reason}"
+            return True, "Trade Republic Universum erfolgreich aktualisiert."
+        return False, f"Refresh nicht durchgefuehrt: {reason}"
 
     def rebuild_mysql_schema(self) -> tuple[bool, str]:
         """Initialisiert/repariert das MySQL-Schema."""
         if not self.mysql_client:
-            return False, "❌ MySQL-Verbindung nicht verfügbar."
+            return False, "MySQL-Verbindung nicht verfuegbar."
         try:
             actions = self.mysql_client.initialize_schema()
             if not actions:
-                msg = "✅ Schema ist aktuell. Keine Änderungen nötig."
+                msg = "Schema ist aktuell. Keine Aenderungen noetig."
             else:
-                msg = f"✅ Schema aktualisiert: {len(actions)} Änderungen\n\n"
+                msg = f"Schema aktualisiert: {len(actions)} Aenderungen\n\n"
                 for action in actions:
-                    msg += f"  • {action}\n"
+                    msg += f"  - {action}\n"
             LOGGER.info("MySQL-Schema aktualisiert")
             return True, msg
         except Exception as e:
-            error_msg = f"❌ Fehler beim Schema-Update: {e}"
+            error_msg = f"Fehler beim Schema-Update: {e}"
             LOGGER.error(error_msg)
             return False, error_msg
 
@@ -394,5 +394,5 @@ def render_admin_page(
         
         with col2:
             st.markdown("#### Gefahrenzone")
-            if st.button("🗑️ Alle MySQL Daten löschen", use_container_width=True, type="secondary"):
-                st.warning("Wirklich löschen?")
+            if st.button("Alle MySQL Daten loeschen", use_container_width=True, type="secondary"):
+                st.warning("Wirklich loeschen?")

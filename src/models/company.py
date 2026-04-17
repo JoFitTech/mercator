@@ -23,6 +23,13 @@ class Company:
     exchange_full_name: str | None = None
     industry: str | None = None
     sector: str | None = None
+    sector_raw: str | None = None
+    sector_normalized: str | None = None
+    sector_source: str | None = None
+    sector_resolution_method: str | None = None
+    sector_resolution_status: str | None = "UNRESOLVED"
+    profile_enriched_at: datetime | None = None
+    profile_provider: str | None = None
     country: str | None = None
     website: str | None = None
     description: str | None = None

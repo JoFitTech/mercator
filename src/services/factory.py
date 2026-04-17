@@ -3,6 +3,9 @@ from dataclasses import replace
 
 from src.config.settings import AppSettings
 from src.data_sources.fmp_client import FmpClient
+from src.data_sources.alpha_vantage_client import AlphaVantageClient
+from src.data_sources.polygon_client import PolygonClient
+from src.services.company_enrichment_service import CompanyEnrichmentService
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mongo_repository import (
     CompanyMongoRepository,
@@ -88,6 +91,22 @@ class ServiceFactory:
                         lookup_mode=runtime_settings.lookup_mode,
                     )
                 )
+                
+                # Enrichment Service vorbereiten
+                av_client = None
+                if settings.enrichment.alpha_vantage_api_key:
+                    av_client = AlphaVantageClient(settings.enrichment.alpha_vantage_api_key)
+                
+                poly_client = None
+                if settings.enrichment.polygon_api_key:
+                    poly_client = PolygonClient(settings.enrichment.polygon_api_key)
+                    
+                enrichment_service = CompanyEnrichmentService(
+                    fmp_client=fmp_client,
+                    alpha_vantage_client=av_client,
+                    polygon_client=poly_client
+                )
+
                 import_service = ImportService(
                     fmp_client=fmp_client,
                     gate_evaluator=gate_evaluator,
@@ -99,6 +118,7 @@ class ServiceFactory:
                     allow_write=not (settings.review_mode or settings.disable_import),
                     tr_ingestion_service=TradeRepublicUniverseIngestionService(settings, mysql_client),
                     tr_matching_service=TradeRepublicUniverseMatchingService(mysql_client),
+                    enrichment_service=enrichment_service,
                 )
             except ValueError as exc:
                 ServiceFactory.last_import_issue = (
@@ -163,6 +183,22 @@ class ServiceFactory:
                     lookup_mode=runtime_settings.lookup_mode,
                 )
             )
+            
+            # Enrichment Service vorbereiten
+            av_client = None
+            if settings.enrichment.alpha_vantage_api_key:
+                av_client = AlphaVantageClient(settings.enrichment.alpha_vantage_api_key)
+            
+            poly_client = None
+            if settings.enrichment.polygon_api_key:
+                poly_client = PolygonClient(settings.enrichment.polygon_api_key)
+                
+            enrichment_service = CompanyEnrichmentService(
+                fmp_client=fmp_client,
+                alpha_vantage_client=av_client,
+                polygon_client=poly_client
+            )
+
             import_service = ImportService(
                 fmp_client=fmp_client,
                 gate_evaluator=gate_evaluator,
@@ -172,6 +208,7 @@ class ServiceFactory:
                 company_mysql_repo=None,
                 profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
                 allow_write=not (settings.review_mode or settings.disable_import),
+                enrichment_service=enrichment_service,
             )
         except ValueError as exc:
             import_service = None

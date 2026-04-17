@@ -9,6 +9,9 @@ from typing import Any
 
 from src.config.settings import DEFAULT_FEED_LIMIT, DEFAULT_FEED_PAGE
 from src.data_sources.fmp_client import FmpClient
+from src.data_sources.alpha_vantage_client import AlphaVantageClient
+from src.data_sources.polygon_client import PolygonClient
+from src.services.company_enrichment_service import CompanyEnrichmentService
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
 from src.preprocessing.gate_evaluator import (
@@ -50,6 +53,7 @@ class ImportService:
         allow_write: bool = True,
         tr_ingestion_service: TradeRepublicUniverseIngestionService | None = None,
         tr_matching_service: TradeRepublicUniverseMatchingService | None = None,
+        enrichment_service: CompanyEnrichmentService | None = None,
     ) -> None:
         self.fmp_client = fmp_client
         self.gate_evaluator = gate_evaluator
@@ -61,6 +65,7 @@ class ImportService:
         self.allow_write = allow_write
         self.tr_ingestion_service = tr_ingestion_service
         self.tr_matching_service = tr_matching_service
+        self.enrichment_service = enrichment_service or CompanyEnrichmentService(fmp_client)
 
     def run_hourly_import(
         self,
@@ -134,24 +139,34 @@ class ImportService:
                 continue
 
             try:
-                profile = None
-                lookup_mode: str = self._to_text(self.fmp_client.config.lookup_mode)
-                if lookup_mode == "cik_primary_symbol_fallback" and len(company_cik_value) > 0:
-                    profile = self.fmp_client.fetch_company_profile_by_cik(company_cik_value)
-                if not profile and symbol:
-                    profile = self.fmp_client.fetch_company_profile(symbol)
+                # Nutze die neue Enrichment-Kette
+                company_obj = self.enrichment_service.enrich_company_profile(symbol)
+                
+                # Konvertiere in Dict für die bestehende Pipeline
+                from dataclasses import asdict
+                company = asdict(company_obj)
+                
+                # Metadaten ergänzen
+                company["company_key"] = company_key_str
+                company["last_seen_at"] = fetched_at
+                company["profile_updated_at"] = fetched_at
+                company["sync_version"] = 1
+                company["profile_status"] = "FETCHED" if company_obj.sector_resolution_status == "RESOLVED" else "FAILED"
+                company["profile_reason"] = "api_fetch" if company["profile_status"] == "FETCHED" else "unresolved_sector"
+                
+                # Backwards compatibility für den Rest des Codes
+                profile = company
             except Exception:
                 LOGGER.exception("Profilabruf fehlgeschlagen für %s", symbol)
                 trade["profile_status"] = "FAILED"
                 trade["profile_reason"] = "request_failed"
                 continue
 
-            if not profile:
-                trade["profile_status"] = "FAILED"
-                trade["profile_reason"] = "empty_response"
-                continue
-
-            company = self._normalize_company_profile(profile, trade=trade, fetched_at=fetched_at)
+            # if not profile: - nicht mehr nötig, da enrichment_service immer ein Objekt liefert
+            
+            # self._normalize_company_profile wird nicht mehr benötigt, da enrichment_service das erledigt
+            # company = self._normalize_company_profile(profile, trade=trade, fetched_at=fetched_at)
+            
             self._apply_trade_republic_match(company)
             self.company_mongo_repo.upsert_profile(company)
             if self.company_mysql_repo is not None:
@@ -160,13 +175,28 @@ class ImportService:
             trade["profile_reason"] = "api_fetch"
             fetched_profiles += 1
 
-        # Score nach Profilanreicherung neu berechnen (MarketCap/Validity kann sich ändern)
+        # Score und Dashboard-Validität nach Profilanreicherung neu berechnen
         for item in normalized:
             self._apply_trade_republic_match(item)
+            
+            # Sektor-Prüfung für Dashboard-Validität
+            # Wenn das Profil geladen wurde, haben wir ggf. jetzt erst einen Sektor.
+            company_key = item.get("company_key")
+            if company_key and self.company_mysql_repo:
+                # Da wir gerade ge-upserted haben, können wir den Sektor-Status kurz prüfen
+                comp = self.company_mysql_repo.get_company_by_symbol(company_key)
+                if comp:
+                    item["sector"] = comp.get("sector")
+                    item["sector_resolution_status"] = comp.get("sector_resolution_status")
+                    item["market_cap"] = comp.get("market_cap")
+
             score_value, score_class = self._compute_trade_score(item)
             item["score"] = score_value
             item["score_value"] = score_value
             item["score_class"] = score_class
+            
+            # Dashboard-Validitätslogik
+            item["dashboard_valid"] = self._is_dashboard_valid(item)
 
         if self.trade_mysql_repo is not None:
             self.trade_mysql_repo.upsert_trades(normalized)
@@ -324,3 +354,37 @@ class ImportService:
             record["trade_republic_universe_status"] = "UNKNOWN"
             record["trade_republic_match_method"] = "NONE"
             record["trade_republic_match_confidence"] = "LOW"
+
+    def _is_dashboard_valid(self, trade: dict[str, Any]) -> bool:
+        """Prüft, ob ein Trade alle Kriterien für das Dashboard erfüllt."""
+        # 1. Symbol vorhanden
+        if not trade.get("symbol") and not trade.get("symbol_at_trade"):
+            return False
+            
+        # 2. Price gültig
+        price = trade.get("price")
+        if price is None or price <= 0:
+            return False
+            
+        # 3. Qty gültig
+        qty = trade.get("qty")
+        if qty is None or qty <= 0:
+            return False
+            
+        # 4. Direction gültig
+        direction = trade.get("acquisition_or_disposition")
+        if not direction or direction.upper() not in ("A", "D", "BUY", "SELL"):
+            return False
+            
+        # 5. Sektor belastbar aufgelöst
+        # Wir prüfen sowohl den aktuellen Datensatz als auch den Status
+        sector = trade.get("sector")
+        res_status = trade.get("sector_resolution_status")
+        
+        if not sector or str(sector).lower() in ("unknown", "n/a", "none", ""):
+            return False
+            
+        if res_status and res_status.upper() == "UNRESOLVED":
+            return False
+            
+        return True

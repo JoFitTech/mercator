@@ -46,7 +46,10 @@ class CompanyRepository:
         sql = """
             INSERT INTO companies (
                 company_key, company_cik, current_symbol, company_name, profile_status, profile_reason, first_seen_at, last_seen_at, market_cap, price, currency, isin, cusip,
-                exchange, exchange_full_name, industry, sector, country, website,
+                exchange, exchange_full_name, industry, sector,
+                sector_raw, sector_normalized, sector_source, sector_resolution_method, sector_resolution_status,
+                profile_enriched_at, profile_provider,
+                country, website,
                 description, ceo, full_time_employees, ipo_date, is_etf,
                 is_actively_trading, is_adr, is_fund, profile_updated_at, source_system,
                 trade_republic_universe_status, trade_republic_match_method, trade_republic_match_confidence,
@@ -54,7 +57,10 @@ class CompanyRepository:
                 sync_version, created_at, updated_at
             ) VALUES (
                 %(company_key)s, %(company_cik)s, %(current_symbol)s, %(company_name)s, %(profile_status)s, %(profile_reason)s, %(first_seen_at)s, %(last_seen_at)s, %(market_cap)s, %(price)s, %(currency)s, %(isin)s, %(cusip)s,
-                %(exchange)s, %(exchange_full_name)s, %(industry)s, %(sector)s, %(country)s, %(website)s,
+                %(exchange)s, %(exchange_full_name)s, %(industry)s, %(sector)s,
+                %(sector_raw)s, %(sector_normalized)s, %(sector_source)s, %(sector_resolution_method)s, %(sector_resolution_status)s,
+                %(profile_enriched_at)s, %(profile_provider)s,
+                %(country)s, %(website)s,
                 %(description)s, %(ceo)s, %(full_time_employees)s, %(ipo_date)s, %(is_etf)s,
                 %(is_actively_trading)s, %(is_adr)s, %(is_fund)s, %(profile_updated_at)s, %(source_system)s,
                 %(trade_republic_universe_status)s, %(trade_republic_match_method)s, %(trade_republic_match_confidence)s,
@@ -84,6 +90,13 @@ class CompanyRepository:
                 exchange_full_name = VALUES(exchange_full_name),
                 industry = VALUES(industry),
                 sector = VALUES(sector),
+                sector_raw = VALUES(sector_raw),
+                sector_normalized = VALUES(sector_normalized),
+                sector_source = VALUES(sector_source),
+                sector_resolution_method = VALUES(sector_resolution_method),
+                sector_resolution_status = VALUES(sector_resolution_status),
+                profile_enriched_at = VALUES(profile_enriched_at),
+                profile_provider = VALUES(profile_provider),
                 country = VALUES(country),
                 website = VALUES(website),
                 description = VALUES(description),
@@ -137,6 +150,13 @@ class CompanyRepository:
             "exchange_full_name": company.get("exchange_full_name"),
             "industry": company.get("industry"),
             "sector": company.get("sector"),
+            "sector_raw": company.get("sector_raw"),
+            "sector_normalized": company.get("sector_normalized"),
+            "sector_source": company.get("sector_source"),
+            "sector_resolution_method": company.get("sector_resolution_method"),
+            "sector_resolution_status": company.get("sector_resolution_status", "UNRESOLVED"),
+            "profile_enriched_at": company.get("profile_enriched_at"),
+            "profile_provider": company.get("profile_provider"),
             "country": company.get("country"),
             "website": company.get("website"),
             "description": company.get("description"),
@@ -355,13 +375,13 @@ class InsiderTradeRepository:
                 company_key, symbol_at_trade, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, validation_status, gate_status, gate_reason, score, score_class,
+                trade_value_estimated, validation_status, dashboard_valid, gate_status, gate_reason, score, score_class,
                 profile_status, profile_reason, source_url, dedupe_key, fetched_at
             ) VALUES (
                 %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(validation_status)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
+                %(trade_value_estimated)s, %(validation_status)s, %(dashboard_valid)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
                 %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
@@ -382,6 +402,7 @@ class InsiderTradeRepository:
                 price = VALUES(price),
                 trade_value_estimated = VALUES(trade_value_estimated),
                 validation_status = VALUES(validation_status),
+                dashboard_valid = VALUES(dashboard_valid),
                 gate_status = VALUES(gate_status),
                 gate_reason = VALUES(gate_reason),
                 score = VALUES(score),
@@ -395,7 +416,7 @@ class InsiderTradeRepository:
             "company_key", "symbol_at_trade", "filing_date", "transaction_date", "reporting_cik", "company_cik",
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
-            "trade_value_estimated", "validation_status", "gate_status", "gate_reason", "score", "score_class",
+            "trade_value_estimated", "validation_status", "dashboard_valid", "gate_status", "gate_reason", "score", "score_class",
             "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
         ]
         batch_params = [
@@ -514,9 +535,24 @@ class InsiderTradeRepository:
         if filters.get("validation_status"):
             clauses.append("t.validation_status = %s")
             params.append(filters["validation_status"])
+        if filters.get("dashboard_valid") is not None:
+            clauses.append("t.dashboard_valid = %s")
+            params.append(1 if filters["dashboard_valid"] else 0)
         if filters.get("sector"):
             clauses.append("c.sector = %s")
             params.append(filters["sector"])
+        if filters.get("date_from"):
+            clauses.append("t.filing_date >= %s")
+            params.append(filters["date_from"])
+        if filters.get("date_to"):
+            clauses.append("t.filing_date <= %s")
+            params.append(filters["date_to"])
+        if filters.get("min_score"):
+            clauses.append("t.score >= %s")
+            params.append(filters["min_score"])
+        if filters.get("max_score"):
+            clauses.append("t.score <= %s")
+            params.append(filters["max_score"])
         if filters.get("country"):
             clauses.append("c.country = %s")
             params.append(filters["country"])
@@ -528,6 +564,13 @@ class InsiderTradeRepository:
                 t.score AS score_value,
                 c.company_name,
                 c.sector,
+                c.sector_raw,
+                c.sector_normalized,
+                c.sector_source,
+                c.sector_resolution_method,
+                c.sector_resolution_status,
+                c.profile_enriched_at,
+                c.profile_provider,
                 c.country,
                 c.market_cap,
                 c.currency,
@@ -595,6 +638,19 @@ class CompanyMySqlRepository(CompanyRepository):
             with conn.cursor() as cursor:
                 cursor.execute(query)
                 return sanitize_symbol_options(row[0] for row in cursor.fetchall())
+
+    def fetch_all_sectors(self) -> list[str]:
+        """Liefert alle verfügbaren Sektoren."""
+        query = """
+            SELECT DISTINCT sector
+            FROM companies
+            WHERE sector IS NOT NULL AND TRIM(sector) <> '' AND sector <> 'Unknown'
+            ORDER BY sector
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                return [str(row[0]) for row in cursor.fetchall()]
 
 
 class InsiderTradeMySqlRepository(InsiderTradeRepository):

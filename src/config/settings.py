@@ -466,6 +466,12 @@ class GateConfig:
 
 
 @dataclass(frozen=True)
+class EnrichmentConfig:
+    """Konfiguration für die mehrstufige Sektor-Auflösung."""
+    alpha_vantage_api_key: str | None = None
+    polygon_api_key: str | None = None
+
+@dataclass(frozen=True)
 class AppSettings:
     """Zentrale Anwendungseinstellungen für Services und UI."""
 
@@ -476,6 +482,7 @@ class AppSettings:
     mysql: Settings
     mongo: MongoConfig
     fmp: FmpConfig
+    enrichment: EnrichmentConfig
     gate: GateConfig
     review_mode: bool
     disable_import: bool
@@ -496,6 +503,8 @@ def load_settings() -> AppSettings:
 
     project_root = Path(__file__).resolve().parents[2]
     fmp_api_key, fmp_api_key_source = _read_secret_first_env_fallback("FMP_API_KEY", default="")
+    av_api_key, _ = _read_secret_first_env_fallback("ALPHA_VANTAGE_API_KEY", default="")
+    poly_api_key, _ = _read_secret_first_env_fallback("POLYGON_API_KEY", default="")
 
     app_settings = AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
@@ -512,6 +521,10 @@ def load_settings() -> AppSettings:
             ),
             lookup_mode=_read_string_env("PROFILE_LOOKUP_MODE", default="cik_primary_symbol_fallback"),
             api_key_source=fmp_api_key_source,
+        ),
+        enrichment=EnrichmentConfig(
+            alpha_vantage_api_key=av_api_key or None,
+            polygon_api_key=poly_api_key or None,
         ),
         gate=GateConfig(
             min_trade_value=_read_int_env("GATE_MIN_TRADE_VALUE", default=DEFAULT_GATE_MIN_TRADE_VALUE),

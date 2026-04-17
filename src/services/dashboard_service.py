@@ -23,132 +23,164 @@ class DashboardService:
         self.trade_repo = trade_repo
         self.company_repo = company_repo
 
-    def build_dashboard_payload(self) -> dict:
-        """Liefert KPIs und vorbereitete DataFrames für Charts."""
+    def build_dashboard_payload(self, filters: dict | None = None) -> dict:
+        """Liefert KPIs und vorbereitete DataFrames für Charts basierend auf Filtern."""
+        filters = filters or {}
         try:
-            trades_df = self.trade_repo.fetch_trades(limit=5000)
+            # Wir rufen fetch_trades mit Filtern auf
+            trades_df = self.trade_repo.fetch_trades(limit=10000, filters=filters)
         except Exception:
             trades_df = pd.DataFrame()
             
-        raw_records = 0
-        gate_pass_records = 0
-        
-        if self.raw_repo is not None:
-            try:
-                raw_records = self.raw_repo.count_all()
-            except Exception:
-                raw_records = 0
-        
-        clean_records = 0
-        try:
-            clean_records = self.trade_repo.count_all()
-        except Exception:
-            clean_records = 0
+        # Grundlegende Bereinigung/Transformation des DataFrames für das Dashboard
+        trades_df = self._prepare_dataframe(trades_df)
 
-        company_profiles = 0
-        try:
-            company_profiles = self.company_repo.count_all()
-        except Exception:
-            company_profiles = 0
+        # KPIs berechnen (basierend auf dem gefilterten Scope)
+        kpis = self._compute_kpis(trades_df)
 
-        # 0. Datenvorbereitung (Spalten vereinheitlichen)
-        if not trades_df.empty:
-            # event_date erzeugen
-            date_col = "transaction_date" if "transaction_date" in trades_df.columns else "filing_date"
-            if date_col not in trades_df.columns:
-                trades_df["event_date"] = pd.NaT
-            else:
-                trades_df["event_date"] = pd.to_datetime(trades_df[date_col], errors="coerce").dt.date
-
-            # direction erzeugen
-            if "acquisition_or_disposition" in trades_df.columns:
-                trades_df["direction"] = (
-                    trades_df["acquisition_or_disposition"]
-                    .fillna("")
-                    .astype(str)
-                    .str.strip()
-                    .str.upper()
-                    .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
-                    .fillna("UNKNOWN")
-                )
-            else:
-                trades_df["direction"] = "UNKNOWN"
-
-            # trade_value_estimated sicherstellen
-            if "trade_value_estimated" not in trades_df.columns:
-                trades_df["trade_value_estimated"] = 0
-
-            # sector sicherstellen
-            if "sector" not in trades_df.columns:
-                trades_df["sector"] = "Unknown"
-            trades_df["sector"] = trades_df["sector"].fillna("").astype(str)
-            trades_df["sector"] = trades_df["sector"].str.strip().replace("", "Unknown")
-
-            # transaction_type sicherstellen
-            if "transaction_type" not in trades_df.columns:
-                trades_df["transaction_type"] = "Unknown"
-            trades_df["transaction_type"] = trades_df["transaction_type"].fillna("Unknown")
-
-            # gate_status sicherstellen
-            if "gate_status" not in trades_df.columns:
-                trades_df["gate_status"] = "Unknown"
-            trades_df["gate_status"] = trades_df["gate_status"].fillna("Unknown")
-
-        # Gate-PASS berechnen
-        if not trades_df.empty and "gate_status" in trades_df.columns:
-            gate_pass_records = trades_df[trades_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
-
-        # Letzte Aktualisierung ermitteln
-        last_update = None
-        if not trades_df.empty and "event_date" in trades_df.columns:
-            last_update = trades_df["event_date"].max()
-            if pd.notna(last_update):
-                last_update = last_update.strftime("%d.%m.%Y %H:%M") if hasattr(last_update, "strftime") else str(last_update)
+        # Diagrammdaten vorbereiten (basierend auf dem gefilterten Scope)
+        charts = self._prepare_charts(trades_df)
 
         payload = {
-            "raw_records": raw_records,
-            "clean_records": clean_records,
-            "company_profiles": company_profiles,
-            "gate_pass_records": gate_pass_records,
-            "last_update": last_update,
-            "transaction_type_distribution": pd.DataFrame(),
-            "sector_distribution": pd.DataFrame(),
-            "timeline_distribution": pd.DataFrame(),
-            "buy_sell_volume": pd.DataFrame(),
+            **kpis,
+            **charts,
             "trades": trades_df,
+            "last_update": self._get_last_update_str(trades_df),
         }
-
-        if trades_df.empty:
-            return payload
-
-        # 1. Transaktionstypen
-        payload["transaction_type_distribution"] = (
-            trades_df.groupby("transaction_type", dropna=False).size().reset_index(name="count")
-        )
-        # 2. Sektoren
-        payload["sector_distribution"] = (
-            trades_df.groupby("sector", dropna=False).size().reset_index(name="count")
-        )
-        # 3. Zeitverlauf nach Typ (Akkumuliertes Volumen pro Tag)
-        payload["buy_sell_volume"] = (
-            trades_df.groupby(["event_date", "direction"])["trade_value_estimated"]
-            .sum()
-            .reset_index()
-            .pivot(index="event_date", columns="direction", values="trade_value_estimated")
-            .fillna(0)
-            .reset_index()
-        )
-        
-        # 4. Zeitverlauf Anzahl (Filing Date oder Transaction Date)
-        t_col = "filing_date" if "filing_date" in trades_df.columns else ("transaction_date" if "transaction_date" in trades_df.columns else None)
-        if t_col:
-            payload["timeline_distribution"] = (
-                trades_df.assign(e_date=pd.to_datetime(trades_df[t_col], errors="coerce").dt.date)
-                .groupby("e_date", dropna=False)
-                .size()
-                .reset_index(name="count")
-            )
-        else:
-            payload["timeline_distribution"] = pd.DataFrame(columns=["e_date", "count"])
         
         return payload
+
+    def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Bereitet den DataFrame für die Dashboard-Logik vor."""
+        if df.empty:
+            return df
+
+        # event_date erzeugen (transaction_date bevorzugt, sonst filing_date)
+        if "transaction_date" in df.columns:
+            df["event_date"] = pd.to_datetime(df["transaction_date"], errors="coerce").dt.date
+        elif "filing_date" in df.columns:
+            df["event_date"] = pd.to_datetime(df["filing_date"], errors="coerce").dt.date
+        else:
+            df["event_date"] = pd.NaT
+
+        # direction normalisieren
+        if "acquisition_or_disposition" in df.columns:
+            df["direction"] = (
+                df["acquisition_or_disposition"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
+                .fillna("UNKNOWN")
+            )
+        else:
+            df["direction"] = "UNKNOWN"
+
+        # trade_value_estimated sicherstellen
+        if "trade_value_estimated" not in df.columns:
+            df["trade_value_estimated"] = 0
+        df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce").fillna(0)
+
+        # sector sicherstellen (für Charts und KPIs)
+        if "sector" not in df.columns:
+            df["sector"] = None
+        
+        # Dashboard Validity (falls nicht schon in der DB berechnet oder als Fallback)
+        if "dashboard_valid" not in df.columns:
+            # Fallback-Logik falls Spalte fehlt
+            df["dashboard_valid"] = df.apply(
+                lambda x: pd.notna(x.get("symbol")) and 
+                          pd.notna(x.get("price")) and x.get("price", 0) > 0 and
+                          pd.notna(x.get("qty")) and x.get("qty", 0) > 0 and
+                          x.get("direction") != "UNKNOWN" and
+                          pd.notna(x.get("sector")) and str(x.get("sector")).lower() not in ("unknown", "n/a", ""),
+                axis=1
+            )
+        else:
+            # Sicherstellen dass es boolean ist
+            df["dashboard_valid"] = df["dashboard_valid"].astype(bool)
+
+        return df
+
+    def _compute_kpis(self, df: pd.DataFrame) -> dict:
+        """Berechnet die Dashboard-KPIs."""
+        if df.empty:
+            return {
+                "valid_trades_count": 0,
+                "gate_passed_count": 0,
+                "profile_count": 0,
+                "buy_quote": 0.0,
+                "avg_score": 0.0,
+            }
+
+        # Nur valide Trades für Dashboard-Metriken (außer profile_count, das ist globaler/scope-bezogen)
+        valid_df = df[df["dashboard_valid"] == True]
+        
+        gate_passed = valid_df[valid_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
+        
+        # Profile: Anzahl der erfolgreich aufgelösten Profile im aktuellen Scope
+        # (Hier: Eindeutige Symbole mit FETCHED Status oder vorhandenem Sektor)
+        profiles = df[df["profile_status"].astype(str).str.upper() == "FETCHED"]["company_key"].nunique()
+        
+        buy_trades = valid_df[valid_df["direction"] == "BUY"].shape[0]
+        buy_quote = (buy_trades / valid_df.shape[0]) if not valid_df.empty else 0.0
+        
+        avg_score = valid_df["score_value"].mean() if not valid_df.empty else 0.0
+
+        return {
+            "valid_trades_count": valid_df.shape[0],
+            "gate_passed_count": gate_passed,
+            "profile_count": profiles,
+            "buy_quote": buy_quote,
+            "avg_score": avg_score,
+        }
+
+    def _prepare_charts(self, df: pd.DataFrame) -> dict:
+        """Bereitet Daten für die Diagramme vor."""
+        charts = {
+            "sector_distribution_buy": pd.DataFrame(),
+            "sector_distribution_sell": pd.DataFrame(),
+            "timeline_distribution": pd.DataFrame(),
+        }
+        
+        if df.empty:
+            return charts
+
+        # Nur valide Trades für Charts
+        valid_df = df[df["dashboard_valid"] == True].copy()
+        
+        if valid_df.empty:
+            return charts
+
+        # 1. Sektor-Verteilung BUY
+        buy_df = valid_df[valid_df["direction"] == "BUY"]
+        if not buy_df.empty:
+            charts["sector_distribution_buy"] = (
+                buy_df.groupby("sector").size().reset_index(name="count")
+            )
+            
+        # 2. Sektor-Verteilung SELL
+        sell_df = valid_df[valid_df["direction"] == "SELL"]
+        if not sell_df.empty:
+            charts["sector_distribution_sell"] = (
+                sell_df.groupby("sector").size().reset_index(name="count")
+            )
+
+        # 3. Zeitverlauf Activity (BUY/SELL getrennt)
+        if "event_date" in valid_df.columns:
+            charts["timeline_distribution"] = (
+                valid_df.groupby(["event_date", "direction"]).size().reset_index(name="count")
+            )
+            
+        return charts
+
+    def _get_last_update_str(self, df: pd.DataFrame) -> str | None:
+        """Ermittelt den letzten Update-Zeitpunkt."""
+        if df.empty or "event_date" not in df.columns:
+            return None
+        
+        last_date = df["event_date"].max()
+        if pd.notna(last_date):
+            return last_date.strftime("%d.%m.%Y") if hasattr(last_date, "strftime") else str(last_date)
+        return None
