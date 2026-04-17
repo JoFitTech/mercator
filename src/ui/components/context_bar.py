@@ -48,12 +48,21 @@ def render_context_bar(
             if active_filters:
                 # Filtere leere oder Default-Werte aus
                 display_chips = []
-                for k, v in active_filters.items():
+                
+                # Robustheit: Falls Liste statt Dict übergeben wurde
+                if isinstance(active_filters, dict):
+                    filter_items = active_filters.items()
+                elif isinstance(active_filters, list):
+                    filter_items = [(None, v) for v in active_filters]
+                else:
+                    filter_items = []
+
+                for k, v in filter_items:
                     if v and v not in ("All", "Alle", "All Time"):
                         if isinstance(v, (list, tuple)) and len(v) == 2:
-                            display_chips.append(f"{k}: {v[0]} - {v[1]}")
+                            display_chips.append(f"{k + ': ' if k else ''}{v[0]} - {v[1]}")
                         else:
-                            display_chips.append(f"{k}: {v}")
+                            display_chips.append(f"{k + ': ' if k else ''}{v}")
                 
                 if display_chips:
                     chips_html = "".join([

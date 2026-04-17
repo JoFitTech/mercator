@@ -12,7 +12,7 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
     """Rendert die zentralen App-Einstellungen."""
     render_page_header("Einstellungen", "Konfiguration globaler Analyse-Parameter, Gate-Regeln und System-Präferenzen.")
 
-    render_context_bar(active_filters=["System-Config"])
+    render_context_bar(active_filters={"Status": "System-Config"})
 
     runtime_settings = runtime_settings_service.load()
 

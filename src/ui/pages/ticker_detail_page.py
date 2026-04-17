@@ -66,7 +66,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
         st.session_state["selected_ticker"] = current_ticker
     
     render_context_bar(
-        active_filters=[f"Ticker: {current_ticker}"],
+        active_filters={"Ticker": current_ticker},
         mysql_target=st.session_state.get("mysql_runtime_target", "local")
     )
 
