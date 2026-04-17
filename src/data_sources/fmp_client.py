@@ -8,9 +8,13 @@ from typing import Any
 import requests
 
 from src.config.settings import (
+    COMPANY_SCREENER_ENDPOINT,
+    INSIDER_REPORTING_NAME_ENDPOINT,
+    INSIDER_STATISTICS_ENDPOINT,
     LATEST_INSIDER_ENDPOINT,
     PROFILE_CIK_ENDPOINT,
     PROFILE_ENDPOINT,
+    SEARCH_CIK_ENDPOINT,
     SEARCH_INSIDER_TRADES_ENDPOINT,
     FmpConfig,
     validate_fmp_api_key,
@@ -123,5 +127,73 @@ class FmpClient:
             LOGGER.exception("FMP-Suche fehlgeschlagen für %s: %s", symbol, exc)
             raise FmpApiError(f"Fehler bei der Insider-Suche für {symbol}: {exc}") from exc
 
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+
+    def fetch_insider_trades_by_reporting_name(self, name: str, page: int = 0, limit: int = 100) -> list[dict[str, Any]]:
+        """Sucht Insider-Trades nach dem Namen des Insiders."""
+        params = {"reportingName": name, "page": page, "limit": limit, "apikey": self.config.api_key}
+        try:
+            response = requests.get(
+                f"{self.config.base_url}{INSIDER_REPORTING_NAME_ENDPOINT}",
+                params=params,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            LOGGER.exception("FMP-Suche nach Name fehlgeschlagen für %s: %s", name, exc)
+            raise FmpApiError(f"Fehler bei der Insider-Suche nach Name für {name}: {exc}") from exc
+
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+
+    def fetch_cik_lookup(self, symbol: str) -> list[dict[str, Any]]:
+        """Sucht nach CIK-Informationen für ein Symbol."""
+        params = {"ticker": symbol, "apikey": self.config.api_key}
+        try:
+            response = requests.get(
+                f"{self.config.base_url}{SEARCH_CIK_ENDPOINT}",
+                params=params,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            LOGGER.exception("FMP-CIK-Lookup fehlgeschlagen für %s: %s", symbol, exc)
+            raise FmpApiError(f"Fehler beim CIK-Lookup für {symbol}: {exc}") from exc
+
+        payload = response.json()
+        return payload if isinstance(payload, list) else []
+
+    def fetch_insider_trade_statistics(self, symbol: str) -> dict[str, Any]:
+        """Vorbereitete Methode für Insider-Statistiken (MAY)."""
+        params = {"symbol": symbol, "apikey": self.config.api_key}
+        try:
+            response = requests.get(
+                f"{self.config.base_url}{INSIDER_STATISTICS_ENDPOINT}",
+                params=params,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            LOGGER.debug("Insider-Statistiken (optional) fehlgeschlagen für %s: %s", symbol, exc)
+            return {}
+        
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
+
+    def fetch_company_screener(self, **kwargs) -> list[dict[str, Any]]:
+        """Vorbereitete Methode für Company Screener (MAY)."""
+        params = {**kwargs, "apikey": self.config.api_key}
+        try:
+            response = requests.get(
+                f"{self.config.base_url}{COMPANY_SCREENER_ENDPOINT}",
+                params=params,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            LOGGER.debug("Company Screener (optional) fehlgeschlagen: %s", exc)
+            return []
+        
         payload = response.json()
         return payload if isinstance(payload, list) else []

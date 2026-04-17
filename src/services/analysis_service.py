@@ -66,6 +66,13 @@ class AnalysisService:
         symbols = self.trade_repo.fetch_all_symbols()
         return sanitize_symbol_options(symbols)
 
+    def get_companies(self, limit: int = 100, offset: int = 0) -> pd.DataFrame:
+        """Gibt eine Liste der Unternehmen als DataFrame zurück."""
+        companies = self.company_repo.list_companies(limit=limit, offset=offset)
+        if not companies:
+            return pd.DataFrame()
+        return pd.DataFrame(companies)
+
     @staticmethod
     def _to_profile_view_model(profile: dict) -> dict:
         """Mappt DB/API-Felder konsistent in die UI-Profilansicht."""

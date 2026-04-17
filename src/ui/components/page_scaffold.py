@@ -6,29 +6,58 @@ import streamlit as st
 
 
 def render_page_header(title: str, subtitle: str | None = None, actions: list[dict] | None = None) -> None:
-    """Rendert den Page Header mit optionalen Aktionen rechts."""
-    col1, col2 = st.columns([0.7, 0.3])
+    """Rendert den Page Header mit optimaler Symmetrie und Ausrichtung.
+    
+    Titel links, Aktionen rechts, vertikal zentriert.
+    """
+    st.markdown("""
+        <style>
+        .page-header-container {
+            margin-bottom: 2rem;
+        }
+        /* Verhindert hängende Buttons bei Titeln mit Unterlängen */
+        div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns([0.7, 0.3], vertical_alignment="center")
     with col1:
-        st.title(title)
+        st.markdown(f'<h1 style="margin: 0; padding: 0; line-height: 1.2;">{title}</h1>', unsafe_allow_html=True)
         if subtitle:
             st.caption(subtitle)
     
+    results = []
     if actions:
         with col2:
-            st.markdown('<div style="display: flex; justify-content: flex-end; gap: 8px; align-items: center; height: 100%;">', unsafe_allow_html=True)
-            cols = st.columns(len(actions))
+            # Wir nutzen eine Spalten-Logik innerhalb der Aktionsspalte für saubere Button-Anordnung
+            n_actions = len(actions)
+            action_cols = st.columns(n_actions)
             for i, action in enumerate(actions):
-                with cols[i]:
-                    if action.get("type") == "primary":
-                        st.button(action["label"], key=f"header_action_{i}", on_click=action.get("on_click"), type="primary", use_container_width=True)
-                    else:
-                        st.button(action["label"], key=f"header_action_{i}", on_click=action.get("on_click"), use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+                with action_cols[i]:
+                    btn_type = action.get("type", "secondary")
+                    res = st.button(
+                        action["label"], 
+                        key=f"header_action_{title}_{i}", 
+                        on_click=action.get("on_click"), 
+                        type=btn_type, 
+                        use_container_width=True
+                    )
+                    results.append(res)
+    return results
 
 
 def render_kpi_row(kpis: list[dict]) -> None:
-    """Rendert eine Reihe von KPIs (max 5)."""
-    cols = st.columns(len(kpis))
+    """Rendert eine Reihe von KPIs in konsistenten Karten.
+    
+    Das Styling erfolgt primär über globales CSS in streamlit_app.py.
+    """
+    if not kpis:
+        return
+        
+    n = len(kpis)
+    cols = st.columns(n)
     for i, kpi in enumerate(kpis):
         with cols[i]:
             st.metric(

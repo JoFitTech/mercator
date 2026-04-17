@@ -89,39 +89,35 @@ def render_dashboard_page(
 
 def render_dashboard_header(import_service: ImportService | None) -> None:
     """Rendert den Dashboard-Header mit Titel und globalen Aktionen."""
-    st.markdown("""
-        <style>
-        .stTitle h1 { margin-top: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    col_title, col_actions = st.columns([0.6, 0.4], vertical_alignment="center")
-    with col_title:
-        st.markdown('<h1 style="margin: 0;">Markt-Dashboard</h1>', unsafe_allow_html=True)
-        st.caption("Aggregierte Übersicht über alle Insider-Aktivitäten.")
     
-    with col_actions:
-        # Zwei Buttons auf gleicher Höhe: Refresh und Import
-        btn_col1, btn_col2 = st.columns(2)
+    actions = [{"label": "Refresh", "type": "secondary"}]
+    if import_service:
+        actions.append({"label": "Import", "type": "primary"})
+
+    results = render_page_header(
+        "Markt-Dashboard", 
+        "Aggregierte Übersicht über alle Insider-Aktivitäten.",
+        actions=actions
+    )
+    
+    # Ergebnisse verarbeiten
+    if results:
+        # Index 0 is always Refresh
+        if results[0]:
+            st.rerun()
         
-        with btn_col1:
-            if st.button("Refresh", use_container_width=True, help="Dashboard Scope aktualisieren"):
-                st.rerun()
-        
-        with btn_col2:
-            if st.button("Import", use_container_width=True, type="secondary", help="Daten von API laden"):
-                if import_service:
-                    with st.status("Import läuft...") as status:
-                        try:
-                            import_service.run_hourly_import()
-                            status.update(label="Import abgeschlossen", state="complete")
-                            st.toast("Import erfolgreich abgeschlossen")
-                            st.rerun()
-                        except Exception as e:
-                            status.update(label=f"Fehler: {e}", state="error")
-                            st.error(f"Import fehlgeschlagen: {e}")
-                else:
-                    st.error("Import-Service nicht verfügbar")
+        # Index 1 is Import (if available)
+        if len(results) > 1 and results[1]:
+            if import_service:
+                with st.status("Import läuft...") as status:
+                    try:
+                        import_service.run_hourly_import()
+                        status.update(label="Import abgeschlossen", state="complete")
+                        st.toast("Import erfolgreich abgeschlossen")
+                        st.rerun()
+                    except Exception as e:
+                        status.update(label=f"Fehler: {e}", state="error")
+                        st.error(f"Import fehlgeschlagen: {e}")
 
 
 # Dashboard Settings Panel entfernt.
@@ -314,43 +310,21 @@ def render_trade_activity_chart(payload: dict) -> None:
 
 
 def render_dashboard_table(payload: dict) -> None:
-    """Rendert die Übersichtstabelle mit Detail-Button."""
-    st.subheader("Übersicht Trades im Scope")
+    """Rendert die Übersichtstabelle als kompakte Vorschau."""
+    st.subheader("Jüngste Markt-Aktivitäten")
     
     trades_all = payload.get("trades_all_scoped", pd.DataFrame())
-    trades_valid = payload.get("trades_valid", pd.DataFrame())
-    trades_invalid = payload.get("trades_invalid", pd.DataFrame())
     
     if trades_all.empty:
         st.info("Keine Trades gefunden")
         return
 
-    # View Toggle & Action Row
-    c_toggle, c_deepdive = st.columns([0.6, 0.4], vertical_alignment="center")
-    
-    with c_toggle:
-        view_mode = st.radio(
-            "Tabellenansicht",
-            options=["Alle im Scope", "Nur Valid", "Nur Invalid"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="dashboard_table_view_mode"
-        )
-    
-    if view_mode == "Nur Valid":
-        display_df = trades_valid
-    elif view_mode == "Nur Invalid":
-        display_df = trades_invalid
-    else:
-        display_df = trades_all
-
-    if display_df.empty:
-        st.info(f"Keine Daten für Filter '{view_mode}' vorhanden.")
-        return
+    # Nur die Top 10 neuesten Trades
+    display_df = trades_all.sort_values("transaction_date", ascending=False).head(10)
 
     # Spaltenreihenfolge für Dashboard (kompakt)
     display_cols = [
-        "dashboard_valid", "symbol_at_trade", "reporting_name", "direction",
+        "symbol_at_trade", "reporting_name", "direction",
         "trade_value_estimated", "score_value", "gate_status", "transaction_date"
     ]
     
@@ -365,7 +339,6 @@ def render_dashboard_table(payload: dict) -> None:
                 display_df[col] = None
 
     col_config = {
-        "dashboard_valid": st.column_config.CheckboxColumn("Valid", width="small", help="Erfüllt Dashboard-Kriterien"),
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small"),
         "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
         "direction": st.column_config.TextColumn("Richtung", width="small"),
@@ -375,29 +348,17 @@ def render_dashboard_table(payload: dict) -> None:
         "transaction_date": st.column_config.DateColumn("Date", format="DD.MM.YY"),
     }
     
-    # Render table mit Auswahl
-    event = st.dataframe(
+    # Render table
+    st.dataframe(
         display_df[display_cols],
         column_config=col_config,
         use_container_width=True,
         hide_index=True,
-        height=500,
-        on_select="rerun",
-        selection_mode="single-row"
+        height=400
     )
     
-    # Navigation bei Auswahl
-    if event and event.get("selection", {}).get("rows"):
-        selected_idx = event["selection"]["rows"][0]
-        selected_row = display_df.iloc[selected_idx]
-        selected_symbol = selected_row.get("symbol_at_trade")
-        if selected_symbol:
-            st.session_state["selected_ticker"] = selected_symbol
-            with c_deepdive:
-                if st.button(f"Deep-Dive für {selected_symbol} öffnen", type="primary", use_container_width=True):
-                    # In Streamlit 1.35+ switch_page ist verfügbar. 
-                    # Falls nicht, reicht st.session_state und manueller Wechsel.
-                    try:
-                        st.switch_page(st.session_state.nav_pages["Unternehmen"])
-                    except Exception:
-                        st.toast(f"Ticker {selected_symbol} ausgewählt. Bitte wechseln Sie zum Tab 'Unternehmen'.")
+    if st.button("Alle Trades anzeigen", use_container_width=True):
+        try:
+            st.switch_page(st.session_state.nav_pages["Trades"])
+        except Exception:
+            st.info("Bitte navigieren Sie zur 'Trades' Seite in der Sidebar.")

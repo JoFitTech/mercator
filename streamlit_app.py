@@ -20,7 +20,9 @@ from src.services.mysql_sync_service import MySqlSyncService
 from src.services.factory import ServiceFactory
 from src.ui.pages.dashboard_page import render_dashboard_page
 from src.ui.pages.explorer_page import render_explorer_page
-from src.ui.pages.ticker_detail_page import render_ticker_detail_page
+from src.ui.pages.ticker_detail_page import render_company_detail_page
+from src.ui.pages.companies_page import render_companies_page
+from src.ui.pages.trade_detail_page import render_trade_detail_page
 from src.ui.pages.admin_page import render_admin_page
 from src.ui.pages.settings_page import render_settings_page
 from src.utils.logging_utils import get_logger
@@ -336,11 +338,38 @@ def _inject_global_styles() -> None:
             border-radius: 8px;
         }
 
+        /* Buttons einheitlich machen */
+        .stButton > button {
+            border-radius: 8px !important;
+            font-weight: 500 !important;
+            transition: all 0.2s ease;
+            height: 2.5rem !important; /* Fixe Hoehe fuer Symmetrie */
+        }
+        .stButton > button:hover {
+            border-color: #007AFF !important;
+            color: #007AFF !important;
+        }
+        .stButton > button[kind="primary"] {
+            background-color: #007AFF !important;
+            color: white !important;
+            border: none !important;
+        }
+        .stButton > button[kind="primary"]:hover {
+            opacity: 0.9;
+            color: white !important;
+        }
+
         /* Formulare & Container */
         div[data-testid="stForm"] {
             border: 1px solid rgba(0, 0, 0, 0.05);
             border-radius: 12px;
             background-color: #ffffff;
+            padding: 1.5rem !important;
+        }
+
+        /* Spalten-Alignment Härtung */
+        [data-testid="stHorizontalBlock"] {
+            align-items: center;
         }
 
         /* Badges & Chips Emulation */
@@ -383,6 +412,8 @@ def main() -> None:
         st.session_state["initialized"] = True
         st.session_state["advanced_mode"] = False
         st.session_state["selected_ticker"] = None
+        st.session_state["selected_trade_key"] = None
+        st.session_state["selected_company_symbol"] = None
         # Standard-Ziel für MySQL explizit initialisieren
         if MYSQL_TARGET_STATE_KEY not in st.session_state:
             st.session_state[MYSQL_TARGET_STATE_KEY] = "local"
@@ -421,13 +452,23 @@ def main() -> None:
             dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
-            render_explorer_page(analysis_service, runtime_settings_service)
+            # Switch zwischen Liste und Detail
+            trade_key = st.session_state.get("selected_trade_key")
+            if trade_key:
+                render_trade_detail_page(analysis_service, trade_key)
+            else:
+                render_explorer_page(analysis_service, runtime_settings_service)
 
         def ticker_wrapper():
             dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
-            render_ticker_detail_page(analysis_service)
+            # Switch zwischen Liste und Detail
+            company_symbol = st.session_state.get("selected_company_symbol")
+            if company_symbol:
+                render_company_detail_page(analysis_service, company_symbol)
+            else:
+                render_companies_page(analysis_service)
 
         def admin_wrapper():
             dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(

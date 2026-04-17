@@ -103,8 +103,6 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
     def on_settings_advanced_mode_change():
         val = st.session_state["advanced_mode_settings_toggle"]
         st.session_state["advanced_mode"] = val
-        # Sync mit Sidebar-Widget-Key (wird beim nächsten Rerun übernommen)
-        st.session_state["advanced_mode_toggle"] = val
 
     st.toggle(
         "Advanced Mode aktivieren", 

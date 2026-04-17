@@ -20,9 +20,13 @@ _SETTINGS_DEBUG_LOGGED = False
 
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 LATEST_INSIDER_ENDPOINT = "/insider-trading/latest"
+INSIDER_REPORTING_NAME_ENDPOINT = "/insider-trading/reporting-name"
 PROFILE_ENDPOINT = "/profile"
 PROFILE_CIK_ENDPOINT = "/profile-cik"
+SEARCH_CIK_ENDPOINT = "/search-cik"
 SEARCH_INSIDER_TRADES_ENDPOINT = "/insider-trading/search"
+INSIDER_STATISTICS_ENDPOINT = "/insider-trading/statistics"
+COMPANY_SCREENER_ENDPOINT = "/company-screener"
 DEFAULT_FEED_PAGE = 0
 DEFAULT_FEED_LIMIT = 100
 PROFILE_TTL_DAYS = 7

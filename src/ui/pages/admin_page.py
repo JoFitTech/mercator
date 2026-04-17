@@ -329,16 +329,15 @@ def render_admin_page(
     """Rendert die Admin-Seite als präzisen Regelarbeitsplatz."""
 
     # 0. HEADER MIT SYSTEM-CHECK
-    col_header, col_status = st.columns([0.7, 0.3], vertical_alignment="center")
-    with col_header:
-        render_page_header(
-            "Admin", 
-            "Konfiguration von Gates, Scoring-Regeln und Datenquellen."
-        )
+    actions = [{"label": "🔍 System Check", "type": "secondary"}]
+    results = render_page_header(
+        "Admin", 
+        "Konfiguration von Gates, Scoring-Regeln und Datenquellen.",
+        actions=actions
+    )
     
-    with col_status:
-        if st.button("🔍 System Check", use_container_width=True, help="Status der Datenbankverbindungen prüfen"):
-            st.session_state["show_system_check"] = True
+    if results and results[0]:
+        st.session_state["show_system_check"] = True
 
     if st.session_state.get("show_system_check", False):
         with st.container(border=True):

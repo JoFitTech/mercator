@@ -40,35 +40,31 @@ def _safe_select_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFram
     return safe_df[columns]
 
 
-def render_ticker_detail_page(service: AnalysisService) -> None:
+def render_company_detail_page(service: AnalysisService, symbol: str | None = None) -> None:
     """Rendert den Company Intelligence Workspace."""
     
-    # 1. Scope Selection & Navigation
-    try:
-        all_symbols = service.list_ticker_options()
-    except Exception:
-        all_symbols = []
-
-    selected_symbol = st.session_state.get("selected_ticker")
-    if not selected_symbol and all_symbols:
-        selected_symbol = all_symbols[0]
-
-    render_page_header(
-        "Unternehmen", 
-        "Company Intelligence Workspace & Trade Analyse.",
-        actions=[{"label": "Vergleich aktivieren", "type": "secondary"}]
-    )
-
-    # 2. Workspace Scope (Context Bar)
-    c1, c2 = st.columns([0.4, 0.6])
-    with c1:
-        current_ticker = st.selectbox("Symbol suchen", all_symbols, index=all_symbols.index(selected_symbol) if selected_symbol in all_symbols else 0)
-        st.session_state["selected_ticker"] = current_ticker
+    # 1. Symbol bestimmen
+    current_ticker = symbol or st.session_state.get("selected_company_symbol") or st.session_state.get("selected_ticker")
     
-    render_context_bar(
-        active_filters={"Ticker": current_ticker},
-        mysql_target=st.session_state.get("mysql_runtime_target", "local")
-    )
+    if not current_ticker:
+        render_page_header("Unternehmens-Detail", "Kein Unternehmen ausgewählt.")
+        if st.button("Zurück zur Übersicht"):
+            st.session_state["selected_company_symbol"] = None
+            st.rerun()
+        return
+
+    # Header
+    col_title, col_actions = st.columns([0.7, 0.3], vertical_alignment="center")
+    with col_title:
+        render_page_header(
+            f"Unternehmen: {current_ticker}", 
+            "Detaillierte Analyse des Unternehmensprofils und der Trade-Historie."
+        )
+    
+    with col_actions:
+        if st.button("← Zurück zur Übersicht", use_container_width=True):
+            st.session_state["selected_company_symbol"] = None
+            st.rerun()
 
     # Daten laden
     result = service.get_ticker_detail(current_ticker, accumulate=True)
@@ -83,6 +79,7 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
         {"label": "Gate", "value": result.metrics.get('overall_status', 'UNKNOWN')},
         {"label": "Trades", "value": format_number(result.metrics.get('trade_count'), "{:,.0f}")},
     ]
+    from src.ui.components.page_scaffold import render_kpi_row
     render_kpi_row(kpis)
 
     st.markdown("---")
@@ -94,36 +91,45 @@ def render_ticker_detail_page(service: AnalysisService) -> None:
         st.subheader("Trade-Historie & Volumen")
         if result.rows:
             df = pd.DataFrame(result.rows)
-            df['transaction_date'] = pd.to_datetime(df['transaction_date'])
             # Chart
-            chart_data = df.groupby('transaction_date')['accumulated_trade_value_estimated'].sum()
-            st.line_chart(chart_data, height=300)
+            if 'transaction_date' in df.columns:
+                df['transaction_date'] = pd.to_datetime(df['transaction_date'])
+                chart_data = df.groupby('transaction_date')['accumulated_trade_value_estimated'].sum()
+                st.line_chart(chart_data, height=300)
             
             # Tabelle
             st.caption("Letzte Transaktionen")
-            render_trade_table(df.head(10), height=350)
+            render_trade_table(df.head(20), height=400)
         else:
+            from src.ui.components.page_scaffold import render_empty_state
             render_empty_state("Keine Trades gefunden.")
 
     with right:
-        st.subheader("Score & Gate Breakdown")
+        st.subheader("Profil & Metriken")
         with st.container(border=True):
-            st.write("**Score Komponenten**")
-            # Beispielhafte Aufschlüsselung (da Domain-Logik in Service liegt)
-            st.progress(min(max(result.metrics.get('overall_score', 0) / 10, 0), 1.0), text=f"Value Score: {result.metrics.get('overall_score', 0):.1f}")
-            st.caption("Basierend auf Volumen, Häufigkeit und Kursreaktion.")
+            st.write("**Sektor & Industrie**")
+            st.write(f"**Sektor:** {profile.get('sector', 'N/A')}")
+            st.write(f"**Industrie:** {profile.get('industry', 'N/A')}")
             
             st.markdown("---")
-            st.write("**Gate Analyse**")
+            st.write("**Marktkapitalisierung**")
+            st.write(f"**Marktkap:** {format_mcap(profile.get('market_cap'), profile.get('currency', 'USD'))}")
+            st.write(f"**Börse:** {profile.get('exchange_full_name', profile.get('exchange')) or 'Keine Angabe'}")
+            
+            st.markdown("---")
+            st.write("**Gate & Scoring**")
             status = result.metrics.get('overall_status', 'UNKNOWN')
             status_badge(status, status_type=status)
             
+            st.write(f"**Ø Score:** {result.metrics.get('overall_score', 0):.2f}")
+            
             if status == "FAIL":
-                st.error("Dieses Unternehmen erfüllt aktuell die Gate-Kriterien (z.B. Mindestumsatz, Rechtsform) nicht. Daher werden keine vertieften Profildaten von externen APIs geladen.")
+                st.error("Dieses Unternehmen erfüllt aktuell die Gate-Kriterien nicht.")
             
             st.markdown("---")
-            st.write("**Unternehmensprofil**")
-            st.write(f"**Marktkap:** {format_mcap(profile.get('market_cap'), profile.get('currency', 'USD'))}")
-            st.write(f"**Börse:** {profile.get('exchange_full_name', profile.get('exchange')) or 'Keine Angabe'}")
             if profile.get("website"):
-                st.link_button("Website öffnen", profile["website"], use_container_width=True)
+                st.link_button("Unternehmens-Website", profile["website"], use_container_width=True)
+            
+            if profile.get("description"):
+                with st.expander("Unternehmensbeschreibung"):
+                    st.write(profile["description"])

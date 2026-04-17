@@ -118,7 +118,7 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
         event = render_trade_table(data, height=600)
     
     with drawer_col:
-        st.subheader("Details")
+        st.subheader("Aktionen")
         if event and event.get("selection") and event["selection"].get("rows"):
             selected_row_idx = event["selection"]["rows"][0]
             selected_trade = data.iloc[selected_row_idx]
@@ -127,18 +127,15 @@ def render_explorer_page(service: AnalysisService, settings_service: AppSettings
                 st.markdown(f"### {selected_trade.get('symbol_at_trade', 'N/A')}")
                 st.write(f"**Insider:** {selected_trade.get('reporting_name', 'N/A')}")
                 st.write(f"**Richtung:** {selected_trade.get('direction', 'N/A')}")
+                st.write(f"**Wert:** ${selected_trade.get('trade_value_estimated', 0):,.0f}")
                 
                 st.markdown("---")
-                st.write("**Scoring**")
-                score_class_badge(selected_trade.get('score_class', 'F'))
-                st.metric("Score", f"{selected_trade.get('score', 0):.2f}")
+                if st.button("🔍 Trade Detail öffnen", type="primary", use_container_width=True):
+                    st.session_state["selected_trade_key"] = selected_trade.get('dedupe_key')
+                    st.rerun()
                 
-                st.markdown("---")
-                st.write("**Gate Status**")
-                status_badge(selected_trade.get('gate_status', 'UNKNOWN'), status_type=selected_trade.get('gate_status', 'INFO'))
-                
-                if st.button("Unternehmens-Deep-Dive", use_container_width=True):
-                    st.session_state["selected_ticker"] = selected_trade.get('symbol_at_trade')
-                    st.toast(f"Ticker {selected_trade.get('symbol_at_trade')} ausgewählt.")
+                if st.button("🏢 Unternehmens-Deep-Dive", use_container_width=True):
+                    st.session_state["selected_company_symbol"] = selected_trade.get('symbol_at_trade')
+                    st.rerun()
         else:
-            st.info("Wählen Sie eine Zeile aus, um Details anzuzeigen.")
+            st.info("Wählen Sie einen Trade aus der Tabelle aus.")
