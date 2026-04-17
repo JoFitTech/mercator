@@ -76,3 +76,53 @@ def classify_score(score: Any, policy: ScoreGatePolicy) -> tuple[str, str]:
     if numeric_score >= float(policy.score_threshold_hold_min):
         return policy.hold_label, policy.hold_color
     return policy.fail_label, policy.fail_color
+
+
+def compute_discrete_score(trade: dict[str, Any]) -> tuple[float, str]:
+    """Berechnet einen diskreten Mercator-Score (0-100) und eine Klasse (A-E).
+    
+    Logik:
+    - Trade Value (max 50): Stufen 50k, 100k, 500k, 1M, 10M
+    - Direction (max 20): BUY (+20), SELL (+5)
+    - Role (max 20): CEO/CFO/Officer (+20), Director (+15), Other (+5)
+    - Market Cap (max 5): > 1B (+5)
+    - Validation (max 5): VALID (+5)
+    """
+    points = 0.0
+    
+    # 1. Trade Value
+    value = float(trade.get("trade_value_estimated") or 0)
+    if value >= 10_000_000: points += 50
+    elif value >= 1_000_000: points += 40
+    elif value >= 500_000: points += 30
+    elif value >= 100_000: points += 20
+    elif value >= 50_000: points += 10
+    
+    # 2. Direction
+    direction = str(trade.get("acquisition_or_disposition") or "").upper()
+    if direction in ("A", "BUY"): points += 20
+    elif direction in ("D", "SELL"): points += 5
+    
+    # 3. Insider Role
+    owner = str(trade.get("type_of_owner") or "").lower()
+    if any(token in owner for token in ("ceo", "cfo", "officer", "president")): points += 20
+    elif "director" in owner: points += 15
+    else: points += 5
+    
+    # 4. Market Cap
+    mcap = float(trade.get("market_cap") or 0)
+    if mcap >= 1_000_000_000: points += 5
+    
+    # 5. Validation
+    if str(trade.get("validation_status") or "").upper() == "VALID": points += 5
+    
+    score = min(100.0, points)
+    
+    # Klasse
+    if score >= 80: cls = "A"
+    elif score >= 60: cls = "B"
+    elif score >= 40: cls = "C"
+    elif score >= 20: cls = "D"
+    else: cls = "E"
+    
+    return score, cls

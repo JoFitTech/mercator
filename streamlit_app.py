@@ -19,8 +19,8 @@ from src.services.app_settings_service import AppSettingsService
 from src.services.mysql_sync_service import MySqlSyncService
 from src.services.factory import ServiceFactory
 from src.ui.pages.dashboard_page import render_dashboard_page
-from src.ui.pages.explorer_page import render_explorer_page
-from src.ui.pages.ticker_detail_page import render_company_detail_page
+from src.ui.pages.trades_page import render_trades_page
+from src.ui.pages.company_detail_page import render_company_detail_page
 from src.ui.pages.companies_page import render_companies_page
 from src.ui.pages.trade_detail_page import render_trade_detail_page
 from src.ui.pages.admin_page import render_admin_page
@@ -414,6 +414,7 @@ def main() -> None:
         st.session_state["selected_ticker"] = None
         st.session_state["selected_trade_key"] = None
         st.session_state["selected_company_symbol"] = None
+        st.session_state["nav_target"] = "Dashboard"
         # Standard-Ziel für MySQL explizit initialisieren
         if MYSQL_TARGET_STATE_KEY not in st.session_state:
             st.session_state[MYSQL_TARGET_STATE_KEY] = "local"
@@ -448,27 +449,34 @@ def main() -> None:
             )
             render_dashboard_page(dashboard_service, import_service, load_settings(), runtime_settings_service)
 
-        def explorer_wrapper():
+        def trades_wrapper():
             dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
-            # Switch zwischen Liste und Detail
-            trade_key = st.session_state.get("selected_trade_key")
-            if trade_key:
-                render_trade_detail_page(analysis_service, trade_key)
+            # Navigation Target Logik
+            target = st.session_state.get("nav_target", "Trades")
+            
+            if target == "Trade-Detail" and st.session_state.get("selected_trade_key"):
+                render_trade_detail_page(analysis_service, st.session_state.get("selected_trade_key"))
             else:
-                render_explorer_page(analysis_service, runtime_settings_service)
+                st.session_state["nav_target"] = "Trades" # Reset if key missing
+                render_trades_page(analysis_service)
 
-        def ticker_wrapper():
+        def companies_wrapper():
             dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
-            # Switch zwischen Liste und Detail
-            company_symbol = st.session_state.get("selected_company_symbol")
-            if company_symbol:
-                render_company_detail_page(analysis_service, company_symbol)
+            # Navigation Target Logik
+            target = st.session_state.get("nav_target", "Unternehmen")
+            
+            if target == "Unternehmens-Detail" and st.session_state.get("selected_company_symbol"):
+                render_company_detail_page(analysis_service, st.session_state.get("selected_company_symbol"))
             else:
-                render_companies_page(analysis_service)
+                st.session_state["nav_target"] = "Unternehmen" # Reset
+                if analysis_service and analysis_service.company_repo:
+                    render_companies_page(analysis_service.company_repo)
+                else:
+                    st.error("Unternehmens-Daten nicht verfügbar.")
 
         def admin_wrapper():
             dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
@@ -485,8 +493,8 @@ def main() -> None:
 
         st.session_state.nav_pages = {
             "Dashboard": st.Page(dash_wrapper, title="Dashboard", icon=":material/dashboard:", default=True),
-            "Trades": st.Page(explorer_wrapper, title="Trades", icon=":material/table_view:"),
-            "Unternehmen": st.Page(ticker_wrapper, title="Unternehmen", icon=":material/business:"),
+            "Trades": st.Page(trades_wrapper, title="Trades", icon=":material/table_view:"),
+            "Unternehmen": st.Page(companies_wrapper, title="Unternehmen", icon=":material/business:"),
             "Admin": st.Page(admin_wrapper, title="Admin", icon=":material/admin_panel_settings:"),
             "Einstellungen": st.Page(settings_wrapper, title="Einstellungen", icon=":material/settings:"),
         }

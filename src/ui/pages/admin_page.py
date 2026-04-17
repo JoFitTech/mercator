@@ -357,111 +357,85 @@ def render_admin_page(
                 st.session_state["show_system_check"] = False
                 st.rerun()
 
-    # 1. Hauptnavigation über echte Tabs
-    tab_gates, tab_score, tab_sync, tab_import = st.tabs([
-        "🎯 Gates", "📊 Score-Regeln", "⚙️ Sync & Daten", "📥 Import"
+    # 1. Hauptnavigation über echte Tabs (Requirement 8.2)
+    tab_import, tab_sync, tab_db_control = st.tabs([
+        "📥 Import & API2", "⚙️ Sync-Status", "🛠️ Datenbank-Control"
     ])
 
     admin_service = AdminDashboardService(settings, mysql_client, mongo_available)
 
-    # 2. GATES TAB (Dynamisch)
-    with tab_gates:
-        st.subheader("Gate-Konfiguration")
-        st.caption("Definition der harten Ausschlusskriterien für den Dashboard-Scope.")
-        
-        if settings_service:
-            policy = settings_service.load_score_gate_policy()
-            with st.form("gate_policy_form", border=True):
-                g1, g2 = st.columns(2)
-                gate_min_value = g1.number_input("Min Trade Value ($)", value=policy.gate_min_trade_value, step=10000)
-                gate_form_type = g2.text_input("Required Form Type", value=policy.gate_form_type_required)
-                
-                s1, s2 = st.columns(2)
-                gate_security_name = s1.text_input("Required Security Name", value=policy.gate_security_name_required)
-                gate_validation = s2.selectbox("Required Validation Status", options=["VALID", "INVALID", "UNCHECKED"], index=0 if policy.gate_validation_status_required == "VALID" else 1)
-                
-                a1, a2 = st.columns(2)
-                allowed_aod = a1.text_input("Allowed A/D (CSV)", value=",".join(policy.gate_allowed_acquisition_or_disposition))
-                excluded_tt = a2.text_input("Excluded Trans. Types (CSV)", value=",".join(policy.gate_excluded_transaction_types))
-                
-                if st.form_submit_button("Gate-Regeln speichern", type="primary", use_container_width=True):
-                    new_policy = ScoreGatePolicy(
-                        score_threshold_fail_max=policy.score_threshold_fail_max,
-                        score_threshold_hold_min=policy.score_threshold_hold_min,
-                        score_threshold_pass_min=policy.score_threshold_pass_min,
-                        fail_label=policy.fail_label,
-                        hold_label=policy.hold_label,
-                        pass_label=policy.pass_label,
-                        fail_color=policy.fail_color,
-                        hold_color=policy.hold_color,
-                        pass_color=policy.pass_color,
-                        gate_validation_status_required=gate_validation,
-                        gate_form_type_required=gate_form_type,
-                        gate_security_name_required=gate_security_name,
-                        gate_allowed_acquisition_or_disposition=tuple(v.strip().upper() for v in allowed_aod.split(",") if v.strip()),
-                        gate_excluded_transaction_types=tuple(v.strip() for v in excluded_tt.split(",") if v.strip()),
-                        gate_min_trade_value=int(gate_min_value)
-                    )
-                    settings_service.save_score_gate_policy(new_policy)
-                    st.success("Gate-Policy erfolgreich aktualisiert.")
-                    st.rerun()
-        else:
-            st.warning("Settings-Service nicht verfügbar. Bitte Konfiguration prüfen.")
+    # 2. IMPORT & API2 TAB
+    with tab_import:
+        st.subheader("Datenimport & API2-Steuerung")
+        st.caption("Manueller Anstoß des FMP-Imports und Konfiguration des API2-Verhaltens.")
 
-    # 3. SCORE REGELN TAB (Dynamisch)
-    with tab_score:
-        st.subheader("Scoring-Logik & Klassifizierung")
-        st.caption("Konfiguration der Schwellenwerte für die Score-Klassen (FAIL, HOLD, PASS).")
-        
         if settings_service:
-            policy = settings_service.load_score_gate_policy()
-            with st.form("score_policy_form", border=True):
-                st.markdown("#### Schwellenwerte")
-                t1, t2, t3 = st.columns(3)
-                th_pass = t1.number_input("PASS ab", min_value=0.0, max_value=100.0, value=policy.score_threshold_pass_min)
-                th_hold = t2.number_input("HOLD ab", min_value=0.0, max_value=100.0, value=policy.score_threshold_hold_min)
-                th_fail_max = t3.number_input("FAIL bis", min_value=0.0, max_value=100.0, value=policy.score_threshold_fail_max)
+            runtime_settings = settings_service.load()
+            
+            with st.form("api2_config_form", border=True):
+                st.markdown("#### API2-Firing Konfiguration")
+                api2_mode = st.selectbox(
+                    "API2-Firing Mode (vor Import)",
+                    options=["ONLY PASS", "PASS + PENDING", "ALL VALID", "DISABLED"],
+                    index=["ONLY PASS", "PASS + PENDING", "ALL VALID", "DISABLED"].index(runtime_settings.api2_firing_mode) if runtime_settings.api2_firing_mode in ["ONLY PASS", "PASS + PENDING", "ALL VALID", "DISABLED"] else 1,
+                    help="Steuert, für welche Trades das Company-Enrichment (API2) im Importlauf ausgeführt wird."
+                )
                 
-                st.markdown("#### Labels & Farben")
-                l1, l2, l3 = st.columns(3)
-                label_pass = l1.text_input("Label PASS", value=policy.pass_label)
-                label_hold = l2.text_input("Label HOLD", value=policy.hold_label)
-                label_fail = l3.text_input("Label FAIL", value=policy.fail_label)
-                
-                c1, c2, c3 = st.columns(3)
-                color_pass = c1.color_picker("Farbe PASS", value=policy.pass_color)
-                color_hold = c2.color_picker("Farbe HOLD", value=policy.hold_color)
-                color_fail = c3.color_picker("Farbe FAIL", value=policy.fail_color)
-                
-                if st.form_submit_button("Scoring-Konfiguration speichern", type="primary", use_container_width=True):
-                    new_policy = ScoreGatePolicy(
-                        score_threshold_fail_max=float(th_fail_max),
-                        score_threshold_hold_min=float(th_hold),
-                        score_threshold_pass_min=float(th_pass),
-                        fail_label=label_fail,
-                        hold_label=label_hold,
-                        pass_label=label_pass,
-                        fail_color=color_fail,
-                        hold_color=color_hold,
-                        pass_color=color_pass,
-                        gate_validation_status_required=policy.gate_validation_status_required,
-                        gate_form_type_required=policy.gate_form_type_required,
-                        gate_security_name_required=policy.gate_security_name_required,
-                        gate_allowed_acquisition_or_disposition=policy.gate_allowed_acquisition_or_disposition,
-                        gate_excluded_transaction_types=policy.gate_excluded_transaction_types,
-                        gate_min_trade_value=policy.gate_min_trade_value
-                    )
-                    settings_service.save_score_gate_policy(new_policy)
-                    st.success("Scoring-Policy erfolgreich aktualisiert.")
+                if st.form_submit_button("API2-Modus speichern", use_container_width=True):
+                    runtime_settings.api2_firing_mode = api2_mode
+                    settings_service.save(runtime_settings)
+                    st.success(f"API2-Modus auf '{api2_mode}' gesetzt.")
                     st.rerun()
-        else:
-            st.info("Score-Konfiguration wird aktuell nur über Umgebungsvariablen gesteuert.")
 
-    # 4. SYNC & DATEN TAB
+        st.markdown("---")
+        st.markdown("#### Manueller Import")
+        col1, col2 = st.columns([1, 1])
+        import_page = col1.number_input("Feed-Seite", min_value=1, value=1)
+        import_limit = col2.number_input("Records pro Seite", min_value=1, max_value=1000, value=100)
+
+        if st.button("🚀 Import jetzt starten", type="primary", use_container_width=True):
+            if not import_service:
+                st.error("Import-Service nicht verfügbar.")
+            else:
+                with st.spinner("Importiere Daten von FMP..."):
+                    try:
+                        summary = import_service.run_hourly_import(page=int(import_page), limit=int(import_limit))
+                        st.success("Import erfolgreich abgeschlossen!")
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Feed Records", summary.fetched_feed_records)
+                        c2.metric("Neue Raw Records", summary.inserted_raw_records)
+                        c3.metric("Upserted Clean", summary.upserted_clean_records)
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Fehler beim Import: {e}")
+
+    # 3. SYNC STATUS TAB
     with tab_sync:
-        st.subheader("Datenbank-Management")
+        st.subheader("Synchronisations-Status")
+        st.caption("Status der Datenspiegelung zwischen MongoDB (Rohdaten) und MySQL (Analyse).")
+        
         col1, col2 = st.columns(2)
+        mysql_stats = admin_service.get_mysql_stats()
+        mongo_stats = admin_service.get_mongo_stats()
+        
         with col1:
+            st.markdown("#### MySQL (Analyse)")
+            st.metric("Trades", f"{mysql_stats.get('trades_count', 0):,}")
+            st.metric("Companies", f"{mysql_stats.get('companies_count', 0):,}")
+            st.metric("Größe (MB)", f"{mysql_stats.get('database_size_mb', 0):.2f}")
+            
+        with col2:
+            st.markdown("#### MongoDB (Rohdaten)")
+            st.metric("Raw Trades", f"{mongo_stats.get('insider_trades_raw_count', 0):,}")
+            st.metric("Raw Companies", f"{mongo_stats.get('companies_count', 0):,}")
+
+    # 4. DB CONTROL TAB
+    with tab_db_control:
+        st.subheader("Datenbank-Wartung & Resets")
+        st.caption("Technische Werkzeuge zur Fehlerbehebung und Datenbereinigung.")
+        
+        c1, c2 = st.columns(2)
+        with c1:
             st.markdown("#### Wartung")
             if st.button("🛠️ Schema reparieren", use_container_width=True, help="Initialisiert oder aktualisiert das Tabellen-Schema in MySQL"):
                 with st.spinner("Repariere Schema..."):
@@ -475,15 +449,15 @@ def render_admin_page(
                     if success: st.success(msg)
                     else: st.warning(msg)
         
-        with col2:
+        with c2:
             st.markdown("#### Gefahrenzone")
             
-            with st.popover("🗑️ MySQL Daten loeschen", use_container_width=True):
+            with st.popover("🗑️ MySQL Daten löschen", use_container_width=True):
                 st.error("### ACHTUNG: Datenverlust")
                 st.write("Dies löscht alle verarbeiteten Insider-Trades und Firmendaten in MySQL.")
                 st.write("Rohdaten in MongoDB bleiben erhalten.")
                 
-                confirm_mysql = st.checkbox("Ich bin mir der Konsequenzen bewusst", key="confirm_mysql_delete_final")
+                confirm_mysql = st.checkbox("Ich bin mir der Konsequenzen bewusst", key="confirm_mysql_delete_final_v2")
                 if st.button("JETZT MySQL LÖSCHEN", type="primary", use_container_width=True, disabled=not confirm_mysql):
                     with st.spinner("Lösche MySQL Daten..."):
                         success, msg = admin_service.clear_mysql_all()
@@ -494,12 +468,11 @@ def render_admin_page(
                             st.error(msg)
 
             if st.session_state.get("advanced_mode", False):
-                with st.popover("🔥 MongoDB Rohdaten loeschen", use_container_width=True):
+                with st.popover("🔥 MongoDB Rohdaten löschen", use_container_width=True):
                     st.error("### KRITISCHE AKTION: Rohdatenverlust")
                     st.write("Dies löscht alle importierten Rohdaten in MongoDB.")
-                    st.write("Daten können nur durch neuen API-Import wiederhergestellt werden.")
                     
-                    confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete_final")
+                    confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete_final_v2")
                     if st.button("JETZT MongoDB LÖSCHEN", type="primary", use_container_width=True, disabled=not confirm_mongo):
                         with st.spinner("Lösche MongoDB Daten..."):
                             success, msg = admin_service.clear_mongo_all()
@@ -508,47 +481,3 @@ def render_admin_page(
                                 st.rerun()
                             else:
                                 st.error(msg)
-
-    # 5. IMPORT TAB
-    with tab_import:
-        st.subheader("Daten-Ingestion (FMP API to Storage)")
-        with st.container(border=True):
-            c1, c2 = st.columns(2)
-            page = c1.number_input("Feed-Seite", min_value=0, value=0, help="Startseite für den API-Abruf")
-            limit = c2.number_input("Limit", min_value=1, max_value=1000, value=100, help="Anzahl der abzurufenden Records pro Request")
-            
-            if st.button("🚀 Manuellen Import starten", type="primary", use_container_width=True):
-                if not import_service:
-                    st.error("Import-Service nicht verfügbar.")
-                else:
-                    with st.status("Import läuft...") as status:
-                        try:
-                            summary = import_service.run_hourly_import(page=int(page), limit=int(limit))
-                            status.update(label="Import erfolgreich!", state="complete")
-                            
-                            # Import Summary anzeigen
-                            with st.expander("Import-Zusammenfassung", expanded=True):
-                                col1, col2, col3, col4 = st.columns(4)
-                                col1.metric("Feed Records", summary.fetched_feed_records)
-                                col2.metric("Raw Inserted", summary.inserted_raw_records)
-                                col3.metric("Clean Upserted", summary.upserted_clean_records)
-                                col4.metric("Profiles Fetched", summary.fetched_profiles)
-                            
-                            st.toast("Daten wurden erfolgreich importiert", icon="📥")
-                        except Exception as e:
-                            status.update(label=f"Fehler: {e}", state="error")
-                            st.error(f"Import fehlgeschlagen: {e}")
-        
-        st.markdown("### Aktuelle Speicher-Metriken")
-        mysql_stats = admin_service.get_mysql_stats()
-        mongo_stats = admin_service.get_mongo_stats()
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("MySQL Trades", f"{mysql_stats.get('trades_count', 0):,}")
-        m2.metric("MySQL Companies", f"{mysql_stats.get('companies_count', 0):,}")
-        m3.metric("DB Size (MB)", f"{mysql_stats.get('database_size_mb', 0):.2f}")
-        
-        if st.session_state.get("advanced_mode", False):
-            a1, a2 = st.columns(2)
-            a1.metric("Mongo Raw Trades", f"{mongo_stats.get('insider_trades_raw_count', 0):,}")
-            a2.metric("Mongo Companies", f"{mongo_stats.get('companies_count', 0):,}")

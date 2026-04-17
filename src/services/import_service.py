@@ -19,6 +19,7 @@ from src.preprocessing.gate_evaluator import (
     GATE_PENDING,
     GateEvaluator,
 )
+from src.domain_rules import compute_discrete_score
 from src.preprocessing.cleaning import normalize_insider_trade
 from src.services.trade_republic_universe_service import (
     TradeRepublicUniverseIngestionService,
@@ -50,6 +51,7 @@ class ImportService:
         trade_mysql_repo: InsiderTradeMySqlRepository | None,
         company_mysql_repo: CompanyMySqlRepository | None,
         profile_fetch_statuses: tuple[str, ...] = (GATE_PASS, GATE_PENDING),
+        api2_firing_mode: str = "PASS + PENDING",
         allow_write: bool = True,
         tr_ingestion_service: TradeRepublicUniverseIngestionService | None = None,
         tr_matching_service: TradeRepublicUniverseMatchingService | None = None,
@@ -62,6 +64,7 @@ class ImportService:
         self.trade_mysql_repo = trade_mysql_repo
         self.company_mysql_repo = company_mysql_repo
         self.profile_fetch_statuses = tuple(status.upper() for status in profile_fetch_statuses)
+        self.api2_firing_mode = api2_firing_mode
         self.allow_write = allow_write
         self.tr_ingestion_service = tr_ingestion_service
         self.tr_matching_service = tr_matching_service
@@ -88,8 +91,20 @@ class ImportService:
         if self.tr_ingestion_service is not None:
             self.tr_ingestion_service.refresh_if_stale(force=False)
 
-        # Fachregel: API-2-Abfrage für Pre-Gate PASS und HOLD.
-        effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING}
+        # Fachregel: API-2-Abfrage steuerbar (Requirement 2.3)
+        mode = str(self.api2_firing_mode).upper()
+        if mode == "ONLY PASS":
+            effective_profile_fetch_statuses = {GATE_PASS}
+        elif mode == "PASS + PENDING":
+            effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING}
+        elif mode == "ALL VALID":
+            # Alle validen Trades (PASS, PENDING, FAIL - solange validation_status VALID ist)
+            effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING, "FAIL"}
+        elif mode == "DISABLED":
+            effective_profile_fetch_statuses = set()
+        else:
+            # Fallback
+            effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING}
 
         # 1. Schritt: Alle Trades normalisieren, evaluieren und Stubs erstellen
         unique_company_stubs: dict[str, dict[str, Any]] = {}
@@ -287,26 +302,8 @@ class ImportService:
 
     @staticmethod
     def _compute_trade_score(trade: dict[str, Any]) -> tuple[float | None, str | None]:
-        """Berechnet Score und Klasse für Persistenzfelder score/score_class."""
-        try:
-            trade_value = float(trade.get("trade_value_estimated") or 0)
-            acquisition = str(trade.get("acquisition_or_disposition") or "").upper()
-            validation_status = str(trade.get("validation_status") or "VALID").upper()
-            profile_status = str(trade.get("profile_status") or "NOT_REQUESTED").upper()
-            owner = str(trade.get("type_of_owner") or "").lower()
-            market_cap = float(trade.get("market_cap") or 0)
-
-            value_score = min(1.0, max(0.0, (trade_value - 100_000) / (10_000_000 - 100_000)))
-            direction_score = 1.0 if acquisition == "A" else (0.5 if acquisition == "D" else 0.0)
-            mcap_score = min(1.0, max(0.0, (market_cap - 100_000_000) / (500_000_000_000 - 100_000_000)))
-            validity_score = (0.5 if validation_status == "VALID" else 0.0) + (0.5 if profile_status == "FETCHED" else 0.0)
-            role_score = 1.0 if any(token in owner for token in ("officer", "director", "ceo", "cfo")) else 0.5
-
-            score = round((value_score * 0.35 + direction_score * 0.20 + mcap_score * 0.15 + validity_score * 0.15 + role_score * 0.15) * 100, 2)
-            score_class = "A" if score >= 80 else "B" if score >= 60 else "C" if score >= 40 else "D" if score >= 20 else "E"
-            return score, score_class
-        except (TypeError, ValueError):
-            return None, None
+        """Berechnet Score und Klasse basierend auf der diskreten Domain-Logik."""
+        return compute_discrete_score(trade)
 
     def _upsert_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> None:
         company_key = trade.get("company_key")

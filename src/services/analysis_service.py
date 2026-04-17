@@ -7,7 +7,13 @@ import pandas as pd
 
 from src.data_sources.fmp_client import FmpClient
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
-from src.domain_rules import ScoreGatePolicy, classify_score, normalize_symbol, sanitize_symbol_options
+from src.domain_rules import (
+    ScoreGatePolicy,
+    classify_score,
+    compute_discrete_score,
+    normalize_symbol,
+    sanitize_symbol_options,
+)
 from src.models.analysis_result import AnalysisResult
 from src.services.accumulation_service import AccumulationService
 
@@ -148,67 +154,10 @@ class AnalysisService:
             return {}, "api2_failed"
 
     def compute_trade_score(self, trade: dict | pd.Series) -> tuple[float, str | None]:
-        """Berechnet den Gesamtscore für einen Trade basierend auf 5 Dimensionen.
-
-        Dimensionen:
-        - Trade Value (35%): Normalisiert auf [0..1] basierend auf Wertspanne (100k-10M)
-        - Direction (20%): KAUF +1, VERKAUF +0.5
-        - MarketCap (15%): Normalisiert auf [0..1] basierend auf Marktkap-Spanne (100M-500B)
-        - Market Validity (15%): Prüft auf ungültige Preise, fehlende Profildaten
-        - Insider Role (15%): Officer/Director +1, Sonstiges +0.5 (Heuristik aus type_of_owner)
-
-        Returns:
-            Tuple (score_value [0-100], score_class [A-E])
-        """
-        try:
-            # Extraktion fachlicher Felder mit defensiven Defaults
-            trade_value = float(trade.get("trade_value_estimated") or 0)
-            direction_raw = str(trade.get("direction") or trade.get("acquisition_or_disposition") or "").upper()
-            direction = "A" if direction_raw in {"A", "BUY"} else "D" if direction_raw in {"D", "SELL"} else ""
-            market_cap = float(trade.get("market_cap") or 0)
-            validation_status = str(trade.get("validation_status") or "VALID").upper()
-            type_of_owner = str(trade.get("type_of_owner") or "").lower()
-            profile_status = str(trade.get("profile_status") or "NOT_REQUESTED").upper()
-
-            # 1. Trade Value Score (35%)
-            min_value, max_value = 100_000, 10_000_000
-            trade_value_score = min(1.0, max(0.0, (trade_value - min_value) / (max_value - min_value)))
-
-            # 2. Direction Score (20%)
-            direction_score = 1.0 if direction == "A" else (0.5 if direction == "D" else 0.0)
-
-            # 3. MarketCap Score (15%)
-            min_mcap, max_mcap = 100_000_000, 500_000_000_000
-            market_cap_score = min(1.0, max(0.0, (market_cap - min_mcap) / (max_mcap - min_mcap)))
-
-            # 4. Market Validity Score (15%)
-            validity_score = 0.0
-            if validation_status == "VALID":
-                validity_score += 0.5
-            if profile_status == "FETCHED":
-                validity_score += 0.5
-            validity_score = min(1.0, validity_score)
-
-            # 5. Insider Role Score (15%)
-            role_score = 0.0
-            if "officer" in type_of_owner or "director" in type_of_owner or "ceo" in type_of_owner or "cfo" in type_of_owner:
-                role_score = 1.0
-            else:
-                role_score = 0.5
-
-            # Gewichtete Aggregation: 0-100
-            score_value = (
-                trade_value_score * SCORE_WEIGHT_TRADE_VALUE +
-                direction_score * SCORE_WEIGHT_DIRECTION +
-                market_cap_score * SCORE_WEIGHT_MARKET_CAP +
-                validity_score * SCORE_WEIGHT_MARKET_VALIDITY +
-                role_score * SCORE_WEIGHT_INSIDER_ROLE
-            ) * 100
-            score_value = round(float(score_value), 2)
-            score_class = _classify_score(score_value)
-            return score_value, score_class
-        except (TypeError, ValueError, KeyError, AttributeError):
-            return 0.0, None
+        """Berechnet den Gesamtscore für einen Trade basierend auf der diskreten Domain-Logik."""
+        if isinstance(trade, pd.Series):
+            trade = trade.to_dict()
+        return compute_discrete_score(trade)
 
     def _ensure_trade_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normalisiert UI-relevante Pflichtfelder defensiv für Explorer und Detailansicht."""
@@ -401,15 +350,63 @@ class AnalysisService:
         # Rohdaten mit Group-ID mitschicken
         raw_rows = trades.to_dict(orient="records")
         
-        note = "Profildaten verfügbar." if profile else "Unternehmensprofil derzeit nicht verfügbar"
-        if not profile:
-            LOGGER.warning("Company lookup symbol=%s blieb leer source=%s", normalized_symbol, profile_source)
-        
         return AnalysisResult(
-            title=f"Ticker-Detail {normalized_symbol}",
+            title=f"Detail für {normalized_symbol}",
             metrics=metrics,
             rows=rows,
             raw_rows=raw_rows,
             company_profile=profile,
-            note=note,
+            note=f"Quelle: {profile_source}"
         )
+
+    def compute_insider_quality(self, reporting_name: str) -> dict | None:
+        """Berechnet Kennzahlen zur Qualität eines Insiders (Requirement 4.4)."""
+        if not reporting_name:
+            return None
+            
+        trades = self.trade_repo.fetch_trades(filters={"reporting_name": reporting_name}, limit=1000)
+        if trades.empty:
+            return None
+            
+        trades = self._ensure_trade_columns(trades)
+        
+        # 1. Anzahl historischer Trades
+        trade_count = len(trades)
+        
+        # 2. Durchschnittlicher Score
+        avg_score = float(trades["score"].dropna().mean()) if "score" in trades.columns else 0.0
+        
+        # 3. Anteil Gate PASS
+        gate_pass_count = (trades["gate_status"].fillna("").astype(str).str.upper() == "PASS").sum()
+        gate_pass_share = gate_pass_count / trade_count if trade_count > 0 else 0.0
+        
+        # 4. Anteil BUY
+        buy_count = (trades["direction"] == "BUY").sum()
+        buy_share = buy_count / trade_count if trade_count > 0 else 0.0
+        
+        # 5. Median Trade Value
+        median_value = float(trades["trade_value_estimated"].dropna().median()) if "trade_value_estimated" in trades.columns else 0.0
+        
+        # 6. Anteil Trades in dashboard-validem Bereich
+        valid_count = (trades["dashboard_valid"] == True).sum()
+        valid_share = valid_count / trade_count if trade_count > 0 else 0.0
+        
+        # Insider Quality Score (einfache gewichtete Formel)
+        # 40% Avg Score, 30% Gate Pass Share, 20% Valid Share, 10% Buy Share (Kauf ist besserer Indikator)
+        quality_score = (
+            (avg_score / 100.0) * 0.4 +
+            gate_pass_share * 0.3 +
+            valid_share * 0.2 +
+            buy_share * 0.1
+        ) * 100
+        
+        return {
+            "reporting_name": reporting_name,
+            "trade_count": trade_count,
+            "avg_score": round(avg_score, 2),
+            "gate_pass_share": round(gate_pass_share * 100, 1),
+            "buy_share": round(buy_share * 100, 1),
+            "median_value": round(median_value, 2),
+            "valid_share": round(valid_share * 100, 1),
+            "quality_score": round(quality_score, 2)
+        }

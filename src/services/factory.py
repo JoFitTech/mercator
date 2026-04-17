@@ -115,6 +115,7 @@ class ServiceFactory:
                     trade_mysql_repo=trade_repo,
                     company_mysql_repo=company_repo,
                     profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
+                    api2_firing_mode=runtime_settings.api2_firing_mode,
                     allow_write=not (settings.review_mode or settings.disable_import),
                     tr_ingestion_service=TradeRepublicUniverseIngestionService(settings, mysql_client),
                     tr_matching_service=TradeRepublicUniverseMatchingService(mysql_client),

@@ -6,6 +6,7 @@ import pandas as pd
 
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
+from src.services.accumulation_service import AccumulationService
 
 
 class DashboardService:
@@ -34,6 +35,7 @@ class DashboardService:
             
         try:
             # Wir rufen fetch_trades mit Filtern auf (ohne dashboard_valid Filter)
+            # Für das Dashboard laden wir genug Daten für die Zeitreihen (letzte 30 Tage)
             trades_df = self.trade_repo.fetch_trades(limit=10000, filters=filters)
         except Exception:
             trades_df = pd.DataFrame()
@@ -49,7 +51,7 @@ class DashboardService:
             valid_df = trades_df[trades_df["dashboard_valid"] == True].copy()
             invalid_df = trades_df[trades_df["dashboard_valid"] == False].copy()
 
-        # KPIs berechnen (basierend auf valid_df)
+        # KPIs berechnen (basierend auf valid_df und all_df)
         kpis = self._compute_kpis(valid_df, trades_df)
 
         # Diagrammdaten vorbereiten (basierend auf valid_df)
@@ -58,6 +60,9 @@ class DashboardService:
         # Diagnose-Infos
         diagnostics = self._compute_diagnostics(trades_df, valid_df, invalid_df, filters)
 
+        # NEU: Kleine feste Vorschau der letzten 10 Trades (akkumuliert)
+        preview_trades = self._get_preview_trades(trades_df)
+
         payload = {
             **kpis,
             **charts,
@@ -65,10 +70,29 @@ class DashboardService:
             "trades_all_scoped": trades_df,
             "trades_valid": valid_df,
             "trades_invalid": invalid_df,
+            "preview_trades": preview_trades,
             "last_update": self._get_last_update_str(trades_df),
         }
         
         return payload
+
+    def _get_preview_trades(self, df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+        """Erzeugt eine akkumulierte Vorschau der letzten Trades."""
+        if df.empty:
+            return pd.DataFrame()
+            
+        # Akkumulation nutzen (window_days=1 für "aufeinanderfolgende Tage")
+        # Laut Requirement 3.5: "aufeinanderfolgende Tage ... gleiche Person, gleiches Unternehmen, gleiche Richtung"
+        accumulated = AccumulationService.accumulate_trades(df, window_days=1)
+        
+        if accumulated.empty:
+            return pd.DataFrame()
+            
+        # Sortieren nach neuestem Datum
+        accumulated = accumulated.sort_values("accumulation_start_date", ascending=False)
+        
+        # Auf limit begrenzen
+        return accumulated.head(limit)
 
     def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Bereitet den DataFrame für die Dashboard-Logik vor."""

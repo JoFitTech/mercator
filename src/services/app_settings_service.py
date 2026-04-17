@@ -23,6 +23,7 @@ class RuntimeSettings:
     profile_gate_filter_statuses: tuple[str, ...]
     profile_ttl_days: int
     lookup_mode: str
+    api2_firing_mode: str = "PASS + PENDING"
 
 
 class AppSettingsService:

@@ -185,6 +185,25 @@ class CompanyRepository:
                 cursor.execute(sql, params)
             conn.commit()
 
+    def list_active_companies(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
+        """Liefert Unternehmen, zu denen mindestens ein Insider-Trade vorliegt (Requirement 6)."""
+        query = """
+            SELECT 
+                c.*,
+                COUNT(t.id) as trade_count,
+                MAX(t.transaction_date) as last_trade_date
+            FROM companies c
+            JOIN insider_trades t ON c.company_key = t.company_key
+            GROUP BY c.company_key
+            ORDER BY last_trade_date DESC
+            LIMIT %s OFFSET %s
+        """
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (limit, offset))
+                rows = cursor.fetchall()
+                return self._rows_to_dicts(cursor, rows)
+
     def get_company_by_symbol(self, symbol: str) -> dict[str, Any] | None:
         """Lädt genau ein Unternehmensprofil über das Symbol.
 
@@ -292,7 +311,7 @@ class InsiderTradeRepository:
                 company_key, symbol_at_trade, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, validation_status, gate_status, gate_reason, score, score_class,
+                trade_value_estimated, validation_status, dashboard_valid, gate_status, gate_reason, score, score_class,
                 profile_status, profile_reason, source_url,
                 trade_republic_universe_status, trade_republic_match_method, trade_republic_match_confidence,
                 trade_republic_source_refreshed_at, trade_republic_reference_isin, trade_republic_reference_name,
@@ -301,7 +320,7 @@ class InsiderTradeRepository:
                 %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(validation_status)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
+                %(trade_value_estimated)s, %(validation_status)s, %(dashboard_valid)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
                 %(profile_status)s, %(profile_reason)s, %(source_url)s,
                 %(trade_republic_universe_status)s, %(trade_republic_match_method)s, %(trade_republic_match_confidence)s,
                 %(trade_republic_source_refreshed_at)s, %(trade_republic_reference_isin)s, %(trade_republic_reference_name)s,
@@ -317,6 +336,7 @@ class InsiderTradeRepository:
                 reporting_name = VALUES(reporting_name),
                 type_of_owner = VALUES(type_of_owner),
                 transaction_type = VALUES(transaction_type),
+                acquisition_or_disposition = VALUES(acquisition_or_disposition),
                 direct_or_indirect = VALUES(direct_or_indirect),
                 form_type = VALUES(form_type),
                 security_name = VALUES(security_name),
@@ -324,6 +344,7 @@ class InsiderTradeRepository:
                 price = VALUES(price),
                 trade_value_estimated = VALUES(trade_value_estimated),
                 validation_status = VALUES(validation_status),
+                dashboard_valid = VALUES(dashboard_valid),
                 gate_status = VALUES(gate_status),
                 gate_reason = VALUES(gate_reason),
                 score = VALUES(score),
@@ -343,7 +364,7 @@ class InsiderTradeRepository:
             "company_key", "symbol_at_trade", "filing_date", "transaction_date", "reporting_cik", "company_cik",
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
-            "trade_value_estimated", "validation_status", "gate_status", "gate_reason", "score", "score_class",
+            "trade_value_estimated", "validation_status", "dashboard_valid", "gate_status", "gate_reason", "score", "score_class",
             "profile_status", "profile_reason", "source_url",
             "trade_republic_universe_status", "trade_republic_match_method", "trade_republic_match_confidence",
             "trade_republic_source_refreshed_at", "trade_republic_reference_isin", "trade_republic_reference_name",
@@ -376,13 +397,19 @@ class InsiderTradeRepository:
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
                 trade_value_estimated, validation_status, dashboard_valid, gate_status, gate_reason, score, score_class,
-                profile_status, profile_reason, source_url, dedupe_key, fetched_at
+                profile_status, profile_reason, source_url,
+                trade_republic_universe_status, trade_republic_match_method, trade_republic_match_confidence,
+                trade_republic_source_refreshed_at, trade_republic_reference_isin, trade_republic_reference_name,
+                dedupe_key, fetched_at
             ) VALUES (
                 %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
                 %(trade_value_estimated)s, %(validation_status)s, %(dashboard_valid)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
-                %(profile_status)s, %(profile_reason)s, %(source_url)s, %(dedupe_key)s, %(fetched_at)s
+                %(profile_status)s, %(profile_reason)s, %(source_url)s,
+                %(trade_republic_universe_status)s, %(trade_republic_match_method)s, %(trade_republic_match_confidence)s,
+                %(trade_republic_source_refreshed_at)s, %(trade_republic_reference_isin)s, %(trade_republic_reference_name)s,
+                %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
                 company_key = VALUES(company_key),
@@ -410,6 +437,12 @@ class InsiderTradeRepository:
                 profile_status = VALUES(profile_status),
                 profile_reason = VALUES(profile_reason),
                 source_url = VALUES(source_url),
+                trade_republic_universe_status = VALUES(trade_republic_universe_status),
+                trade_republic_match_method = VALUES(trade_republic_match_method),
+                trade_republic_match_confidence = VALUES(trade_republic_match_confidence),
+                trade_republic_source_refreshed_at = VALUES(trade_republic_source_refreshed_at),
+                trade_republic_reference_isin = VALUES(trade_republic_reference_isin),
+                trade_republic_reference_name = VALUES(trade_republic_reference_name),
                 fetched_at = VALUES(fetched_at)
         """
         fields = [
@@ -417,7 +450,10 @@ class InsiderTradeRepository:
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
             "trade_value_estimated", "validation_status", "dashboard_valid", "gate_status", "gate_reason", "score", "score_class",
-            "profile_status", "profile_reason", "source_url", "dedupe_key", "fetched_at"
+            "profile_status", "profile_reason", "source_url",
+            "trade_republic_universe_status", "trade_republic_match_method", "trade_republic_match_confidence",
+            "trade_republic_source_refreshed_at", "trade_republic_reference_isin", "trade_republic_reference_name",
+            "dedupe_key", "fetched_at"
         ]
         batch_params = [
             {
@@ -466,7 +502,7 @@ class InsiderTradeRepository:
         query = """
             SELECT *
             FROM insider_trades
-            ORDER BY filing_date DESC, fetched_at DESC, id DESC
+            ORDER BY transaction_date DESC, filing_date DESC, fetched_at DESC, id DESC
             LIMIT %s OFFSET %s
         """
         with self._client.connection() as conn:
@@ -490,7 +526,7 @@ class InsiderTradeRepository:
             SELECT *
             FROM insider_trades
             WHERE company_key = %s
-            ORDER BY filing_date DESC, fetched_at DESC, id DESC
+            ORDER BY transaction_date DESC, filing_date DESC, fetched_at DESC, id DESC
             LIMIT %s
         """
         with self._client.connection() as conn:
@@ -542,10 +578,10 @@ class InsiderTradeRepository:
             clauses.append("c.sector = %s")
             params.append(filters["sector"])
         if filters.get("date_from"):
-            clauses.append("t.filing_date >= %s")
+            clauses.append("t.transaction_date >= %s")
             params.append(filters["date_from"])
         if filters.get("date_to"):
-            clauses.append("t.filing_date <= %s")
+            clauses.append("t.transaction_date <= %s")
             params.append(filters["date_to"])
         if filters.get("min_score"):
             clauses.append("t.score >= %s")
@@ -591,7 +627,7 @@ class InsiderTradeRepository:
             FROM insider_trades t
             LEFT JOIN companies c ON c.company_key = t.company_key
             {where_sql}
-            ORDER BY t.filing_date DESC, t.id DESC
+            ORDER BY t.transaction_date DESC, t.filing_date DESC, t.id DESC
             LIMIT %s
         """
         params.append(limit)
