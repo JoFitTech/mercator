@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator
 
 import mysql.connector
 from mysql.connector import Error, MySQLConnection
@@ -48,6 +48,24 @@ class MySqlClient:
                 conn.close()
             except Error:
                 pass
+
+    @contextmanager
+    def get_connection(self) -> Iterator[MySQLConnection]:
+        """Rueckwaertskompatibler Alias fuer bestehende Repository-Aufrufe."""
+
+        with self.connection(include_database=True) as conn:
+            yield conn
+
+    def execute(self, sql: str, params: Any | None = None, *, commit: bool = True) -> int:
+        """Fuehrt ein SQL-Statement aus und committed optional automatisch."""
+
+        with self.connection(include_database=True) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params if params is not None else ())
+                affected_rows = int(getattr(cursor, "rowcount", 0) or 0)
+            if commit:
+                conn.commit()
+        return affected_rows
 
     @staticmethod
     def _query_has_row(cursor, query: str, params: tuple | None = None) -> bool:
