@@ -24,7 +24,7 @@ if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; t
     elif command -v powershell &> /dev/null; then
         PS_CMD="powershell"
     else
-        echo "❌ Fehler: PowerShell nicht gefunden."
+        echo "Fehler: PowerShell nicht gefunden."
         echo ""
         echo "Mögliche Lösungen:"
         echo "  1. Verwende stattdessen das Batch-Skript:"
@@ -42,29 +42,100 @@ if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; t
 
 elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "darwin"* ]]; then
     # Linux oder macOS
-    # Diese Plattformen haben normalerweise kein PowerShell/Docker auf lokaler Maschine,
-    # aber könnten über Docker remote zugreifen
+    # Primär: native Docker-Compose-Befehle.
+    # Fallback: PowerShell (wenn installiert), damit Verhalten konsistent bleibt.
+    COMPOSE_FILE="$SCRIPT_DIR/mercator-compose.yml"
+
+    run_compose() {
+        docker compose -f "$COMPOSE_FILE" "$@"
+    }
+
+    ensure_compose() {
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "Fehler: Docker wurde nicht gefunden."
+            exit 1
+        fi
+    }
+
+    get_app_url() {
+        local ports
+        ports="$(docker ps --filter "name=^/mercator-app$" --format "{{.Ports}}" 2>/dev/null || true)"
+        if [[ "$ports" =~ 127\.0\.0\.1:([0-9]+)-> ]]; then
+            echo "http://localhost:${BASH_REMATCH[1]}"
+        else
+            echo "http://localhost:8501"
+        fi
+    }
+
+    open_url() {
+        local url="$1"
+        if command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "$url" >/dev/null 2>&1 || true
+        elif command -v open >/dev/null 2>&1; then
+            open "$url" >/dev/null 2>&1 || true
+        else
+            echo "Hinweis: Bitte Browser manuell öffnen: $url"
+        fi
+    }
 
     if command -v pwsh &> /dev/null; then
         pwsh -NoProfile -File "$PS1_SCRIPT" -Action "$ACTION" -Service "$SERVICE"
-    elif command -v python3 &> /dev/null; then
-        echo "ℹ️  PowerShell nicht verfügbar, verwende Python-Alternative..."
-        # Fallback: Python-basierte Implementierung (falls vorhanden)
-        python3 -m src.scripts.cli "$ACTION" "$SERVICE" 2>/dev/null || {
-            echo "Fehler: Weder PowerShell noch Python CLI verfügbar."
-            echo "Installiere PowerShell: https://github.com/PowerShell/PowerShell/releases"
-            exit 1
-        }
     else
-        echo "❌ Fehler: PowerShell nicht gefunden."
-        echo "Installiere PowerShell: https://github.com/PowerShell/PowerShell/releases"
-        exit 1
+        ensure_compose
+        case "$ACTION" in
+            start)
+                run_compose up -d --wait
+                echo "Mercator gestartet. App: $(get_app_url)"
+                ;;
+            stop)
+                run_compose down
+                echo "Mercator gestoppt."
+                ;;
+            restart)
+                run_compose down
+                run_compose up -d --wait
+                echo "Mercator neu gestartet. App: $(get_app_url)"
+                ;;
+            status)
+                run_compose ps
+                ;;
+            logs)
+                run_compose logs -f "$SERVICE"
+                ;;
+            init-db)
+                run_compose up -d --wait app mysql mongo
+                run_compose exec app python -m src.scripts.init_mysql_schema
+                ;;
+            doctor)
+                run_compose up -d --wait app
+                run_compose exec app python -m src.scripts.db_doctor
+                ;;
+            open)
+                open_url "$(get_app_url)"
+                ;;
+            cleanup)
+                run_compose down --remove-orphans
+                echo "Cleanup abgeschlossen."
+                ;;
+            e2e-install)
+                python3 -m pip install -r requirements-dev.txt
+                python3 -m playwright install chromium
+                ;;
+            e2e-smoke)
+                MERCATOR_E2E_BASE_URL="$(get_app_url)" python3 -m pytest tests/e2e/ -m smoke -v
+                ;;
+            e2e)
+                MERCATOR_E2E_BASE_URL="$(get_app_url)" python3 -m pytest tests/e2e/ -v
+                ;;
+            *)
+                echo "Fehler: Unbekannte Aktion: $ACTION"
+                exit 1
+                ;;
+        esac
     fi
 else
     # Unbekanntes System
-    echo "❌ Unbekanntes Betriebssystem: $OSTYPE"
+    echo "Fehler: Unbekanntes Betriebssystem: $OSTYPE"
     echo "Dieses Skript wird auf Linux, macOS und Windows (Git Bash) unterstützt."
     exit 1
 fi
-
-
