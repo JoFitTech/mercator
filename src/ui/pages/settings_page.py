@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import streamlit as st
-from src.services.app_settings_service import AppSettingsService, RuntimeSettings
+from src.services.app_settings_service import AppSettingsService
 from src.domain_rules import ScoreGatePolicy
-from src.preprocessing.gate_evaluator import GATE_FAIL, GATE_PASS, GATE_PENDING
-from src.ui.components.context_bar import render_context_bar
-from src.ui.components.page_scaffold import render_error_state, render_page_header
+from src.ui.components.page_scaffold import render_page_header
 
 def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
     """Rendert die zentralen App-Einstellungen mit Fokus auf Fachlogik (Requirement 8.1)."""
