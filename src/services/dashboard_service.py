@@ -35,9 +35,9 @@ class DashboardService:
             del filters["dashboard_valid"]
             
         try:
-            # Wir rufen fetch_trades mit Filtern auf (ohne dashboard_valid Filter)
-            # Für das Dashboard laden wir genug Daten für die Zeitreihen (letzte 30 Tage)
-            trades_df = self.trade_repo.fetch_trades(limit=10000, filters=filters)
+            # Dashboard braucht Company-Felder (sector, industry, market_cap) für Aggregation.
+            # Daher verwenden wir fetch_trades_enriched_with_company für korrektes Chart-Rendering.
+            trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=10000, filters=filters)
         except Exception:
             trades_df = pd.DataFrame()
             
@@ -127,10 +127,12 @@ class DashboardService:
             df["trade_value_estimated"] = 0
         df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce").fillna(0)
 
-        # sector sicherstellen
+        # sector sicherstellen und normalisieren (kann NULL sein wenn LEFT JOIN keine Company findet)
         if "sector" not in df.columns:
             df["sector"] = None
-        
+        df["sector"] = df["sector"].fillna("Unknown").astype(str).str.strip()
+        df.loc[df["sector"].isin(["", "None", "UNKNOWN", "N/A", "null"]), "sector"] = "Unknown"
+
         # Dashboard Validity
         if "dashboard_valid" not in df.columns:
             # Fallback-Logik

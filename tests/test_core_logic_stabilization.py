@@ -46,9 +46,9 @@ def test_import_service_profile_mapping():
     assert normalized["full_time_employees"] == "100000"
 
 def test_dashboard_gate_pass_kpi():
-    # Mock repo with some trades
+    # Mock repo with some trades (Dashboard nutzt fetch_trades_enriched_with_company)
     class MockRepo:
-        def fetch_trades(self, limit=2000, filters=None):
+        def fetch_trades_enriched_with_company(self, limit=2000, filters=None):
             return pd.DataFrame([
                 {"gate_status": "PASS", "transaction_type": "Buy", "sector": "Tech",
                  "filing_date": "2024-01-01", "profile_status": "FETCHED", "company_key": "CIK:1"},
@@ -82,12 +82,15 @@ def test_dashboard_gate_pass_kpi():
 
 def test_dashboard_sector_normalization_to_unknown():
     class MockRepo:
-        def fetch_trades(self, limit=2000):
+        def fetch_trades_enriched_with_company(self, limit=2000, filters=None):
             return pd.DataFrame(
                 [
-                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": None, "filing_date": "2024-01-01"},
-                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": "", "filing_date": "2024-01-02"},
-                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": "   ", "filing_date": "2024-01-03"},
+                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": None, "filing_date": "2024-01-01",
+                     "profile_status": "FETCHED", "company_key": "CIK:1"},
+                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": "", "filing_date": "2024-01-02",
+                     "profile_status": "FETCHED", "company_key": "CIK:1"},
+                    {"gate_status": "PASS", "transaction_type": "Buy", "sector": "   ", "filing_date": "2024-01-03",
+                     "profile_status": "FETCHED", "company_key": "CIK:1"},
                 ]
             )
 
