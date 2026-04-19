@@ -28,17 +28,17 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - `pytest`
 
 ## Projektstruktur
-- `streamlit_app.py` – Einstiegspunkt
+- `streamlit_app.py` – Einstiegspunkt (Bootstrap, Navigation, Page-Dispatch)
+- `src/app/` – Bootstrap, Navigation, Auto-Import-Logik
 - `src/config/` – App-, API- und DB-Konfiguration
-- `src/models/` – Dataclasses (`InsiderTrade`, `Company`, `AnalysisResult`)
-- `src/data_sources/` – FMP-Client (freigegebene Endpunkte)
+- `src/data_sources/` – FMP-Client (Kern-Provider); Alpha Vantage & Polygon optional
 - `src/preprocessing/` – Cleaning, Normalization, Deduplication, Gate-Evaluation
 - `src/db/` – MongoDB-/MySQL-Clients und Repositories
-- `src/services/` – Import-, Dashboard- und Analyse-Logik
-- `src/ui/pages/` – Dashboard, Explorer, Ticker-Detail, Methodik
+- `src/services/` – Import-, Dashboard-, Analyse- und Einstellungs-Logik
+- `src/ui/pages/` – Dashboard, Trade-Explorer, Unternehmen, Einstellungen, Methodik, Admin
 - `src/ui/components/` – Wiederverwendbare UI-Bausteine
-- `src/utils/` – Hilfsfunktionen
-- `tests/` – robuste Basistests
+- `src/utils/` – Hilfsfunktionen (inkl. `format_mcap`, DataFrame-Utils)
+- `tests/` – Unit-Tests (Filter, Auto-Import, Core-Logik)
 - `tests/e2e/` – Browserbasierte End-to-End-Tests mit Playwright
 
 ## Dokumentation
@@ -62,15 +62,29 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 7. Streamlit-Seiten lesen über `AnalysisService` aus den Repositories.
 
 ## UI & Features
-- **Dashboard**: Zentrale Kennzahlen, Sektoren-Verteilung, Volumen-Trends (Buy vs. Sell) und Zeitverläufe.
-- **Explorer (Screener)**: Kompakte, eckige Tabellenansicht mit Fokus auf Scanbarkeit.
-    - Akkumulations-Toggle: Zusammenfassung konsekutiver Trades einer Person.
-    - Filter für Ticker, Insider, Richtung und Mindestwert.
-    - **NEU**: Zeilenselektion für direkten Drilldown in die Detailansicht.
-- **Ticker-Detailansicht (Deep Dive)**: 
-    - Strukturierte Tabs für Übersicht, Firmenkontext und Rohdaten.
-    - Detaillierte Auflistung von Akkumulationsgruppen und deren Einzeltrades.
-    - Sichere Formatierung von Kennzahlen (Kompaktwerte wie 1.25M).
+
+Die App besteht aus folgenden Seiten (Sidebar-Navigation):
+
+| Seite | Zweck |
+|---|---|
+| **📊 Dashboard** | Kennzahlen-Übersicht, Sektor-Verteilung, Volumen-Trends |
+| **🕵️ Trade-Explorer** | Operative Hauptarbeitsfläche – Filterbarer Trade-Screener mit Drilldown |
+| **🏢 Unternehmen** | Unternehmens-Übersicht mit Aggregationsfeldern (Trade-Count, letzter Trade) |
+| **⚙️ Einstellungen** | Fachliche Regelwerke (Gate-Policy, Score-Schwellen) |
+| **📖 Methodik** | Technische Dokumentation der Pipeline und des Scoring-Modells |
+| **🛠️ Admin** | Import-Steuerung, Scheduler, Datenbank-Status und Wartung |
+
+### Trade-Explorer Filter
+- Symbol (LIKE-Suche auf `symbol_at_trade`)
+- Insider-Name, Gate-Status, Validierungs-Status
+- Richtung (Kauf/Verkauf), Mindestscore
+- Trade Republic Universe Status
+- Datumsbereich
+
+### Auto-Import Scheduler
+- Konfigurierbar im Admin-Tab „Import-Konfiguration"
+- Folgt `RuntimeSettings`: `auto_import_enabled`, `auto_import_interval_minutes`, `auto_import_on_start`
+- Deaktiviert per Default (sicherer Start)
 
 ## Lokale Einrichtung
 ### Windows (Normale cmd.exe oder PowerShell – empfohlen)

@@ -123,10 +123,25 @@ class InsiderTradeRepository:
                 return self._rows_to_dicts(cursor, rows)
 
     def fetch_trades(self, filters: dict[str, Any] | None = None, limit: int = 500) -> pd.DataFrame:
+        """Lädt Trades mit vollständig parametrisierten Filtern.
+
+        Unterstützte Filter-Keys:
+        - ``symbol``          → Tickerfeld ``symbol_at_trade`` (LIKE, case-insensitiv)
+        - ``company_key``     → interner Unternehmensschlüssel (Exakt-Match, nur für interne Nutzung)
+        - ``reporting_name``  → Name des Insiders (LIKE)
+        - ``gate_status``     → Exakt-Match, z.B. "PASS" / "FAIL"
+        - ``validation_status`` → Exakt-Match, z.B. "VALID"
+        - ``acquisition_or_disposition`` → Exakt-Match, z.B. "A" / "D"
+        - ``min_score``       → Mindestscore (>=), wird ignoriert wenn 0
+        - ``trade_republic_universe_status`` → Exakt-Match
+        - ``date_from``       → transaction_date >=
+        - ``date_to``         → transaction_date <=
+        - ``dashboard_valid`` → Boolean-Flag
+        """
         sql = "SELECT * FROM insider_trades"
-        conditions = []
-        params = []
-        
+        conditions: list[str] = []
+        params: list[Any] = []
+
         if filters:
             if filters.get("date_from"):
                 conditions.append("transaction_date >= %s")
@@ -134,19 +149,43 @@ class InsiderTradeRepository:
             if filters.get("date_to"):
                 conditions.append("transaction_date <= %s")
                 params.append(filters["date_to"])
+            # P0.2: UI-Symbolfilter läuft auf symbol_at_trade (Tickerfeld), nicht auf company_key
             if filters.get("symbol"):
+                conditions.append("symbol_at_trade LIKE %s")
+                params.append(f"%{filters['symbol']}%")
+            # Interner company_key-Filter (nicht über UI, nur programmatisch)
+            if filters.get("company_key"):
                 conditions.append("company_key = %s")
-                params.append(filters["symbol"])
+                params.append(filters["company_key"])
+            if filters.get("reporting_name"):
+                conditions.append("reporting_name LIKE %s")
+                params.append(f"%{filters['reporting_name']}%")
+            if filters.get("gate_status"):
+                conditions.append("gate_status = %s")
+                params.append(filters["gate_status"])
+            if filters.get("validation_status"):
+                conditions.append("validation_status = %s")
+                params.append(filters["validation_status"])
+            if filters.get("acquisition_or_disposition"):
+                conditions.append("acquisition_or_disposition = %s")
+                params.append(filters["acquisition_or_disposition"])
+            min_score = filters.get("min_score")
+            if min_score is not None and min_score > 0:
+                conditions.append("score >= %s")
+                params.append(min_score)
+            if filters.get("trade_republic_universe_status"):
+                conditions.append("trade_republic_universe_status = %s")
+                params.append(filters["trade_republic_universe_status"])
             if filters.get("dashboard_valid") is not None:
                 conditions.append("dashboard_valid = %s")
                 params.append(1 if filters["dashboard_valid"] else 0)
 
         if conditions:
             sql += " WHERE " + " AND ".join(conditions)
-        
-        sql += " ORDER BY transaction_date DESC LIMIT %s"
+
+        sql += " ORDER BY transaction_date DESC, filing_date DESC LIMIT %s"
         params.append(limit)
-        
+
         with self._client.get_connection() as conn:
             return pd.read_sql(sql, conn, params=params)
 

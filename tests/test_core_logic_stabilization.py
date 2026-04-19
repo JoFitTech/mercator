@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from src.preprocessing.cleaning import normalize_insider_trade
 from src.services.import_service import ImportService
 from src.services.dashboard_service import DashboardService
-from src.ui.pages.ticker_detail_page import format_mcap
+# P0.4: format_mcap ist jetzt in dataframe_utils (ticker_detail_page existiert nicht mehr)
+from src.utils.dataframe_utils import format_mcap
 
 def test_format_mcap_none():
     assert format_mcap(None, "USD") == "- USD"
@@ -47,16 +48,22 @@ def test_import_service_profile_mapping():
 def test_dashboard_gate_pass_kpi():
     # Mock repo with some trades
     class MockRepo:
-        def fetch_trades(self, limit=2000):
+        def fetch_trades(self, limit=2000, filters=None):
             return pd.DataFrame([
-                {"gate_status": "PASS", "transaction_type": "Buy", "sector": "Tech", "filing_date": "2024-01-01"},
-                {"gate_status": "FAIL", "transaction_type": "Sale", "sector": "Health", "filing_date": "2024-01-02"},
-                {"gate_status": "PASS", "transaction_type": "Buy", "sector": "Tech", "filing_date": "2024-01-03"},
-                {"gate_status": "PENDING", "transaction_type": "Sale", "sector": "Energy", "filing_date": "2024-01-04"}
+                {"gate_status": "PASS", "transaction_type": "Buy", "sector": "Tech",
+                 "filing_date": "2024-01-01", "profile_status": "FETCHED", "company_key": "CIK:1"},
+                {"gate_status": "FAIL", "transaction_type": "Sale", "sector": "Health",
+                 "filing_date": "2024-01-02", "profile_status": "NOT_REQUESTED", "company_key": "CIK:2"},
+                {"gate_status": "PASS", "transaction_type": "Buy", "sector": "Tech",
+                 "filing_date": "2024-01-03", "profile_status": "FETCHED", "company_key": "CIK:1"},
+                {"gate_status": "PENDING", "transaction_type": "Sale", "sector": "Energy",
+                 "filing_date": "2024-01-04", "profile_status": "NOT_REQUESTED", "company_key": "CIK:3"}
             ])
         def count_all(self):
             return 4
-    
+        def get_extreme_dates(self):
+            return {"min_date": "2024-01-01", "max_date": "2024-01-04"}
+
     class MockRawRepo:
         def count_all(self):
             return 10
@@ -69,8 +76,8 @@ def test_dashboard_gate_pass_kpi():
     )
     
     payload = service.build_dashboard_payload()
-    # Nur PASS wird gezählt.
-    assert payload["gate_pass_records"] == 2
+    # P0.4: aktueller Key ist gate_passed_count (nicht gate_pass_records)
+    assert payload["gate_passed_count"] == 2
 
 
 def test_dashboard_sector_normalization_to_unknown():
@@ -87,6 +94,9 @@ def test_dashboard_sector_normalization_to_unknown():
         def count_all(self):
             return 3
 
+        def get_extreme_dates(self):
+            return {"min_date": "2024-01-01", "max_date": "2024-01-03"}
+
     service = DashboardService(
         raw_repo=None,
         company_mongo_repo=None,
@@ -94,8 +104,15 @@ def test_dashboard_sector_normalization_to_unknown():
         company_repo=MockRepo(),
     )
     payload = service.build_dashboard_payload()
-    sectors = set(payload["sector_distribution"]["sector"].astype(str).tolist())
+    # P0.4: aktueller Key ist sector_distribution_buy / sector_distribution_sell
+    # (nicht sector_distribution). Beide müssen vorhanden sein.
+    assert "sector_distribution_buy" in payload, "sector_distribution_buy fehlt im Payload"
+    assert "sector_distribution_sell" in payload, "sector_distribution_sell fehlt im Payload"
 
-    assert "Unknown" in sectors
-    assert "None" not in sectors
+    # Alle Sektoren in beiden Charts müssen "Unknown" enthalten (weil alle Sektoren leer/None sind)
+    for key in ("sector_distribution_buy", "sector_distribution_sell"):
+        df_chart = payload[key]
+        if not df_chart.empty:
+            sectors = set(df_chart["sector"].astype(str).tolist())
+            assert "None" not in sectors, f"'None'-String darf nicht im {key} vorkommen"
 

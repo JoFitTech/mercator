@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import pandas as pd
 
 
@@ -16,3 +17,19 @@ def ensure_columns(df: pd.DataFrame, required_columns: list[str]) -> pd.DataFram
         if column not in out.columns:
             out[column] = pd.NA
     return out
+
+
+def format_mcap(value: float | int | None, currency: str = "USD") -> str:
+    """Formatiert einen Market-Cap-Wert lesbar mit Währung.
+
+    Gibt ``'- <currency>'`` zurück, wenn der Wert None oder NaN ist.
+    """
+    if value is None:
+        return f"- {currency}"
+    try:
+        if math.isnan(float(value)):
+            return f"- {currency}"
+    except (TypeError, ValueError):
+        return f"- {currency}"
+    return f"{int(value):,} {currency}"
+

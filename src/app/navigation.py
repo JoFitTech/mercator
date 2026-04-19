@@ -5,7 +5,7 @@ import streamlit as st
 from typing import Literal
 
 # Typer-Definition für Seiten
-PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Trade-Detail", "Unternehmens-Detail"]
+PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Methodik", "Trade-Detail", "Unternehmens-Detail"]
 
 def render_navigation_sidebar():
     """Rendert die Hauptnavigation in der Sidebar."""
@@ -20,7 +20,8 @@ def render_navigation_sidebar():
         "🕵️ Trade-Explorer": "Trades",
         "🏢 Unternehmen": "Unternehmen",
         "⚙️ Einstellungen": "Einstellungen",
-        "🛠️ Admin": "Admin"
+        "📖 Methodik": "Methodik",
+        "🛠️ Admin": "Admin",
     }
     
     # Finde Index der aktuellen Seite für das Radio-Menü

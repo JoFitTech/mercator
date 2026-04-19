@@ -141,9 +141,12 @@ class ServiceFactory:
             api_usage_service=self.create_api_usage_service()
         )
         
-        # Enrichment Service
-        av_client = AlphaVantageClient(self.settings.enrichment.alpha_vantage_api_key) if self.settings.enrichment.alpha_vantage_api_key else None
-        poly_client = PolygonClient(self.settings.enrichment.polygon_api_key) if self.settings.enrichment.polygon_api_key else None
+        # Optionale Enrichment-Provider (Alpha Vantage, Polygon) – nur wenn API-Key gesetzt.
+        # Diese Provider sind KEIN MVP-Kern. FMP ist der primäre Datenprovider.
+        av_key = self.settings.enrichment.alpha_vantage_api_key if hasattr(self.settings, "enrichment") else None
+        poly_key = self.settings.enrichment.polygon_api_key if hasattr(self.settings, "enrichment") else None
+        av_client = AlphaVantageClient(av_key) if av_key else None
+        poly_client = PolygonClient(poly_key) if poly_key else None
         enrichment_service = CompanyEnrichmentService(fmp_client, av_client, poly_client)
 
         return ImportService(

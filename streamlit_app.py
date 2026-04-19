@@ -14,6 +14,7 @@ from src.ui.pages.company_detail_page import render_company_detail_page
 from src.ui.pages.trade_detail_page import render_trade_detail_page
 from src.ui.pages.admin_page import render_admin_page
 from src.ui.pages.settings_page import render_settings_page
+from src.ui.pages.methodology_page import render_methodology_page
 
 def main():
     """Haupt-Einstiegspunkt der Anwendung."""
@@ -24,14 +25,20 @@ def main():
     
     # 2. Sidebar Navigation & Status
     # Requirement 5.1: Navigation & Systemstatus in eigene Module ausgelagert.
-    advanced_mode = st.sidebar.toggle("Advanced Mode", value=False)
+    # P1.2: advanced_mode zentral in session_state schreiben, damit alle Seiten konsistent lesen können
+    if "advanced_mode" not in st.session_state:
+        st.session_state["advanced_mode"] = False
+    advanced_mode = st.sidebar.toggle("Advanced Mode", value=st.session_state["advanced_mode"])
+    st.session_state["advanced_mode"] = advanced_mode
+
     nav_target = render_navigation_sidebar()
     render_system_status_sidebar(db_status, mysql_res, advanced_mode=advanced_mode)
-    
+
     # 3. Background Tasks (Auto-Import)
-    # Requirement 2 & 5.1: Auto-Import-Logik in eigenes Modul verschoben.
+    # P0.3: Auto-Import folgt jetzt den RuntimeSettings (auto_import_enabled, interval, on_start)
     if db_status.is_ingestion_available and not settings.disable_import:
-        handle_auto_import(factory.create_import_service())
+        runtime_settings = factory.create_app_settings_service().load()
+        handle_auto_import(factory.create_import_service(), runtime=runtime_settings)
         render_import_status_toast()
         
     # 4. Page Routing (Page Dispatch)
@@ -49,6 +56,8 @@ def main():
         render_companies_page(factory.create_company_repository())
     elif nav_target == "Einstellungen":
         render_settings_page(factory.create_app_settings_service())
+    elif nav_target == "Methodik":
+        render_methodology_page()
     elif nav_target == "Admin":
         render_admin_page(
             settings=settings,

@@ -144,7 +144,18 @@ class CompanyRepository:
         self._client.execute(sql, params)
 
     def list_active_companies(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
-        sql = "SELECT * FROM companies WHERE is_actively_trading = 1 LIMIT %s OFFSET %s"
+        """Lädt aktive Unternehmen mit aggregierten Trade-Statistiken (trade_count, last_trade_date)."""
+        sql = """
+            SELECT c.*,
+                   COUNT(t.id)              AS trade_count,
+                   MAX(t.transaction_date)  AS last_trade_date
+            FROM companies c
+            LEFT JOIN insider_trades t ON t.company_key = c.company_key
+            WHERE c.is_actively_trading = 1
+            GROUP BY c.company_key
+            ORDER BY trade_count DESC
+            LIMIT %s OFFSET %s
+        """
         with self._client.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(sql, (limit, offset))
