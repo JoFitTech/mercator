@@ -4,11 +4,15 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from src.services.analysis_service import AnalysisService
+from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
 from src.ui.components.status_badges import score_class_badge, status_badge
 
-def render_trade_detail_page(service: AnalysisService, dedupe_key: str | None = None) -> None:
+def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | None = None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Detailseite für einen einzelnen Trade."""
+    if service is None:
+        render_empty_state("Trade-Details sind derzeit nicht verfügbar, da die Analyse-Datenbank offline ist.")
+        return
     if not dedupe_key:
         dedupe_key = st.session_state.get("selected_trade_key")
         
@@ -72,7 +76,7 @@ def render_trade_detail_page(service: AnalysisService, dedupe_key: str | None = 
             st.write("**Gate Status:**", trade.get("gate_status"))
             st.write("**Gate Reason:**", trade.get("gate_reason") or "N/A")
             st.write("**Validation:**", trade.get("validation_status"))
-            st.write("**Dashboard Valid:**", "✅" if trade.get("dashboard_valid") else "❌")
+            st.write("**Dashboard Valid:**", "Ja" if trade.get("dashboard_valid") else "Nein")
             st.write("**Dedupe Key:**", f"`{trade.get('dedupe_key')}`")
             if trade.get("source_url"):
                 st.link_button("Original SEC Filing öffnen", trade.get("source_url"))
@@ -91,6 +95,6 @@ def render_trade_detail_page(service: AnalysisService, dedupe_key: str | None = 
         st.info("Keine ausreichende Historie für Qualitäts-Metriken.")
 
     # Zurück Button
-    if st.button("← Zurück zur Übersicht", use_container_width=True):
+    if st.button("Zurück zur Übersicht", use_container_width=True):
         st.session_state["nav_target"] = "Trades"
         st.rerun()

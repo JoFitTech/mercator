@@ -68,5 +68,5 @@ def render_methodology_page() -> None:
 
     st.markdown("---")
     st.info(
-        "🎓 Projekt im Rahmen des Moduls Datenbanken 2. Fokus auf hybride Datenhaltung und Performance."
+        "Projekt im Rahmen des Moduls Datenbanken 2. Fokus auf hybride Datenhaltung und Performance."
     )

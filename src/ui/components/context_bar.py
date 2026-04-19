@@ -42,7 +42,7 @@ def render_scope_bar(
 def render_filter_chip_bar(active_filters: dict[str, Any] | None = None) -> None:
     """Rendert aktive Filter als Chips."""
     if not active_filters:
-        st.caption("🌍 Gesamter Markt")
+        st.caption("Gesamter Markt")
         return
 
     display_chips = []
@@ -67,7 +67,7 @@ def render_filter_chip_bar(active_filters: dict[str, Any] | None = None) -> None
         ])
         st.markdown(f'<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 1rem;">{chips_html}</div>', unsafe_allow_html=True)
     else:
-        st.caption("🌍 Gesamter Markt (keine Filter aktiv)")
+        st.caption("Gesamter Markt (keine Filter aktiv)")
 
 def render_status_bar(last_update: str | None = None, mysql_target: str | None = None) -> None:
     """Rendert eine Status-Bar mit Last Update Info."""

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.config.settings import AppSettings, FmpConfig, GateConfig, MongoConfig, MySqlTargetSettings, Settings
+from src.config.settings import AppSettings, EnrichmentConfig, FmpConfig, GateConfig, MongoConfig, MySqlTargetSettings, Settings
 from src.domain_rules import ScoreGatePolicy, classify_score
 from src.services.app_settings_service import AppSettingsService
 
@@ -34,6 +34,7 @@ def _build_settings() -> AppSettings:
         mysql=mysql_settings,
         mongo=MongoConfig(active_target="local", uri="mongodb://localhost:27017", database="mercator"),
         fmp=FmpConfig(base_url="https://example", api_key="abc", api_key_source="env"),
+        enrichment=EnrichmentConfig(),
         gate=GateConfig(),
         review_mode=False,
         disable_import=False,

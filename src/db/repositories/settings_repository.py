@@ -12,6 +12,16 @@ class AppFilterSettingsRepository:
     def __init__(self, client: MySqlClient) -> None:
         self._client = client
 
+    def _require_connection_manager(self):
+        client = getattr(self, "_client", None)
+        if client is None:
+            raise RuntimeError("SettingsRepository ist nicht initialisiert: MySQL-Client fehlt.")
+        if hasattr(client, "get_connection"):
+            return client.get_connection()
+        if hasattr(client, "connection"):
+            return client.connection(include_database=True)
+        raise RuntimeError("SettingsRepository kann keine MySQL-Verbindung aufbauen: get_connection()/connection() fehlt.")
+
     @staticmethod
     def _encode_json(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, default=str)
@@ -26,7 +36,7 @@ class AppFilterSettingsRepository:
 
     def load(self, setting_scope: str, setting_key: str) -> Any:
         query = "SELECT setting_value_json FROM app_filter_settings WHERE setting_scope = %s AND setting_key = %s LIMIT 1"
-        with self._client.get_connection() as conn:
+        with self._require_connection_manager() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (setting_scope, setting_key))
                 row = cursor.fetchone()
@@ -34,7 +44,7 @@ class AppFilterSettingsRepository:
 
     def list_all(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
         query = "SELECT * FROM app_filter_settings ORDER BY setting_scope, setting_key LIMIT %s OFFSET %s"
-        with self._client.get_connection() as conn:
+        with self._require_connection_manager() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (limit, offset))
                 rows = cursor.fetchall()
@@ -66,13 +76,26 @@ class AppFilterSettingsRepository:
             "created_at": created_at,
             "updated_at": updated_at,
         }
-        self._client.execute(sql, params)
+        with self._require_connection_manager() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+            conn.commit()
 
 class AppRuntimePreferencesRepository:
     """Persistiert allgemeine Laufzeitpräferenzen mit Business-Key `preference_key`."""
 
     def __init__(self, client: MySqlClient) -> None:
         self._client = client
+
+    def _require_connection_manager(self):
+        client = getattr(self, "_client", None)
+        if client is None:
+            raise RuntimeError("SettingsRepository ist nicht initialisiert: MySQL-Client fehlt.")
+        if hasattr(client, "get_connection"):
+            return client.get_connection()
+        if hasattr(client, "connection"):
+            return client.connection(include_database=True)
+        raise RuntimeError("SettingsRepository kann keine MySQL-Verbindung aufbauen: get_connection()/connection() fehlt.")
 
     @staticmethod
     def _encode_json(value: Any) -> str:
@@ -88,7 +111,7 @@ class AppRuntimePreferencesRepository:
 
     def load(self, preference_key: str) -> Any:
         query = "SELECT preference_value_json FROM app_runtime_preferences WHERE preference_key = %s LIMIT 1"
-        with self._client.get_connection() as conn:
+        with self._require_connection_manager() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (preference_key,))
                 row = cursor.fetchone()
@@ -96,7 +119,7 @@ class AppRuntimePreferencesRepository:
 
     def list_all(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
         query = "SELECT * FROM app_runtime_preferences ORDER BY preference_key LIMIT %s OFFSET %s"
-        with self._client.get_connection() as conn:
+        with self._require_connection_manager() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, (limit, offset))
                 rows = cursor.fetchall()
@@ -127,4 +150,7 @@ class AppRuntimePreferencesRepository:
             "created_at": created_at,
             "updated_at": updated_at,
         }
-        self._client.execute(sql, params)
+        with self._require_connection_manager() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+            conn.commit()

@@ -51,6 +51,14 @@ class DatabaseStatus:
     def is_any_database_available(self) -> bool:
         return self.mysql.is_connected or self.mongo.is_connected
 
+    @property
+    def is_settings_persistence_available(self) -> bool:
+        return self.mysql.is_connected
+
+    @property
+    def is_write_mode_available(self) -> bool:
+        return self.mysql.is_connected and self.mongo.is_connected
+
 
 class DatabaseStatusService:
     """Ermittelt getrennte Statusinformationen für MySQL und MongoDB."""

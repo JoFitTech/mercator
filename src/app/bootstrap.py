@@ -4,7 +4,6 @@ from __future__ import annotations
 import streamlit as st
 from src.config.settings import AppSettings, load_settings
 from src.db.mongo_client import MongoClientWrapper
-from src.db.mysql_client_factory import build_mysql_client_for_target
 from src.db.mysql_target_resolver import MySqlResolutionResult
 from src.services.database_status_service import DatabaseStatus, DatabaseStatusService
 from src.services.app_settings_service import AppSettingsService
@@ -17,7 +16,6 @@ def bootstrap_app():
     """Initialisiert die App, konfiguriert Streamlit und baut die Services auf."""
     st.set_page_config(
         page_title="Mercator | Insider Intelligence",
-        page_icon="📈",
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -47,10 +45,8 @@ def _init_core_services(settings: AppSettings):
         requested_target=requested_target
     )
     
-    # MySQL Client
-    mysql_client = None
-    if mysql_res and mysql_res.active_target:
-        mysql_client = build_mysql_client_for_target(settings.mysql, mysql_res.active_target)
+    # MySQL Client nur verwenden, wenn die Verbindung durch den Resolver als nutzbar bestätigt wurde
+    mysql_client = mysql_res.client if (mysql_res and db_status.mysql.is_connected) else None
         
     # Factory
     factory = ServiceFactory(

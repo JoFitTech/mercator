@@ -5,13 +5,19 @@ import pandas as pd
 import streamlit as st
 from datetime import date, timedelta
 from src.services.analysis_service import AnalysisService
+from src.services.database_status_service import DatabaseStatus
 from src.ui.components.context_bar import render_filter_chip_bar
 from src.ui.components.page_scaffold import render_kpi_row, render_page_header, render_empty_state
 from src.ui.components.tables import render_trade_table
 
-def render_trades_page(service: AnalysisService) -> None:
+def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Trades-Seite."""
     render_page_header("Trades", "Operative Arbeitsfläche für Insider-Trades.")
+    if service is None:
+        st.warning(
+            "Trades können derzeit nicht geladen werden, da die Analyse-Datenbank nicht verfügbar ist."
+        )
+        return
 
     # 1. Filterleiste (Requirement 4.2)
     if "trades_filters" not in st.session_state:
@@ -26,7 +32,7 @@ def render_trades_page(service: AnalysisService) -> None:
             "min_value": 0
         }
 
-    with st.expander("🔍 Filter & Suche", expanded=True):
+    with st.expander("Filter und Suche", expanded=True):
         f1, f2, f3 = st.columns(3)
         symbol = f1.text_input("Symbol", value=st.session_state.trades_filters["symbol"], help="Ticker-Symbol (z.B. AAPL)")
         reporting_name = f2.text_input("Reporting Name", value=st.session_state.trades_filters["reporting_name"], help="Name des Insiders")
@@ -102,14 +108,14 @@ def render_trades_page(service: AnalysisService) -> None:
         
         c1, c2 = st.columns(2)
         with c1:
-            if st.button(f"🔍 Detail öffnen: {selected_trade.get('symbol_at_trade')}", type="primary", use_container_width=True):
+            if st.button(f"Detail öffnen: {selected_trade.get('symbol_at_trade')}", type="primary", use_container_width=True):
                 st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
                 st.session_state["nav_target"] = "Trade-Detail"
                 st.rerun()
         with c2:
-            if st.button(f"🏢 Unternehmen: {selected_trade.get('symbol_at_trade')}", use_container_width=True):
+            if st.button(f"Unternehmen: {selected_trade.get('symbol_at_trade')}", use_container_width=True):
                 st.session_state["selected_company_symbol"] = selected_trade.get("symbol_at_trade")
                 st.session_state["nav_target"] = "Unternehmens-Detail"
                 st.rerun()
     else:
-        st.info("💡 Tipp: Wählen Sie einen Trade aus der Tabelle aus, um Details anzuzeigen.")
+        st.info("Hinweis: Wählen Sie einen Trade aus der Tabelle aus, um Details anzuzeigen.")

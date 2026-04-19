@@ -12,11 +12,28 @@ from src.db.mysql_client import MySqlClient
 from src.domain_rules import ScoreGatePolicy
 from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
+from src.services.database_status_service import DatabaseStatus
 from src.services.import_service import ImportService, ImportSummary
 from src.ui.components.page_scaffold import render_page_header
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
+
+
+def compute_admin_capabilities(
+    db_status: DatabaseStatus | None,
+    mysql_client: MySqlClient | None,
+    mongo_available: bool,
+    settings_service: AppSettingsService | None,
+) -> dict[str, bool]:
+    mysql_online = bool(db_status.mysql.is_connected) if db_status else bool(mysql_client)
+    mongo_online = bool(db_status.mongo.is_connected) if db_status else bool(mongo_available)
+    return {
+        "mysql_online": mysql_online,
+        "mongo_online": mongo_online,
+        "write_available": mysql_online and mongo_online,
+        "persistence_available": bool(settings_service and settings_service.is_persistence_available()),
+    }
 
 
 class AdminDashboardService:
@@ -326,14 +343,28 @@ def render_admin_page(
     settings: AppSettings,
     mysql_client: MySqlClient | None,
     mongo_available: bool = True,
+    db_status: DatabaseStatus | None = None,
     settings_service: AppSettingsService | None = None,
     import_service: ImportService | None = None,
     api_usage_service: ApiUsageService | None = None,
 ) -> None:
     """Rendert die Admin-Seite als präzisen Regelarbeitsplatz."""
 
+    capabilities = compute_admin_capabilities(db_status, mysql_client, mongo_available, settings_service)
+    mysql_online = capabilities["mysql_online"]
+    mongo_online = capabilities["mongo_online"]
+    write_available = capabilities["write_available"]
+    persistence_available = capabilities["persistence_available"]
+
+    if not write_available:
+        st.info(
+            "Admin-Funktionen laufen im Lesemodus. Schreibende und destruktive Aktionen sind vorübergehend deaktiviert."
+        )
+    if settings_service and not persistence_available:
+        st.info("Einstellungen im Admin-Bereich werden derzeit nur für diese Sitzung übernommen.")
+
     # 0. HEADER MIT SYSTEM-CHECK
-    actions = [{"label": "🔍 System Check", "type": "secondary"}]
+    actions = [{"label": "System-Check", "type": "secondary"}]
     results = render_page_header(
         "Admin", 
         "Konfiguration von Gates, Scoring-Regeln und Datenquellen.",
@@ -345,17 +376,17 @@ def render_admin_page(
 
     if st.session_state.get("show_system_check", False):
         with st.container(border=True):
-            st.markdown("### 🔍 System-Verfügbarkeit")
+            st.markdown("### System-Verfügbarkeit")
             c1, c2 = st.columns(2)
-            if mysql_client:
-                c1.success("MySQL: Verbunden", icon="✅")
+            if mysql_online:
+                c1.success("MySQL: Online")
             else:
-                c1.error("MySQL: Getrennt", icon="❌")
+                c1.error("MySQL: Offline")
             
-            if mongo_available:
-                c2.success("MongoDB: Verbunden", icon="✅")
+            if mongo_online:
+                c2.success("MongoDB: Online")
             else:
-                c2.warning("MongoDB: Nicht verfügbar", icon="⚠️")
+                c2.warning("MongoDB: Nicht verfügbar")
             
             if st.button("Schließen", use_container_width=True):
                 st.session_state["show_system_check"] = False
@@ -363,7 +394,7 @@ def render_admin_page(
 
     # 1. Hauptnavigation über echte Tabs (Requirement 8.2)
     tab_import, tab_sync, tab_db_control = st.tabs([
-        "📥 Import & API2", "⚙️ Sync-Status", "🛠️ Datenbank-Control"
+        "Import und API2", "Sync-Status", "Datenbank-Kontrolle"
     ])
 
     admin_service = AdminDashboardService(settings, mysql_client, mongo_available)
@@ -375,7 +406,7 @@ def render_admin_page(
         # A. API Usage Sektion
         if api_usage_service:
             usage = api_usage_service.get_current_usage()
-            st.markdown("#### 📊 API Usage (heute)")
+            st.markdown("#### API-Nutzung (heute)")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Calls heute", usage["call_count"])
             c2.metric("Limit heute", usage["limit_count"])
@@ -406,25 +437,27 @@ def render_admin_page(
                     import_page = st.number_input("Feed-Seite (Standard 0)", min_value=0, value=0, help="Free-Tier Zugang kann auf Seite 0 beschränkt sein.")
                     import_limit = st.number_input("Records pro Seite", min_value=1, max_value=1000, value=100)
                     
-                    if st.form_submit_button("Konfiguration speichern", use_container_width=True):
+                    submit_label = "Konfiguration speichern" if persistence_available else "Konfiguration für diese Sitzung übernehmen"
+                    if st.form_submit_button(submit_label, use_container_width=True):
                         runtime_settings.api2_firing_mode = api2_mode
                         settings_service.save(runtime_settings)
-                        st.success("Konfiguration gespeichert.")
+                        st.success("Konfiguration gespeichert." if persistence_available else "Konfiguration für diese Sitzung übernommen.")
                         st.rerun()
 
             with col_scheduler:
                 with st.form("scheduler_config_form", border=True):
-                    st.markdown("#### ⏱️ Auto-Import Scheduler")
+                    st.markdown("#### Auto-Import Scheduler")
                     auto_enabled = st.toggle("Auto-Import aktiv", value=runtime_settings.auto_import_enabled)
                     auto_interval = st.number_input("Intervall (Minuten)", min_value=1, value=runtime_settings.auto_import_interval_minutes)
                     auto_on_start = st.toggle("Initial Import beim Start", value=runtime_settings.auto_import_on_start)
                     
-                    if st.form_submit_button("Scheduler speichern", use_container_width=True):
+                    submit_label = "Scheduler speichern" if persistence_available else "Scheduler für diese Sitzung übernehmen"
+                    if st.form_submit_button(submit_label, use_container_width=True):
                         runtime_settings.auto_import_enabled = auto_enabled
                         runtime_settings.auto_import_interval_minutes = auto_interval
                         runtime_settings.auto_import_on_start = auto_on_start
                         settings_service.save(runtime_settings)
-                        st.success("Scheduler-Einstellungen gespeichert.")
+                        st.success("Scheduler-Einstellungen gespeichert." if persistence_available else "Scheduler-Einstellungen für diese Sitzung übernommen.")
                         st.rerun()
                 
                 # Scheduler Status
@@ -446,7 +479,13 @@ def render_admin_page(
 
         st.markdown("---")
         st.markdown("#### Manueller Import")
-        if st.button("🚀 Manuellen Import jetzt starten", type="primary", use_container_width=True):
+        if st.button(
+            "Manuellen Import jetzt starten",
+            type="primary",
+            use_container_width=True,
+            disabled=not write_available,
+            help=None if write_available else "Import ist deaktiviert, solange MySQL oder MongoDB nicht verfügbar sind.",
+        ):
             if not import_service:
                 st.error("Import-Service nicht verfügbar.")
             else:
@@ -497,13 +536,23 @@ def render_admin_page(
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("#### Wartung")
-            if st.button("🛠️ Schema reparieren", use_container_width=True, help="Initialisiert oder aktualisiert das Tabellen-Schema in MySQL"):
+            if st.button(
+                "Schema reparieren",
+                use_container_width=True,
+                help="Initialisiert oder aktualisiert das Tabellen-Schema in MySQL",
+                disabled=not mysql_online,
+            ):
                 with st.spinner("Repariere Schema..."):
                     success, msg = admin_service.rebuild_mysql_schema()
                     if success: st.success(msg)
                     else: st.error(msg)
             
-            if st.button("🔄 TR Universum Refresh", use_container_width=True, help="Aktualisiert die Liste der handelbaren Ticker von Trade Republic"):
+            if st.button(
+                "TR-Universum aktualisieren",
+                use_container_width=True,
+                help="Aktualisiert die Liste der handelbaren Ticker von Trade Republic",
+                disabled=not write_available,
+            ):
                 with st.spinner("Aktualisiere TR-Universum..."):
                     success, msg = admin_service.refresh_tr_universe()
                     if success: st.success(msg)
@@ -512,13 +561,20 @@ def render_admin_page(
         with c2:
             st.markdown("#### Gefahrenzone")
             
-            with st.popover("🗑️ MySQL Daten löschen", use_container_width=True):
+            with st.popover("MySQL-Daten löschen", use_container_width=True):
+                if not mysql_online:
+                    st.info("Löschfunktionen für MySQL sind nur bei aktiver MySQL-Verbindung verfügbar.")
                 st.error("### ACHTUNG: Datenverlust")
                 st.write("Dies löscht alle verarbeiteten Insider-Trades und Firmendaten in MySQL.")
                 st.write("Rohdaten in MongoDB bleiben erhalten.")
                 
                 confirm_mysql = st.checkbox("Ich bin mir der Konsequenzen bewusst", key="confirm_mysql_delete_final_v2")
-                if st.button("JETZT MySQL LÖSCHEN", type="primary", use_container_width=True, disabled=not confirm_mysql):
+                if st.button(
+                    "JETZT MySQL LÖSCHEN",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=(not confirm_mysql) or (not mysql_online),
+                ):
                     with st.spinner("Lösche MySQL Daten..."):
                         success, msg = admin_service.clear_mysql_all()
                         if success:
@@ -528,12 +584,19 @@ def render_admin_page(
                             st.error(msg)
 
             if st.session_state.get("advanced_mode", False):
-                with st.popover("🔥 MongoDB Rohdaten löschen", use_container_width=True):
+                with st.popover("MongoDB-Rohdaten löschen", use_container_width=True):
+                    if not mongo_online:
+                        st.info("Löschfunktionen für MongoDB sind nur bei aktiver MongoDB-Verbindung verfügbar.")
                     st.error("### KRITISCHE AKTION: Rohdatenverlust")
                     st.write("Dies löscht alle importierten Rohdaten in MongoDB.")
                     
                     confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete_final_v2")
-                    if st.button("JETZT MongoDB LÖSCHEN", type="primary", use_container_width=True, disabled=not confirm_mongo):
+                    if st.button(
+                        "JETZT MongoDB LÖSCHEN",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=(not confirm_mongo) or (not mongo_online),
+                    ):
                         with st.spinner("Lösche MongoDB Daten..."):
                             success, msg = admin_service.clear_mongo_all()
                             if success:

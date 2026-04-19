@@ -50,8 +50,14 @@ class ServiceFactory:
 
     def create_app_settings_service(self) -> AppSettingsService:
         if self._app_settings_service is None:
-            filter_repo = AppFilterSettingsRepository(self.mysql_client) if self.mysql_client else None
-            runtime_repo = AppRuntimePreferencesRepository(self.mysql_client) if self.mysql_client else None
+            mysql_usable = bool(
+                self.mysql_client
+                and (hasattr(self.mysql_client, "get_connection") or hasattr(self.mysql_client, "connection"))
+            )
+            if not mysql_usable and self.mysql_client is not None:
+                LOGGER.warning("ServiceFactory: MySQL-Client ist fuer Settings-Repositories nicht nutzbar. Verwende Defaults.")
+            filter_repo = AppFilterSettingsRepository(self.mysql_client) if mysql_usable else None
+            runtime_repo = AppRuntimePreferencesRepository(self.mysql_client) if mysql_usable else None
             self._app_settings_service = AppSettingsService(runtime_repo, filter_repo, self.settings)
         return self._app_settings_service
 

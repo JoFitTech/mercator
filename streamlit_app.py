@@ -4,6 +4,7 @@ from __future__ import annotations
 import streamlit as st
 
 from src.app.bootstrap import bootstrap_app
+from src.app.infrastructure_mode import build_infrastructure_mode, render_infrastructure_banner
 from src.app.navigation import render_navigation_sidebar, render_system_status_sidebar
 from src.app.auto_import import handle_auto_import, render_import_status_toast
 
@@ -22,17 +23,20 @@ def main():
     # 1. Bootstrap (Config, Layout, Theme, Services)
     # Requirement 1: Radikal entschlackt, nur noch Bootstrap & Initialisierung.
     settings, db_status, mysql_res, factory = bootstrap_app()
+    infra_mode = build_infrastructure_mode(db_status)
+    st.session_state["infra_mode"] = infra_mode
     
     # 2. Sidebar Navigation & Status
     # Requirement 5.1: Navigation & Systemstatus in eigene Module ausgelagert.
     # P1.2: advanced_mode zentral in session_state schreiben, damit alle Seiten konsistent lesen können
     if "advanced_mode" not in st.session_state:
         st.session_state["advanced_mode"] = False
-    advanced_mode = st.sidebar.toggle("Advanced Mode", value=st.session_state["advanced_mode"])
+    advanced_mode = st.sidebar.toggle("Expertenmodus", value=st.session_state["advanced_mode"])
     st.session_state["advanced_mode"] = advanced_mode
 
     nav_target = render_navigation_sidebar()
     render_system_status_sidebar(db_status, mysql_res, advanced_mode=advanced_mode)
+    render_infrastructure_banner(infra_mode)
 
     # 3. Background Tasks (Auto-Import)
     # P0.3: Auto-Import folgt jetzt den RuntimeSettings (auto_import_enabled, interval, on_start)
@@ -55,14 +59,15 @@ def main():
             service=factory.create_dashboard_service(),
             import_service=factory.create_import_service(),
             settings=settings,
-            runtime_settings_service=factory.create_app_settings_service()
+            runtime_settings_service=factory.create_app_settings_service(),
+            db_status=db_status,
         )
     elif nav_target == "Trades":
-        render_trades_page(factory.create_analysis_service())
+        render_trades_page(factory.create_analysis_service(), db_status=db_status)
     elif nav_target == "Unternehmen":
-        render_companies_page(factory.create_company_repository())
+        render_companies_page(factory.create_company_repository(), db_status=db_status)
     elif nav_target == "Einstellungen":
-        render_settings_page(factory.create_app_settings_service())
+        render_settings_page(factory.create_app_settings_service(), db_status=db_status)
     elif nav_target == "Methodik":
         render_methodology_page()
     elif nav_target == "Admin":
@@ -70,14 +75,15 @@ def main():
             settings=settings,
             mysql_client=factory.mysql_client,
             mongo_available=db_status.mongo.is_connected,
+            db_status=db_status,
             settings_service=factory.create_app_settings_service(),
             import_service=factory.create_import_service(),
             api_usage_service=factory.create_api_usage_service()
         )
     elif nav_target == "Trade-Detail":
-        render_trade_detail_page(factory.create_analysis_service())
+        render_trade_detail_page(factory.create_analysis_service(), db_status=db_status)
     elif nav_target == "Unternehmens-Detail":
-        render_company_detail_page(factory.create_analysis_service())
+        render_company_detail_page(factory.create_analysis_service(), db_status=db_status)
 
 if __name__ == "__main__":
     main()

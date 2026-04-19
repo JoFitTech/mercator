@@ -6,6 +6,7 @@ import streamlit as st
 from datetime import date, timedelta
 from src.config.settings import AppSettings
 from src.services.app_settings_service import AppSettingsService
+from src.services.database_status_service import DatabaseStatus
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.ui.components.context_bar import render_filter_chip_bar, render_status_bar
@@ -16,10 +17,14 @@ def render_dashboard_page(
     import_service: ImportService | None = None,
     settings: AppSettings | None = None,
     runtime_settings_service: AppSettingsService | None = None,
+    db_status: DatabaseStatus | None = None,
 ) -> None:
     """Rendert das Dashboard als reinen Marktüberblick."""
     if service is None:
-        st.warning("Service nicht verfügbar.")
+        st.warning(
+            "Dashboard derzeit nicht verfügbar, da MySQL nicht erreichbar ist. "
+            "Bitte nutzen Sie Methodik oder Einstellungen im Lesemodus."
+        )
         return
 
     # 1. Header (kein Import mehr hier)
