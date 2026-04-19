@@ -4,19 +4,29 @@ from __future__ import annotations
 
 import streamlit as st
 from src.services.app_settings_service import AppSettingsService
+from src.services.database_status_service import DatabaseStatus
 from src.domain_rules import ScoreGatePolicy
 from src.ui.components.page_scaffold import render_page_header
 
-def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
+def render_settings_page(
+    runtime_settings_service: AppSettingsService,
+    db_status: DatabaseStatus | None = None,
+) -> None:
     """Rendert die zentralen App-Einstellungen mit Fokus auf Fachlogik (Requirement 8.1)."""
     render_page_header("Einstellungen", "Konfiguration der fachlichen Analyse-Parameter, Gate-Regeln und Scoring-Logik.")
 
     runtime_settings = runtime_settings_service.load()
     policy = runtime_settings_service.load_score_gate_policy()
+    persistence_available = runtime_settings_service.is_persistence_available()
+
+    if not persistence_available:
+        st.info(
+            "Datenbank für Einstellungen derzeit nicht verfügbar. Änderungen werden nur für diese Sitzung übernommen."
+        )
 
     # Tabs für Fachbereiche
     tab_gates, tab_score, tab_explanation = st.tabs([
-        "🎯 Gates", "📊 Scoring-Schwellen", "📖 Logik-Erklärung"
+        "Gates", "Scoring-Schwellen", "Logik-Erklärung"
     ])
 
     with tab_gates:
@@ -62,7 +72,8 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
                 help="Z.B. 'A-Award', 'M-Exempt' (Gratis-Zuteilungen)."
             )
 
-            if st.form_submit_button("Gate-Einstellungen speichern", type="primary", use_container_width=True):
+            submit_label = "Gate-Einstellungen speichern" if persistence_available else "Gate-Einstellungen für diese Sitzung übernehmen"
+            if st.form_submit_button(submit_label, type="primary", use_container_width=True):
                 new_policy = ScoreGatePolicy(
                     score_threshold_fail_max=policy.score_threshold_fail_max,
                     score_threshold_hold_min=policy.score_threshold_hold_min,
@@ -81,7 +92,10 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
                     gate_min_trade_value=int(min_trade_value)
                 )
                 runtime_settings_service.save_score_gate_policy(new_policy)
-                st.success("Gate-Einstellungen erfolgreich gespeichert.")
+                if persistence_available:
+                    st.success("Gate-Einstellungen erfolgreich gespeichert.")
+                else:
+                    st.success("Gate-Einstellungen für diese Sitzung übernommen.")
                 st.rerun()
 
     with tab_score:
@@ -96,7 +110,8 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
             th_hold = t2.number_input("HOLD (Gelb) ab", min_value=0.0, max_value=100.0, value=policy.score_threshold_hold_min, help="Mindest-Score für Status HOLD.")
             th_fail = t3.number_input("FAIL (Rot) bis", min_value=0.0, max_value=100.0, value=policy.score_threshold_fail_max, help="Maximal-Score für Status FAIL.")
 
-            if st.form_submit_button("Scoring-Einstellungen speichern", type="primary", use_container_width=True):
+            submit_label = "Scoring-Einstellungen speichern" if persistence_available else "Scoring-Einstellungen für diese Sitzung übernehmen"
+            if st.form_submit_button(submit_label, type="primary", use_container_width=True):
                 new_policy = ScoreGatePolicy(
                     score_threshold_fail_max=th_fail,
                     score_threshold_hold_min=th_hold,
@@ -115,11 +130,14 @@ def render_settings_page(runtime_settings_service: AppSettingsService) -> None:
                     gate_min_trade_value=policy.gate_min_trade_value
                 )
                 runtime_settings_service.save_score_gate_policy(new_policy)
-                st.success("Scoring-Einstellungen erfolgreich gespeichert.")
+                if persistence_available:
+                    st.success("Scoring-Einstellungen erfolgreich gespeichert.")
+                else:
+                    st.success("Scoring-Einstellungen für diese Sitzung übernommen.")
                 st.rerun()
 
     with tab_explanation:
-        st.subheader("📖 Die Mercator Scoring-Logik")
+        st.subheader("Die Mercator Scoring-Logik")
         st.markdown("""
         Der Mercator-Score ist ein diskretes Punktesystem (0-100), das die Relevanz eines Insider-Trades bewertet.
         

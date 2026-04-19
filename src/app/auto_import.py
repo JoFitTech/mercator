@@ -53,5 +53,5 @@ def render_import_status_toast():
     """Zeigt eine kurze Benachrichtigung über den letzten Import-Status."""
     if "last_import_summary" in st.session_state:
         summary = st.session_state["last_import_summary"]
-        st.toast(f"✅ Auto-Import abgeschlossen: {summary.upserted_clean_records} Trades aktualisiert.")
+        st.toast(f"Auto-Import abgeschlossen: {summary.upserted_clean_records} Trades aktualisiert.")
         del st.session_state["last_import_summary"]

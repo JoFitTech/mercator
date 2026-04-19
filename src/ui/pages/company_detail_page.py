@@ -4,11 +4,15 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from src.services.analysis_service import AnalysisService
+from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
 from src.ui.components.tables import render_trade_table
 
-def render_company_detail_page(service: AnalysisService, symbol: str | None = None) -> None:
+def render_company_detail_page(service: AnalysisService | None, symbol: str | None = None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Detailseite für ein Unternehmen."""
+    if service is None:
+        render_empty_state("Unternehmensdetails sind derzeit nicht verfügbar, da die Analyse-Datenbank offline ist.")
+        return
     if not symbol:
         symbol = st.session_state.get("selected_company_symbol")
         
@@ -63,12 +67,12 @@ def render_company_detail_page(service: AnalysisService, symbol: str | None = No
         if event and event.get("selection") and event["selection"].get("rows"):
             selected_idx = event["selection"]["rows"][0]
             selected_trade = trades_df.iloc[selected_idx]
-            if st.button(f"🔍 Trade-Detail öffnen", type="primary", use_container_width=True):
+            if st.button(f"Trade-Detail öffnen", type="primary", use_container_width=True):
                 st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
                 st.session_state["nav_target"] = "Trade-Detail"
                 st.rerun()
 
     # Zurück Button
-    if st.button("← Zurück zur Übersicht", use_container_width=True):
+    if st.button("Zurück zur Übersicht", use_container_width=True):
         st.session_state["nav_target"] = "Unternehmen"
         st.rerun()

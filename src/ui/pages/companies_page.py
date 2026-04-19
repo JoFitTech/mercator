@@ -4,11 +4,15 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 from src.db.repositories.company_repository import CompanyMySqlRepository
+from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
 
-def render_companies_page(repository: CompanyMySqlRepository) -> None:
+def render_companies_page(repository: CompanyMySqlRepository | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Unternehmens-Übersicht."""
     render_page_header("Unternehmen", "Übersicht aller Unternehmen mit registrierten Insider-Aktivitäten.")
+    if repository is None:
+        st.warning("Unternehmensdaten sind derzeit nicht verfügbar, da MySQL nicht erreichbar ist.")
+        return
 
     # 1. Daten laden (nur aktive Firmen laut Requirement 6.1)
     with st.spinner("Lade Unternehmen..."):
@@ -31,7 +35,7 @@ def render_companies_page(repository: CompanyMySqlRepository) -> None:
     render_kpi_row(kpis)
 
     # 3. Filter (Suche)
-    search = st.text_input("🔍 Unternehmen suchen (Name oder Symbol)", help="Filtert die untenstehende Tabelle.")
+    search = st.text_input("Unternehmen suchen (Name oder Symbol)", help="Filtert die untenstehende Tabelle.")
     if search:
         df = df[
             (df["company_name"].str.contains(search, case=False, na=False)) |
@@ -68,9 +72,9 @@ def render_companies_page(repository: CompanyMySqlRepository) -> None:
         selected_idx = event["selection"]["rows"][0]
         selected_company = df.iloc[selected_idx]
         
-        if st.button(f"🏢 Unternehmens-Detail öffnen: {selected_company.get('company_name')}", type="primary", use_container_width=True):
+        if st.button(f"Unternehmens-Detail öffnen: {selected_company.get('company_name')}", type="primary", use_container_width=True):
             st.session_state["selected_company_symbol"] = selected_company.get("current_symbol")
             st.session_state["nav_target"] = "Unternehmens-Detail"
             st.rerun()
     else:
-        st.info("💡 Tipp: Wählen Sie ein Unternehmen aus der Tabelle aus, um das Profil und die Historie anzuzeigen.")
+        st.info("Hinweis: Wählen Sie ein Unternehmen aus der Tabelle aus, um das Profil und die Historie anzuzeigen.")
