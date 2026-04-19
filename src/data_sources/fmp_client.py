@@ -7,6 +7,7 @@ from typing import Any
 
 import requests
 
+from src.services.api_usage_service import ApiUsageService
 from src.config.settings import (
     COMPANY_SCREENER_ENDPOINT,
     INSIDER_REPORTING_NAME_ENDPOINT,
@@ -30,10 +31,21 @@ class FmpApiError(Exception):
 class FmpClient:
     """Kapselt HTTP-Zugriffe auf Latest Insider Trading und Company Profile."""
 
-    def __init__(self, config: FmpConfig, timeout_seconds: int = 15) -> None:
+    def __init__(
+        self,
+        config: FmpConfig,
+        timeout_seconds: int = 15,
+        api_usage_service: ApiUsageService | None = None,
+    ) -> None:
         self.config = config
         self.timeout_seconds = timeout_seconds
+        self.api_usage_service = api_usage_service
         validate_fmp_api_key(self.config.api_key)
+
+    def _track_call(self) -> None:
+        """Registriert einen API-Aufruf beim Usage-Service."""
+        if self.api_usage_service:
+            self.api_usage_service.track_call(provider="fmp", limit=250)
 
     def fetch_latest_insider_trades(self, page: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         """Lädt den Latest-Insider-Feed.
@@ -48,6 +60,7 @@ class FmpClient:
 
         params = {"page": page, "limit": limit, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{LATEST_INSIDER_ENDPOINT}",
                 params=params,
@@ -75,6 +88,7 @@ class FmpClient:
 
         params = {"symbol": symbol, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{PROFILE_ENDPOINT}",
                 params=params,
@@ -96,6 +110,7 @@ class FmpClient:
         """Lädt das Unternehmensprofil primär über CIK."""
         params = {"cik": cik, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{PROFILE_CIK_ENDPOINT}",
                 params=params,
@@ -117,6 +132,7 @@ class FmpClient:
         """Optionaler, manueller Backfill je Firma."""
         params = {"symbol": symbol, "page": page, "limit": limit, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{SEARCH_INSIDER_TRADES_ENDPOINT}",
                 params=params,
@@ -134,6 +150,7 @@ class FmpClient:
         """Sucht Insider-Trades nach dem Namen des Insiders."""
         params = {"reportingName": name, "page": page, "limit": limit, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{INSIDER_REPORTING_NAME_ENDPOINT}",
                 params=params,
@@ -151,6 +168,7 @@ class FmpClient:
         """Sucht nach CIK-Informationen für ein Symbol."""
         params = {"ticker": symbol, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{SEARCH_CIK_ENDPOINT}",
                 params=params,
@@ -168,6 +186,7 @@ class FmpClient:
         """Vorbereitete Methode für Insider-Statistiken (MAY)."""
         params = {"symbol": symbol, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{INSIDER_STATISTICS_ENDPOINT}",
                 params=params,
@@ -185,6 +204,7 @@ class FmpClient:
         """Vorbereitete Methode für Company Screener (MAY)."""
         params = {**kwargs, "apikey": self.config.api_key}
         try:
+            self._track_call()
             response = requests.get(
                 f"{self.config.base_url}{COMPANY_SCREENER_ENDPOINT}",
                 params=params,

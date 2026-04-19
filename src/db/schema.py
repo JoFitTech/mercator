@@ -160,6 +160,18 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         UNIQUE KEY uq_app_runtime_preferences_key (preference_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
+    """
+    CREATE TABLE IF NOT EXISTS app_api_usage (
+        day_key DATE NOT NULL,
+        provider VARCHAR(32) NOT NULL,
+        call_count INT NOT NULL DEFAULT 0,
+        limit_count INT NOT NULL DEFAULT 250,
+        last_request_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (day_key, provider)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
 ]
 
 # Offene Architekturpunkte sind zentral in ``docs/todos_offene_fragen.md`` dokumentiert.

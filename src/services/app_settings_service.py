@@ -24,6 +24,10 @@ class RuntimeSettings:
     profile_ttl_days: int
     lookup_mode: str
     api2_firing_mode: str = "PASS + PENDING"
+    auto_import_enabled: bool = False
+    auto_import_interval_minutes: int = 15
+    auto_import_on_start: bool = False
+    last_auto_import_at: str | None = None
 
 
 class AppSettingsService:
@@ -52,6 +56,11 @@ class AppSettingsService:
             profile_gate_filter_statuses=self.defaults.fmp.profile_gate_filter_statuses,
             profile_ttl_days=self.defaults.fmp.profile_ttl_days,
             lookup_mode=self.defaults.fmp.lookup_mode,
+            api2_firing_mode="PASS + PENDING",
+            auto_import_enabled=False,
+            auto_import_interval_minutes=15,
+            auto_import_on_start=False,
+            last_auto_import_at=None,
         )
 
     def load(self) -> RuntimeSettings:

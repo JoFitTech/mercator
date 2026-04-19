@@ -1,0 +1,70 @@
+#!/bin/bash
+# Mercator Control Script (Bash-Wrapper für mercator.ps1)
+# Verwendung: ./mercator start|stop|restart|status|logs|init-db|open|cleanup|doctor|e2e-install|e2e-smoke|e2e
+#
+# Hinweis für Windows Benutzer:
+# - Im normalen Windows Terminal: verwende "mercator.bat start" oder ".\mercator.ps1 start"
+# - In WSL/Git Bash: dieses Skript funktioniert auch
+# - Auf Linux/macOS: dieses Skript ist die Standard-Methode
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PS1_SCRIPT="$SCRIPT_DIR/mercator.ps1"
+BAT_SCRIPT="$SCRIPT_DIR/mercator.bat"
+
+# Standardaktion ist "status"
+ACTION="${1:-status}"
+SERVICE="${2:-app}"
+
+# Erkenne das aktuelle System
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    # Windows (Git Bash / MSYS)
+    # Versuche PowerShell zu finden
+    if command -v pwsh &> /dev/null; then
+        PS_CMD="pwsh"
+    elif command -v powershell &> /dev/null; then
+        PS_CMD="powershell"
+    else
+        echo "❌ Fehler: PowerShell nicht gefunden."
+        echo ""
+        echo "Mögliche Lösungen:"
+        echo "  1. Verwende stattdessen das Batch-Skript:"
+        echo "     mercator.bat $ACTION"
+        echo ""
+        echo "  2. Oder das PowerShell-Skript direkt:"
+        echo "     .\mercator.ps1 -Action $ACTION"
+        echo ""
+        echo "  3. Oder aktiviere PowerShell in deinem Terminal (Standard ab Windows 11)"
+        exit 1
+    fi
+
+    # Führe PowerShell-Skript aus
+    "$PS_CMD" -NoProfile -File "$PS1_SCRIPT" -Action "$ACTION" -Service "$SERVICE"
+
+elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "darwin"* ]]; then
+    # Linux oder macOS
+    # Diese Plattformen haben normalerweise kein PowerShell/Docker auf lokaler Maschine,
+    # aber könnten über Docker remote zugreifen
+
+    if command -v pwsh &> /dev/null; then
+        pwsh -NoProfile -File "$PS1_SCRIPT" -Action "$ACTION" -Service "$SERVICE"
+    elif command -v python3 &> /dev/null; then
+        echo "ℹ️  PowerShell nicht verfügbar, verwende Python-Alternative..."
+        # Fallback: Python-basierte Implementierung (falls vorhanden)
+        python3 -m src.scripts.cli "$ACTION" "$SERVICE" 2>/dev/null || {
+            echo "Fehler: Weder PowerShell noch Python CLI verfügbar."
+            echo "Installiere PowerShell: https://github.com/PowerShell/PowerShell/releases"
+            exit 1
+        }
+    else
+        echo "❌ Fehler: PowerShell nicht gefunden."
+        echo "Installiere PowerShell: https://github.com/PowerShell/PowerShell/releases"
+        exit 1
+    fi
+else
+    # Unbekanntes System
+    echo "❌ Unbekanntes Betriebssystem: $OSTYPE"
+    echo "Dieses Skript wird auf Linux, macOS und Windows (Git Bash) unterstützt."
+    exit 1
+fi
+
+

@@ -17,9 +17,11 @@ from src.db.mysql_repository import (
     InsiderTradeMySqlRepository,
     AppFilterSettingsRepository,
     AppRuntimePreferencesRepository,
+    ApiUsageRepository,
 )
 from src.preprocessing import GateEvaluator, GateRules
 from src.services.app_settings_service import AppSettingsService
+from src.services.api_usage_service import ApiUsageService
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.services.analysis_service import AnalysisService
@@ -38,7 +40,7 @@ class ServiceFactory:
 
     @staticmethod
     def build_all(settings: AppSettings, mysql_client: MySqlClient, mongo_available: bool = True) -> tuple[
-        DashboardService, AnalysisService, ImportService | None, AppSettingsService
+        DashboardService, AnalysisService, ImportService | None, AppSettingsService, ApiUsageService
     ]:
         ServiceFactory.last_import_issue = None
         mysql_client.initialize_schema()
@@ -64,8 +66,10 @@ class ServiceFactory:
         company_repo = CompanyMySqlRepository(mysql_client)
         filter_repo = AppFilterSettingsRepository(mysql_client)
         runtime_settings_repo = AppRuntimePreferencesRepository(mysql_client)
+        api_usage_repo = ApiUsageRepository(mysql_client)
 
         # Services
+        api_usage_service = ApiUsageService(api_usage_repo)
         runtime_settings_service = AppSettingsService(runtime_settings_repo, filter_repo, settings)
         runtime_settings = runtime_settings_service.load()
         score_gate_policy = runtime_settings_service.load_score_gate_policy()
@@ -89,7 +93,8 @@ class ServiceFactory:
                         settings.fmp,
                         profile_ttl_days=runtime_settings.profile_ttl_days,
                         lookup_mode=runtime_settings.lookup_mode,
-                    )
+                    ),
+                    api_usage_service=api_usage_service
                 )
                 
                 # Enrichment Service vorbereiten
@@ -142,13 +147,14 @@ class ServiceFactory:
             fmp_client=fmp_client,
         )
         
-        return dashboard_service, analysis_service, import_service, runtime_settings_service
+        return dashboard_service, analysis_service, import_service, runtime_settings_service, api_usage_service
 
     @staticmethod
-    def build_ingestion_only(settings: AppSettings) -> tuple[ImportService | None, AppSettingsService]:
+    def build_ingestion_only(settings: AppSettings) -> tuple[ImportService | None, AppSettingsService, ApiUsageService]:
         """Erstellt Services für den Fall 'Mongo erreichbar, MySQL nicht erreichbar'."""
 
         ServiceFactory.last_import_issue = None
+        api_usage_service = ApiUsageService(None)
 
         mongo_client = MongoClientWrapper(settings.mongo)
         try:
@@ -182,7 +188,8 @@ class ServiceFactory:
                     settings.fmp,
                     profile_ttl_days=runtime_settings.profile_ttl_days,
                     lookup_mode=runtime_settings.lookup_mode,
-                )
+                ),
+                api_usage_service=api_usage_service
             )
             
             # Enrichment Service vorbereiten
@@ -222,4 +229,4 @@ class ServiceFactory:
 
         if import_service is not None:
             LOGGER.warning("ServiceFactory: Ingestion-only Modus aktiv (MySQL nicht verfuegbar).")
-        return import_service, runtime_settings_service
+        return import_service, runtime_settings_service, api_usage_service

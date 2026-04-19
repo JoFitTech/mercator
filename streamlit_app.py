@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from datetime import datetime, timezone, timedelta
 
 
 import streamlit as st
@@ -15,7 +16,8 @@ from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatus, DatabaseStatusService, MongoStatus, MySqlStatus
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
-from src.services.app_settings_service import AppSettingsService
+from src.services.app_settings_service import AppSettingsService, RuntimeSettings
+from src.services.api_usage_service import ApiUsageService
 from src.services.mysql_sync_service import MySqlSyncService
 from src.services.factory import ServiceFactory
 from src.ui.pages.dashboard_page import render_dashboard_page
@@ -201,7 +203,7 @@ def _build_services(
     settings: AppSettings,
     mysql_resolution: MySqlResolutionResult | None,
     db_status: DatabaseStatus,
-) -> tuple[DashboardService | None, AnalysisService | None, ImportService | None, AppSettingsService]:
+) -> tuple[DashboardService | None, AnalysisService | None, ImportService | None, AppSettingsService, ApiUsageService]:
     """Initialisiert Repositories und Services für die UI."""
     if mysql_resolution is not None:
         return ServiceFactory.build_all(
@@ -212,11 +214,11 @@ def _build_services(
 
     # Degraded Mode: Mongo ok / MySQL fail -> nur Ingestion.
     if db_status.mongo.is_connected:
-        import_service, runtime_settings_service = ServiceFactory.build_ingestion_only(settings)
-        return None, None, import_service, runtime_settings_service
+        return ServiceFactory.build_ingestion_only(settings)
 
     # Beide DBs down -> nur UI ohne Datenoperationen.
-    return None, None, None, AppSettingsService(runtime_repo=None, filter_repo=None, defaults=settings)
+    from src.services.api_usage_service import ApiUsageService
+    return None, None, None, AppSettingsService(runtime_repo=None, filter_repo=None, defaults=settings), ApiUsageService(None)
 
 
 def _render_sync_controls(settings: AppSettings, mysql_resolution: MySqlResolutionResult | None) -> None:
@@ -403,6 +405,57 @@ def _inject_global_styles() -> None:
         unsafe_allow_html=True,
     )
 
+def _handle_auto_import(
+    import_service: ImportService | None,
+    settings_service: AppSettingsService,
+    api_usage_service: ApiUsageService,
+) -> None:
+    """Prüft und führt Auto-Importe aus."""
+    if not import_service:
+        return
+
+    runtime = settings_service.load()
+    if not runtime.auto_import_enabled:
+        return
+
+    # 1. Initial Import auf Start prüfen
+    if runtime.auto_import_on_start and "initial_import_done" not in st.session_state:
+        st.session_state["initial_import_done"] = True
+        try:
+            with st.spinner("Initialer Auto-Import läuft..."):
+                import_service.run_hourly_import(page=0, limit=100)
+                runtime.last_auto_import_at = datetime.now(timezone.utc).isoformat()
+                settings_service.save(runtime)
+                st.toast("Initialer Auto-Import erfolgreich!", icon="📥")
+        except Exception as e:
+            LOGGER.error("Initialer Auto-Import fehlgeschlagen: %s", e)
+
+    # 2. Regelmäßiger Import (alle X Minuten)
+    if runtime.last_auto_import_at:
+        last_import = datetime.fromisoformat(runtime.last_auto_import_at)
+        next_import = last_import + timedelta(minutes=runtime.auto_import_interval_minutes)
+        now = datetime.now(timezone.utc)
+
+        if now >= next_import:
+            try:
+                # API Limit Check
+                usage = api_usage_service.get_current_usage()
+                if usage["remaining"] > 0:
+                    with st.spinner("Geplanter Auto-Import läuft..."):
+                        import_service.run_hourly_import(page=0, limit=100)
+                        runtime.last_auto_import_at = now.isoformat()
+                        settings_service.save(runtime)
+                        st.toast("Auto-Import erfolgreich!", icon="📥")
+                else:
+                    LOGGER.warning("Auto-Import übersprungen: API-Limit erreicht.")
+            except Exception as e:
+                LOGGER.error("Auto-Import fehlgeschlagen: %s", e)
+    else:
+        # Falls noch nie gelaufen, jetzt initialisieren (falls nicht schon durch Start-Import)
+        runtime.last_auto_import_at = datetime.now(timezone.utc).isoformat()
+        settings_service.save(runtime)
+
+
 def main() -> None:
     """Konfiguriert Navigation und rendert die gewählte Seite."""
     st.set_page_config(page_title="Mercator", layout="wide")
@@ -434,6 +487,14 @@ def main() -> None:
 
     settings = load_settings()
     
+    # 0. Services für Heartbeat bauen
+    _dash, _ana, import_service, settings_service, api_usage_service = _build_services(
+        settings, mysql_resolution, db_status
+    )
+    
+    # 1. Auto-Import Heartbeat
+    _handle_auto_import(import_service, settings_service, api_usage_service)
+    
     # System Status (Dezenter)
     status_service = DatabaseStatusService()
     mysql_resolution, db_status = _render_database_sidebar_status(status_service, settings, st.session_state.get("advanced_mode", False))
@@ -444,13 +505,13 @@ def main() -> None:
         # Das verhindert unnötige DB-Hits beim Initialisieren der Sidebar.
         
         def dash_wrapper():
-            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+            dashboard_service, analysis_service, import_service, runtime_settings_service, api_usage_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
             render_dashboard_page(dashboard_service, import_service, load_settings(), runtime_settings_service)
 
         def trades_wrapper():
-            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+            dashboard_service, analysis_service, import_service, runtime_settings_service, api_usage_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
             # Navigation Target Logik
@@ -463,7 +524,7 @@ def main() -> None:
                 render_trades_page(analysis_service)
 
         def companies_wrapper():
-            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+            dashboard_service, analysis_service, import_service, runtime_settings_service, api_usage_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
             # Navigation Target Logik
@@ -479,14 +540,14 @@ def main() -> None:
                     st.error("Unternehmens-Daten nicht verfügbar.")
 
         def admin_wrapper():
-            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+            dashboard_service, analysis_service, import_service, runtime_settings_service, api_usage_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
             client = mysql_resolution.client if mysql_resolution else None
-            render_admin_page(load_settings(), client, db_status.mongo.is_connected, runtime_settings_service, import_service)
+            render_admin_page(load_settings(), client, db_status.mongo.is_connected, runtime_settings_service, import_service, api_usage_service)
 
         def settings_wrapper():
-            dashboard_service, analysis_service, import_service, runtime_settings_service = _build_services(
+            dashboard_service, analysis_service, import_service, runtime_settings_service, api_usage_service = _build_services(
                 load_settings(), mysql_resolution, db_status
             )
             render_settings_page(runtime_settings_service)

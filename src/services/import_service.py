@@ -100,6 +100,8 @@ class ImportService:
         elif mode == "ALL VALID":
             # Alle validen Trades (PASS, PENDING, FAIL - solange validation_status VALID ist)
             effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING, "FAIL"}
+        elif mode == "ALL_TRADED_COMPANIES" or mode == "ALL TRADED COMPANIES":
+            effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING, "FAIL"} # Eigentlich alle
         elif mode == "DISABLED":
             effective_profile_fetch_statuses = set()
         else:
@@ -108,6 +110,7 @@ class ImportService:
 
         # 1. Schritt: Alle Trades normalisieren, evaluieren und Stubs erstellen
         unique_company_stubs: dict[str, dict[str, Any]] = {}
+        all_traded_symbols: set[str] = set()
 
         for item in normalized:
             decision = self.gate_evaluator.evaluate(item)
@@ -117,6 +120,10 @@ class ImportService:
             item["score"] = score_value
             item["score_value"] = score_value
             item["score_class"] = score_class
+
+            symbol = str(item.get("symbol") or "").strip().upper()
+            if symbol:
+                all_traded_symbols.add(symbol)
 
             company_key = item.get("company_key")
             if company_key and company_key not in unique_company_stubs:
@@ -130,27 +137,41 @@ class ImportService:
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
 
         fetched_profiles = 0
-        for trade in normalized:
-            if trade["gate_status"].upper() not in effective_profile_fetch_statuses:
+        
+        # Bestimme Symbole für Enrichment
+        symbols_to_enrich: set[str] = set()
+        
+        if mode in ("ALL_TRADED_COMPANIES", "ALL TRADED COMPANIES"):
+            symbols_to_enrich = all_traded_symbols
+        elif mode != "DISABLED":
+            for trade in normalized:
+                if trade["gate_status"].upper() in effective_profile_fetch_statuses:
+                    sym = str(trade.get("symbol") or "").strip().upper()
+                    if sym:
+                        symbols_to_enrich.add(sym)
+        
+        # Führe Enrichment durch
+        for symbol in symbols_to_enrich:
+            # Wir brauchen einen Trade-Kontext oder company_key für den Cache-Check
+            # Wir suchen uns den ersten Trade mit diesem Symbol aus dem Batch
+            matching_trades = [t for t in normalized if str(t.get("symbol") or "").strip().upper() == symbol]
+            if not matching_trades:
                 continue
-
-            company_key = trade.get("company_key")
-            symbol = str(trade.get("symbol") or "").strip().upper() or None
-            company_cik_raw = trade.get("company_cik")
-            if not company_key:
-                trade["profile_status"] = "FAILED"
-                trade["profile_reason"] = "company_key fehlt"
+            
+            sample_trade = matching_trades[0]
+            company_key_str = str(sample_trade.get("company_key"))
+            
+            if not company_key_str:
                 continue
-            company_key_str = str(company_key)
-            company_cik_value: str = self._to_text(company_cik_raw).strip()
 
             cached = self.company_mongo_repo.get_recent_profile(
                 company_key=company_key_str,
                 ttl_days=self.fmp_client.config.profile_ttl_days,
             )
             if cached:
-                trade["profile_status"] = "FETCHED"
-                trade["profile_reason"] = "cache_hit"
+                for t in matching_trades:
+                    t["profile_status"] = "FETCHED"
+                    t["profile_reason"] = "cache_hit"
                 continue
 
             try:
@@ -171,24 +192,23 @@ class ImportService:
                 
                 # Backwards compatibility für den Rest des Codes
                 profile = company
+                
+                self._apply_trade_republic_match(company)
+                self.company_mongo_repo.upsert_profile(company)
+                if self.company_mysql_repo is not None:
+                    self.company_mysql_repo.upsert_company(company)
+                
+                for t in matching_trades:
+                    t["profile_status"] = "FETCHED"
+                    t["profile_reason"] = "api_fetch"
+                
+                fetched_profiles += 1
             except Exception:
                 LOGGER.exception("Profilabruf fehlgeschlagen für %s", symbol)
-                trade["profile_status"] = "FAILED"
-                trade["profile_reason"] = "request_failed"
+                for t in matching_trades:
+                    t["profile_status"] = "FAILED"
+                    t["profile_reason"] = "request_failed"
                 continue
-
-            # if not profile: - nicht mehr nötig, da enrichment_service immer ein Objekt liefert
-            
-            # self._normalize_company_profile wird nicht mehr benötigt, da enrichment_service das erledigt
-            # company = self._normalize_company_profile(profile, trade=trade, fetched_at=fetched_at)
-            
-            self._apply_trade_republic_match(company)
-            self.company_mongo_repo.upsert_profile(company)
-            if self.company_mysql_repo is not None:
-                self.company_mysql_repo.upsert_company(company)
-            trade["profile_status"] = "FETCHED"
-            trade["profile_reason"] = "api_fetch"
-            fetched_profiles += 1
 
         # Score und Dashboard-Validität nach Profilanreicherung neu berechnen
         for item in normalized:

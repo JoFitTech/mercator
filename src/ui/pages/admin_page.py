@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from datetime import datetime, timezone, timedelta
 
 from src.config.settings import AppSettings
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_client import MySqlClient
 from src.domain_rules import ScoreGatePolicy
 from src.services.app_settings_service import AppSettingsService
+from src.services.api_usage_service import ApiUsageService
+from src.services.import_service import ImportService, ImportSummary
 from src.ui.components.page_scaffold import render_page_header
 from src.utils.logging_utils import get_logger
 
@@ -325,6 +328,7 @@ def render_admin_page(
     mongo_available: bool = True,
     settings_service: AppSettingsService | None = None,
     import_service: ImportService | None = None,
+    api_usage_service: ApiUsageService | None = None,
 ) -> None:
     """Rendert die Admin-Seite als präzisen Regelarbeitsplatz."""
 
@@ -367,44 +371,100 @@ def render_admin_page(
     # 2. IMPORT & API2 TAB
     with tab_import:
         st.subheader("Datenimport & API2-Steuerung")
-        st.caption("Manueller Anstoß des FMP-Imports und Konfiguration des API2-Verhaltens.")
+        
+        # A. API Usage Sektion
+        if api_usage_service:
+            usage = api_usage_service.get_current_usage()
+            st.markdown("#### 📊 API Usage (heute)")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Calls heute", usage["call_count"])
+            c2.metric("Limit heute", usage["limit_count"])
+            c3.metric("Restbudget", usage["remaining"], delta=None if usage["remaining"] > 10 else -usage["call_count"], delta_color="normal")
+            
+            last_req = usage.get("last_request_at")
+            last_req_str = last_req.strftime("%H:%M:%S") if last_req else "Keine"
+            c4.metric("Letzter Request", last_req_str)
+            st.caption("FMP API Kontingent (250 Calls/Tag). Reset erfolgt automatisch um Mitternacht.")
+
+        st.markdown("---")
 
         if settings_service:
             runtime_settings = settings_service.load()
             
-            with st.form("api2_config_form", border=True):
-                st.markdown("#### API2-Firing Konfiguration")
-                api2_mode = st.selectbox(
-                    "API2-Firing Mode (vor Import)",
-                    options=["ONLY PASS", "PASS + PENDING", "ALL VALID", "DISABLED"],
-                    index=["ONLY PASS", "PASS + PENDING", "ALL VALID", "DISABLED"].index(runtime_settings.api2_firing_mode) if runtime_settings.api2_firing_mode in ["ONLY PASS", "PASS + PENDING", "ALL VALID", "DISABLED"] else 1,
-                    help="Steuert, für welche Trades das Company-Enrichment (API2) im Importlauf ausgeführt wird."
-                )
+            col_config, col_scheduler = st.columns(2)
+            
+            with col_config:
+                with st.form("api2_config_form", border=True):
+                    st.markdown("#### Import Konfiguration")
+                    api2_mode = st.selectbox(
+                        "API2-Firing Mode",
+                        options=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"],
+                        index=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"].index(runtime_settings.api2_firing_mode) if runtime_settings.api2_firing_mode in ["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"] else 1,
+                        help="ONLY PASS: Nur für PASS. PASS + PENDING: Für beide. ALL TRADED COMPANIES: Für jedes Unternehmen im Import. DISABLED: Kein Enrichment."
+                    )
+                    
+                    import_page = st.number_input("Feed-Seite (Standard 0)", min_value=0, value=0, help="Free-Tier Zugang kann auf Seite 0 beschränkt sein.")
+                    import_limit = st.number_input("Records pro Seite", min_value=1, max_value=1000, value=100)
+                    
+                    if st.form_submit_button("Konfiguration speichern", use_container_width=True):
+                        runtime_settings.api2_firing_mode = api2_mode
+                        settings_service.save(runtime_settings)
+                        st.success("Konfiguration gespeichert.")
+                        st.rerun()
+
+            with col_scheduler:
+                with st.form("scheduler_config_form", border=True):
+                    st.markdown("#### ⏱️ Auto-Import Scheduler")
+                    auto_enabled = st.toggle("Auto-Import aktiv", value=runtime_settings.auto_import_enabled)
+                    auto_interval = st.number_input("Intervall (Minuten)", min_value=1, value=runtime_settings.auto_import_interval_minutes)
+                    auto_on_start = st.toggle("Initial Import beim Start", value=runtime_settings.auto_import_on_start)
+                    
+                    if st.form_submit_button("Scheduler speichern", use_container_width=True):
+                        runtime_settings.auto_import_enabled = auto_enabled
+                        runtime_settings.auto_import_interval_minutes = auto_interval
+                        runtime_settings.auto_import_on_start = auto_on_start
+                        settings_service.save(runtime_settings)
+                        st.success("Scheduler-Einstellungen gespeichert.")
+                        st.rerun()
                 
-                if st.form_submit_button("API2-Modus speichern", use_container_width=True):
-                    runtime_settings.api2_firing_mode = api2_mode
-                    settings_service.save(runtime_settings)
-                    st.success(f"API2-Modus auf '{api2_mode}' gesetzt.")
-                    st.rerun()
+                # Scheduler Status
+                if runtime_settings.auto_import_enabled:
+                    st.info("Scheduler ist AKTIV")
+                    if runtime_settings.last_auto_import_at:
+                        last_ts = datetime.fromisoformat(runtime_settings.last_auto_import_at)
+                        next_ts = last_ts + timedelta(minutes=runtime_settings.auto_import_interval_minutes)
+                        st.write(f"Letzter: {last_ts.strftime('%H:%M:%S')}")
+                        st.write(f"Nächster: {next_ts.strftime('%H:%M:%S')}")
+                        
+                        remaining = next_ts - datetime.now(timezone.utc)
+                        if remaining.total_seconds() > 0:
+                            st.write(f"Countdown: {int(remaining.total_seconds() // 60)}m {int(remaining.total_seconds() % 60)}s")
+                        else:
+                            st.write("Fällig: Sofort")
+                else:
+                    st.warning("Scheduler ist DEAKTIVIERT")
 
         st.markdown("---")
         st.markdown("#### Manueller Import")
-        col1, col2 = st.columns([1, 1])
-        import_page = col1.number_input("Feed-Seite", min_value=1, value=1)
-        import_limit = col2.number_input("Records pro Seite", min_value=1, max_value=1000, value=100)
-
-        if st.button("🚀 Import jetzt starten", type="primary", use_container_width=True):
+        if st.button("🚀 Manuellen Import jetzt starten", type="primary", use_container_width=True):
             if not import_service:
                 st.error("Import-Service nicht verfügbar.")
             else:
                 with st.spinner("Importiere Daten von FMP..."):
                     try:
-                        summary = import_service.run_hourly_import(page=int(import_page), limit=int(import_limit))
+                        # Hier nutzen wir die aktuell im Formular (bzw. state) stehenden Werte falls nötig, 
+                        # oder einfach die gespeicherten Defaults. 
+                        # Da das Formular oben 'save' erzwingt, nehmen wir einfach die aus runtime_settings.
+                        summary = import_service.run_hourly_import(page=int(import_page if 'import_page' in locals() else 0), limit=int(import_limit if 'import_limit' in locals() else 100))
                         st.success("Import erfolgreich abgeschlossen!")
-                        c1, c2, c3 = st.columns(3)
+                        
+                        # Import Summary Sektion
+                        st.markdown("##### Import Zusammenfassung")
+                        c1, c2, c3, c4 = st.columns(4)
                         c1.metric("Feed Records", summary.fetched_feed_records)
                         c2.metric("Neue Raw Records", summary.inserted_raw_records)
                         c3.metric("Upserted Clean", summary.upserted_clean_records)
+                        c4.metric("Profile Fetched", summary.fetched_profiles)
                         st.balloons()
                     except Exception as e:
                         st.error(f"Fehler beim Import: {e}")

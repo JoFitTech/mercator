@@ -45,6 +45,8 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 - [Methodik & Architektur](src/ui/pages/methodology_page.py) (UI-Seite)
 - [Technisches Datenmodell](src/db/mysql_repository.py)
 - [E2E Browser-Tests mit Playwright](README-E2E.md)
+- [Steuerungsskripte-Übersicht](SKRIPTE.md) (mercator.ps1 / mercator.bat / mercator)
+- [Quick Reference](QUICK_REF.md) (schnelle Befehlsübersicht)
 
 ## Datenfluss
 1. `ImportService` lädt `Latest Insider Trading` von FMP (`page=0`, `limit=100`).
@@ -71,9 +73,19 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
     - Sichere Formatierung von Kennzahlen (Kompaktwerte wie 1.25M).
 
 ## Lokale Einrichtung
-### Windows PowerShell (empfohlen)
+### Windows (Normale cmd.exe oder PowerShell – empfohlen)
 Wenn du **nur testen/starten** willst, brauchst du lokal **kein Python**, solange Docker Desktop läuft.
 
+```cmd
+REM Im Windows Terminal (cmd.exe oder PowerShell)
+git clone <this-repo-url> mercator
+cd mercator
+copy .env.example .env
+mercator.bat start
+mercator.bat open
+```
+
+oder in PowerShell:
 ```powershell
 git clone <this-repo-url> mercator
 cd mercator
@@ -82,9 +94,32 @@ Copy-Item .env.example .env -Force
 .\mercator.ps1 open
 ```
 
+### Windows + Git Bash / WSL
+Falls du Git Bash oder WSL installiert hast:
+
+```bash
+git clone <this-repo-url> mercator
+cd mercator
+cp .env.example .env
+chmod +x mercator
+./mercator start
+./mercator open
+```
+
+### macOS / Linux (Bash)
+```bash
+git clone <this-repo-url> mercator
+cd mercator
+cp .env.example .env
+chmod +x mercator
+./mercator start
+./mercator open
+```
+
 Wichtig:
-- In PowerShell musst du lokale Skripte mit **`.\mercator.ps1 start`** aufrufen.
-- `source` ist ein Bash-Befehl und funktioniert in PowerShell nicht.
+- **Windows Standard:** Verwende `mercator.bat start` oder `.\mercator.ps1 start`
+- **Windows + Git Bash/WSL:** Verwende `./mercator start`
+- **macOS/Linux:** Verwende `./mercator start`
 - Wenn `python`, `pip` oder `streamlit` nicht gefunden werden, ist lokal noch kein Python installiert. Fuer den Docker-Start ist das aber **nicht noetig**.
 
 ### Lokale Python-Umgebung (nur wenn du ohne Docker entwickeln willst)
@@ -164,15 +199,65 @@ Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen foku
 streamlit run streamlit_app.py
 ```
 
-## One-File Steuerung (Start/Stop/Restart)
-Nutze zentral `mercator.ps1`, um den lokalen Stack und den DB-Init zu steuern.
+## Schnelleinstieg – Cheat Sheet
 
-```powershell
-Set-Location "C:\Users\josef.lautner\Source\IdeaProjects\Privat\mercator"
-.\mercator.ps1 start
+**Windows (cmd.exe oder PowerShell):**
+```cmd
+mercator.bat start       REM Startet alles
+mercator.bat open        REM Öffnet im Browser
+mercator.bat status      REM Zeigt Container
+mercator.bat logs        REM Live-Logs der App
+mercator.bat cleanup     REM Bereinigt alte Container
 ```
 
-Verfuegbare Aktionen (PowerShell Skript):
+oder in PowerShell:
+```powershell
+.\mercator.ps1 start
+.\mercator.ps1 open
+.\mercator.ps1 status
+.\mercator.ps1 logs
+```
+
+**Bash / WSL / Linux:**
+```bash
+./mercator start
+./mercator open
+./mercator status
+./mercator logs
+```
+
+Oder ausführlich: Siehe [Steuerungsskripte-Übersicht](SKRIPTE.md).
+
+## One-File Steuerung (Start/Stop/Restart)
+
+### Für Windows Benutzer (Standard)
+Nutze zentral `mercator.bat` oder `mercator.ps1`:
+
+```cmd
+mercator.bat start
+mercator.bat status
+mercator.bat logs
+mercator.bat open
+```
+
+### Für macOS / Linux Benutzer
+Nutze `mercator`:
+
+```bash
+./mercator start
+./mercator status
+./mercator logs
+./mercator open
+```
+
+### Für Windows + Git Bash / WSL
+Verwende entweder das Batch-Skript oder das Bash-Skript:
+
+```bash
+./mercator start              # Bash-Wrapper
+# oder
+../mercator.bat start         # Batch-Skript
+```
 - `start` - startet das Projekt (Uni-DB bevorzugt, sonst lokal)
 - `stop` - stoppt den Stack
 - `restart` - startet den Stack neu (inkl. Cleanup alter Container)

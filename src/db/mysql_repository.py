@@ -909,3 +909,34 @@ class AppRuntimePreferencesRepository:
             with conn.cursor() as cursor:
                 cursor.execute(sql, params)
             conn.commit()
+
+
+class ApiUsageRepository:
+    """Verwaltet die API-Nutzungsdaten in MySQL."""
+
+    def __init__(self, client: MySqlClient) -> None:
+        self._client = client
+
+    def get_usage(self, day_key: datetime.date, provider: str) -> dict[str, Any] | None:
+        """Holt die Nutzung für einen bestimmten Tag und Provider."""
+        query = "SELECT * FROM app_api_usage WHERE day_key = %s AND provider = %s"
+        with self._client.connection() as conn:
+            with conn.cursor(dictionary=True) as cursor:
+                cursor.execute(query, (day_key, provider))
+                return cursor.fetchone()
+
+    def increment_usage(self, day_key: datetime.date, provider: str, limit_count: int = 250) -> None:
+        """Erhöht den Zähler für den heutigen Tag und Provider."""
+        sql = """
+            INSERT INTO app_api_usage (day_key, provider, call_count, limit_count, last_request_at)
+            VALUES (%s, %s, 1, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                call_count = call_count + 1,
+                last_request_at = VALUES(last_request_at),
+                limit_count = VALUES(limit_count)
+        """
+        now = datetime.now(timezone.utc)
+        with self._client.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (day_key, provider, limit_count, now))
+            conn.commit()
