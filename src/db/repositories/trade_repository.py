@@ -209,6 +209,7 @@ class InsiderTradeRepository:
         sql = """
             SELECT 
                 t.*,
+                t.score AS score_value,
                 c.sector,
                 c.industry,
                 c.market_cap
@@ -219,6 +220,9 @@ class InsiderTradeRepository:
         params: list[Any] = []
 
         if filters:
+            if filters.get("dedupe_key"):
+                conditions.append("t.dedupe_key = %s")
+                params.append(filters["dedupe_key"])
             if filters.get("date_from"):
                 conditions.append("t.transaction_date >= %s")
                 params.append(filters["date_from"])

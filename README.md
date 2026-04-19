@@ -353,8 +353,9 @@ Siehe auch: `docs/deployment/render_review.md`.
 ## UI Testing mit GPT-Agent
 - Verwende die oeffentliche Render-URL ohne Login-Pflicht.
 - Stelle sicher, dass Review Mode aktiv ist (`MERCATOR_REVIEW_MODE=true`).
-- Halte Seitentitel und Navigation stabil (`Dashboard`, `Explorer`, `Ticker-Detailansicht`, `Admin`).
+- Halte Seitentitel und Navigation stabil (`Dashboard`, `Trades`, `Unternehmen`, `Unternehmens-Detail`, `Trade-Detail`, `Admin`).
 - Destruktive Aktionen (Import/Delete) muessen deaktiviert bleiben.
+- Fuer deterministische Agent-Webtests: Auto-Import muss deaktiviert bleiben (`MERCATOR_DISABLE_IMPORT=true` und/oder `MERCATOR_UI_TEST_MODE=true`).
 - Falls CDN/WAF vorgeschaltet ist, Agent-Traffic fuer Browser-Navigation zulassen.
 
 ### Docker-Stack komplett zurücksetzen

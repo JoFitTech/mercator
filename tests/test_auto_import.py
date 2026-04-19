@@ -137,3 +137,30 @@ class TestHandleAutoImport:
             mock_st.session_state = {}
             handle_auto_import(None, runtime=runtime)  # kein Fehler erwartet
 
+    def test_disabled_flag_blocks_import_even_if_runtime_allows(self):
+        """Der explizite disabled-Flag muss Auto-Import deterministisch sperren."""
+        from src.app.auto_import import handle_auto_import
+
+        runtime = _make_runtime(enabled=True, on_start=True)
+        svc = _make_import_service()
+
+        with patch("src.app.auto_import.st") as mock_st:
+            mock_st.session_state = {}
+            handle_auto_import(svc, runtime=runtime, disabled=True)
+
+        svc.run_hourly_import.assert_not_called()
+
+    def test_non_positive_interval_is_clamped(self):
+        """Ungültige Intervalle dürfen nicht craschen und werden auf >=1 Minute geklemmt."""
+        from src.app.auto_import import handle_auto_import
+
+        runtime = _make_runtime(enabled=True, interval_minutes=0, on_start=False)
+        svc = _make_import_service()
+        past = datetime.now() - timedelta(minutes=2)
+        session = {"last_auto_import_run": past}
+
+        with patch("src.app.auto_import.st") as mock_st:
+            mock_st.session_state = session
+            handle_auto_import(svc, runtime=runtime)
+
+        svc.run_hourly_import.assert_called_once()
