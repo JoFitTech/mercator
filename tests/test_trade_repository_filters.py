@@ -141,3 +141,24 @@ class TestFetchTradesAllFilters:
         assert "ORDER BY transaction_date DESC" in c["sql"]
         assert "filing_date DESC" in c["sql"]
 
+
+def test_fetch_trades_enriched_supports_dedupe_key_filter():
+    mock_client = MagicMock()
+    mock_conn = MagicMock()
+    mock_client.get_connection.return_value.__enter__ = MagicMock(return_value=mock_conn)
+    mock_client.get_connection.return_value.__exit__ = MagicMock(return_value=False)
+    repo = InsiderTradeRepository(mock_client)
+
+    captured = {}
+
+    def fake_read_sql(sql, conn, params):
+        captured["sql"] = sql
+        captured["params"] = params
+        return pd.DataFrame()
+
+    with patch("src.db.repositories.trade_repository.pd.read_sql", side_effect=fake_read_sql):
+        repo.fetch_trades_enriched_with_company(filters={"dedupe_key": "abc"}, limit=1)
+
+    assert "t.dedupe_key = %s" in captured["sql"]
+    assert "abc" in captured["params"]
+    assert "score_value" in captured["sql"]

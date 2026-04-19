@@ -127,6 +127,15 @@ class DashboardService:
             df["trade_value_estimated"] = 0
         df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce").fillna(0)
 
+        # Score-Alias konsistent halten: Repository liefert je nach Pfad `score` oder `score_value`.
+        if "score_value" not in df.columns and "score" in df.columns:
+            df["score_value"] = df["score"]
+        if "score" not in df.columns and "score_value" in df.columns:
+            df["score"] = df["score_value"]
+        if "score_value" not in df.columns:
+            df["score_value"] = 0
+        df["score_value"] = pd.to_numeric(df["score_value"], errors="coerce")
+
         # sector sicherstellen und normalisieren (kann NULL sein wenn LEFT JOIN keine Company findet)
         if "sector" not in df.columns:
             df["sector"] = None

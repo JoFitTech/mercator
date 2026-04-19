@@ -1,6 +1,7 @@
 """Repository für Unternehmensdaten in MySQL."""
 
 from __future__ import annotations
+from datetime import datetime, timezone
 from typing import Any
 from src.db.mysql_client import MySqlClient
 
@@ -146,14 +147,25 @@ class CompanyRepository:
     def list_active_companies(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
         """Lädt aktive Unternehmen mit aggregierten Trade-Statistiken (trade_count, last_trade_date)."""
         sql = """
-            SELECT c.*,
-                   COUNT(t.id)              AS trade_count,
-                   MAX(t.transaction_date)  AS last_trade_date
+            SELECT
+                c.current_symbol,
+                c.company_name,
+                c.sector,
+                c.industry,
+                c.market_cap,
+                COALESCE(ts.trade_count, 0) AS trade_count,
+                ts.last_trade_date
             FROM companies c
-            LEFT JOIN insider_trades t ON t.company_key = c.company_key
+            LEFT JOIN (
+                SELECT
+                    t.company_key,
+                    COUNT(*) AS trade_count,
+                    MAX(t.transaction_date) AS last_trade_date
+                FROM insider_trades t
+                GROUP BY t.company_key
+            ) ts ON ts.company_key = c.company_key
             WHERE c.is_actively_trading = 1
-            GROUP BY c.company_key
-            ORDER BY trade_count DESC
+            ORDER BY COALESCE(ts.trade_count, 0) DESC, c.current_symbol ASC
             LIMIT %s OFFSET %s
         """
         with self._client.get_connection() as conn:

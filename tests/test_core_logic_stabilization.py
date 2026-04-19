@@ -119,3 +119,35 @@ def test_dashboard_sector_normalization_to_unknown():
             sectors = set(df_chart["sector"].astype(str).tolist())
             assert "None" not in sectors, f"'None'-String darf nicht im {key} vorkommen"
 
+
+def test_dashboard_accepts_score_alias_from_repository():
+    """Dashboard muss mit `score` arbeiten, auch wenn `score_value` fehlt."""
+    class MockRepo:
+        def fetch_trades_enriched_with_company(self, limit=2000, filters=None):
+            return pd.DataFrame([
+                {
+                    "gate_status": "PASS",
+                    "sector": "Tech",
+                    "transaction_date": "2024-01-01",
+                    "profile_status": "FETCHED",
+                    "company_key": "CIK:1",
+                    "price": 10.0,
+                    "qty": 10,
+                    "trade_value_estimated": 100.0,
+                    "acquisition_or_disposition": "A",
+                    "score": 80.0,
+                    "dashboard_valid": True,
+                }
+            ])
+
+        def get_extreme_dates(self):
+            return {"min_date": "2024-01-01", "max_date": "2024-01-01"}
+
+    service = DashboardService(
+        raw_repo=None,
+        company_mongo_repo=None,
+        trade_repo=MockRepo(),
+        company_repo=MockRepo(),
+    )
+    payload = service.build_dashboard_payload()
+    assert payload["avg_score"] == 80.0

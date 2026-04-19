@@ -10,7 +10,11 @@ from src.utils.logging_utils import get_logger
 LOGGER = get_logger(__name__)
 
 
-def handle_auto_import(import_service: ImportService, runtime: RuntimeSettings | None = None):
+def handle_auto_import(
+    import_service: ImportService,
+    runtime: RuntimeSettings | None = None,
+    disabled: bool = False,
+):
     """Prüft, ob ein Auto-Import fällig ist und führt ihn ggf. aus.
 
     Entscheidungslogik:
@@ -18,14 +22,14 @@ def handle_auto_import(import_service: ImportService, runtime: RuntimeSettings |
     2. Beim allerersten App-Start und ``runtime.auto_import_on_start`` True → sofortiger Import.
     3. Sonst: Import nur wenn seit dem letzten Run ``runtime.auto_import_interval_minutes`` vergangen sind.
     """
-    if not import_service:
+    if not import_service or disabled:
         return
 
     # Ohne RuntimeSettings: Standard-Verhalten deaktiviert (sicher-Default)
     if runtime is None or not runtime.auto_import_enabled:
         return
 
-    interval_minutes = runtime.auto_import_interval_minutes
+    interval_minutes = max(1, int(runtime.auto_import_interval_minutes))
     on_start = runtime.auto_import_on_start
 
     last_run: datetime | None = st.session_state.get("last_auto_import_run")

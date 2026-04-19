@@ -36,9 +36,16 @@ def main():
 
     # 3. Background Tasks (Auto-Import)
     # P0.3: Auto-Import folgt jetzt den RuntimeSettings (auto_import_enabled, interval, on_start)
-    if db_status.is_ingestion_available and not settings.disable_import:
+    auto_import_blocked = bool(
+        settings.disable_import or settings.review_mode or settings.ui_test_mode
+    )
+    if db_status.is_ingestion_available and not auto_import_blocked:
         runtime_settings = factory.create_app_settings_service().load()
-        handle_auto_import(factory.create_import_service(), runtime=runtime_settings)
+        handle_auto_import(
+            factory.create_import_service(),
+            runtime=runtime_settings,
+            disabled=auto_import_blocked,
+        )
         render_import_status_toast()
         
     # 4. Page Routing (Page Dispatch)

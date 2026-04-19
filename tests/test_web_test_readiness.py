@@ -148,12 +148,12 @@ class TestWebTestCompanyAggregation:
 
         # Simuliere LEFT-JOIN Ergebnis mit Aggregationsfeldern
         mock_cursor.fetchall.return_value = [
-            ("CIK:1", "AAPL", "Apple Inc.", "Technology", "2024-01-15", 5),
-            ("CIK:2", "MSFT", "Microsoft Corp.", "Technology", "2024-01-14", 3),
+            ("AAPL", "Apple Inc.", "Technology", "Consumer Electronics", 1000, 5, "2024-01-15"),
+            ("MSFT", "Microsoft Corp.", "Technology", "Software", 2000, 3, "2024-01-14"),
         ]
         mock_cursor.description = [
-            ("company_key",), ("current_symbol",), ("company_name",),
-            ("sector",), ("last_trade_date",), ("trade_count",)
+            ("current_symbol",), ("company_name",), ("sector",),
+            ("industry",), ("market_cap",), ("trade_count",), ("last_trade_date",)
         ]
 
         result = repo.list_active_companies(limit=10)
@@ -162,6 +162,8 @@ class TestWebTestCompanyAggregation:
         # Aggregationsfelder müssen vorhanden sein
         assert result[0]["trade_count"] == 5
         assert result[0]["last_trade_date"] == "2024-01-15"
+        assert result[0]["industry"] == "Consumer Electronics"
+        assert result[0]["market_cap"] == 1000
 
 
 class TestWebTestFilterConsistency:
@@ -193,7 +195,6 @@ class TestWebTestFilterConsistency:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
 
 
 
