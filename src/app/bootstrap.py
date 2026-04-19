@@ -1,23 +1,37 @@
 """Bootstrap-Logik für Mercator (Requirement 5.1)."""
 
 from __future__ import annotations
+from pathlib import Path
+
 import streamlit as st
 from src.config.settings import AppSettings, load_settings
 from src.db.mongo_client import MongoClientWrapper
-from src.db.mysql_target_resolver import MySqlResolutionResult
-from src.services.database_status_service import DatabaseStatus, DatabaseStatusService
-from src.services.app_settings_service import AppSettingsService
+from src.services.database_status_service import DatabaseStatusService
 from src.services.factory import ServiceFactory
 from src.ui.ui_theme import apply_ui_theme
 
 MYSQL_TARGET_STATE_KEY = "mysql_runtime_target"
 
+
+def _resolve_favicon_path() -> str | None:
+    """Liefert den FavIcon-Pfad, falls die PNG-Datei vorhanden ist."""
+
+    favicon_path = Path(__file__).resolve().parents[2] / "assets" / "favicon" / "favicon.png"
+    return str(favicon_path) if favicon_path.exists() else None
+
 def bootstrap_app():
     """Initialisiert die App, konfiguriert Streamlit und baut die Services auf."""
+    page_config: dict[str, str] = {
+        "page_title": "Mercator | Insider Intelligence",
+        "layout": "wide",
+        "initial_sidebar_state": "expanded",
+    }
+    favicon_path = _resolve_favicon_path()
+    if favicon_path:
+        page_config["page_icon"] = favicon_path
+
     st.set_page_config(
-        page_title="Mercator | Insider Intelligence",
-        layout="wide",
-        initial_sidebar_state="expanded",
+        **page_config,
     )
     
     # Theme anwenden

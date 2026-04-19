@@ -7,42 +7,46 @@ from typing import Literal
 # Typer-Definition für Seiten
 PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Methodik", "Trade-Detail", "Unternehmens-Detail"]
 
-def render_navigation_sidebar():
-    """Rendert die Hauptnavigation in der Sidebar."""
-    st.sidebar.title("Navigation")
-    
-    # Bestimme aktuelle Seite aus Session State oder Default
+NAV_OPTIONS: dict[str, str] = {
+    "Dashboard": "Dashboard",
+    "Trade-Explorer": "Trades",
+    "Unternehmen": "Unternehmen",
+    "Einstellungen": "Einstellungen",
+    "Methodik": "Methodik",
+    "Admin": "Admin",
+}
+
+DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
+
+def render_navigation_topbar() -> PageName:
+    """Rendert die Hauptnavigation als obere Navbar."""
+
+    # Bestimme aktuelle Seite aus Session State oder Default.
     if "nav_target" not in st.session_state:
         st.session_state["nav_target"] = "Dashboard"
-        
-    nav_options = {
-        "Dashboard": "Dashboard",
-        "Trade-Explorer": "Trades",
-        "Unternehmen": "Unternehmen",
-        "Einstellungen": "Einstellungen",
-        "Methodik": "Methodik",
-        "Admin": "Admin",
-    }
-    
-    # Finde Index der aktuellen Seite für das Radio-Menü
-    current_label = next((k for k, v in nav_options.items() if v == st.session_state["nav_target"]), "Dashboard")
-    options_list = list(nav_options.keys())
-    
-    selected_label = st.sidebar.radio(
-        "Hauptmenü",
-        options=options_list,
-        index=options_list.index(current_label) if current_label in options_list else 0
+
+    current_label = next(
+        (k for k, v in NAV_OPTIONS.items() if v == st.session_state["nav_target"]),
+        "Dashboard",
     )
-    
-    # Update nav_target bei Klick (wenn es nicht durch Deep-Link überschrieben wurde)
-    new_target = nav_options[selected_label]
-    if st.session_state["nav_target"] not in ["Trade-Detail", "Unternehmens-Detail"]:
-         st.session_state["nav_target"] = new_target
-    
-    # Zurück-Button für Detailseiten
-    if st.session_state["nav_target"] in ["Trade-Detail", "Unternehmens-Detail"]:
-        st.sidebar.markdown("---")
-        if st.sidebar.button("Zurück zur Liste"):
+    options_list = list(NAV_OPTIONS.keys())
+
+    selected_label = st.radio(
+        "Navigation",
+        options=options_list,
+        index=options_list.index(current_label) if current_label in options_list else 0,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+    # Update nav_target nur außerhalb von Detailseiten, damit Deep-Link-Details stabil bleiben.
+    new_target = NAV_OPTIONS[selected_label]
+    if st.session_state["nav_target"] not in DETAIL_PAGES:
+        st.session_state["nav_target"] = new_target
+
+    # Zurück-Button für Detailseiten.
+    if st.session_state["nav_target"] in DETAIL_PAGES:
+        if st.button("Zurück zur Liste", key="top_nav_back_to_list"):
             if st.session_state["nav_target"] == "Trade-Detail":
                 st.session_state["nav_target"] = "Trades"
             else:

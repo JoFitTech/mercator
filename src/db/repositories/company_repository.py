@@ -17,6 +17,13 @@ class CompanyRepository:
         columns = [description[0] for description in cursor.description] if cursor.description else []
         return [dict(zip(columns, row, strict=False)) for row in rows]
 
+    @staticmethod
+    def _normalize_sector_resolution_status(raw_value: Any) -> str:
+        """Garantiert einen gueltigen NOT-NULL-Status fuer das Companies-Schema."""
+
+        value = "" if raw_value is None else str(raw_value).strip().upper()
+        return value or "UNRESOLVED"
+
     def upsert_company(self, company: dict[str, Any]) -> None:
         """Speichert oder aktualisiert ein Unternehmensprofil per Upsert."""
         sql = """
@@ -117,7 +124,9 @@ class CompanyRepository:
             "sector_normalized": company.get("sector_normalized"),
             "sector_source": company.get("sector_source"),
             "sector_resolution_method": company.get("sector_resolution_method"),
-            "sector_resolution_status": company.get("sector_resolution_status"),
+            "sector_resolution_status": self._normalize_sector_resolution_status(
+                company.get("sector_resolution_status")
+            ),
             "profile_enriched_at": company.get("profile_enriched_at"),
             "profile_provider": company.get("profile_provider"),
             "country": company.get("country"),

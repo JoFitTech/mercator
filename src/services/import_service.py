@@ -184,7 +184,9 @@ class ImportService:
                 # Konvertiere in Dict für die bestehende Pipeline
                 from dataclasses import asdict
                 company = asdict(company_obj)
-                
+                if not company.get("sector_resolution_status"):
+                    company["sector_resolution_status"] = "UNRESOLVED"
+
                 # Metadaten ergänzen
                 company["company_key"] = company_key_str
                 company["last_seen_at"] = fetched_at
@@ -299,6 +301,7 @@ class ImportService:
             "exchange_full_name": profile.get("exchangeFullName") or profile.get("exchange"),
             "industry": profile.get("industry"),
             "sector": profile.get("sector"),
+            "sector_resolution_status": "UNRESOLVED",
             "country": profile.get("country"),
             "website": profile.get("website"),
             "description": profile.get("description"),
@@ -332,6 +335,7 @@ class ImportService:
             "company_cik": trade.get("company_cik"),
             "current_symbol": trade.get("symbol"),
             "company_name": None,
+            "sector_resolution_status": "UNRESOLVED",
             "profile_status": "NOT_REQUESTED",
             "profile_reason": None,
             "first_seen_at": trade.get("first_seen_at") or fetched_at,
