@@ -3,7 +3,7 @@
 from __future__ import annotations
 import pandas as pd
 import streamlit as st
-from src.db.mysql_repository import CompanyMySqlRepository
+from src.db.repositories.company_repository import CompanyMySqlRepository
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
 
 def render_companies_page(repository: CompanyMySqlRepository) -> None:

@@ -5,7 +5,8 @@ from __future__ import annotations
 import pandas as pd
 
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
-from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
+from src.db.repositories.company_repository import CompanyMySqlRepository
+from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
 from src.services.accumulation_service import AccumulationService
 
 

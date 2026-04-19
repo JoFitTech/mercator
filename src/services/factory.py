@@ -12,19 +12,20 @@ from src.db.mongo_repository import (
     InsiderTradeMongoRepository,
 )
 from src.db.mysql_client import MySqlClient
-from src.db.mysql_repository import (
-    CompanyMySqlRepository,
-    InsiderTradeMySqlRepository,
+from src.db.repositories.company_repository import CompanyMySqlRepository
+from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
+from src.db.repositories.settings_repository import (
     AppFilterSettingsRepository,
     AppRuntimePreferencesRepository,
-    ApiUsageRepository,
 )
+from src.db.repositories.api_usage_repository import ApiUsageRepository
 from src.preprocessing import GateEvaluator, GateRules
 from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.services.analysis_service import AnalysisService
+from src.services.scoring_service import ScoringService
 from src.services.trade_republic_universe_service import (
     TradeRepublicUniverseIngestionService,
     TradeRepublicUniverseMatchingService,
@@ -34,199 +35,134 @@ from src.utils.logging_utils import get_logger
 LOGGER = get_logger(__name__)
 
 class ServiceFactory:
-    """Zentraler Ort zum Erstellen von Services, um Duplikate zwischen UI und API zu vermeiden."""
+    """Zentraler Ort zum Erstellen von Services als Instanzen (Dependency Injection Container)."""
 
-    last_import_issue: str | None = None
+    def __init__(self, settings: AppSettings, mysql_client: MySqlClient | None, mongo_wrapper: MongoClientWrapper | None):
+        self.settings = settings
+        self.mysql_client = mysql_client
+        self.mongo_wrapper = mongo_wrapper
+        
+        # Cache für Singleton-Services innerhalb der Factory-Lebensdauer
+        self._app_settings_service = None
+        self._api_usage_service = None
+        self._scoring_service = None
+        self._gate_evaluator = None
 
-    @staticmethod
-    def build_all(settings: AppSettings, mysql_client: MySqlClient, mongo_available: bool = True) -> tuple[
-        DashboardService, AnalysisService, ImportService | None, AppSettingsService, ApiUsageService
-    ]:
-        ServiceFactory.last_import_issue = None
-        mysql_client.initialize_schema()
-        mongo_client = MongoClientWrapper(settings.mongo) if mongo_available else None
+    def create_app_settings_service(self) -> AppSettingsService:
+        if self._app_settings_service is None:
+            filter_repo = AppFilterSettingsRepository(self.mysql_client) if self.mysql_client else None
+            runtime_repo = AppRuntimePreferencesRepository(self.mysql_client) if self.mysql_client else None
+            self._app_settings_service = AppSettingsService(runtime_repo, filter_repo, self.settings)
+        return self._app_settings_service
 
-        # Repositories
-        raw_repo = None
-        company_mongo_repo = None
-        if mongo_client is not None:
-            try:
-                raw_repo = InsiderTradeMongoRepository(mongo_client)
-                company_mongo_repo = CompanyMongoRepository(mongo_client)
-            except Exception as exc:
-                LOGGER.error("ServiceFactory: Mongo repository init fehlgeschlagen: %s", exc, exc_info=True)
-                ServiceFactory.last_import_issue = (
-                    "MongoDB-Daten inkonsistent oder Index fehlerhaft (companies/company_key)."
+    def create_api_usage_service(self) -> ApiUsageService:
+        if self._api_usage_service is None:
+            repo = ApiUsageRepository(self.mysql_client) if self.mysql_client else None
+            self._api_usage_service = ApiUsageService(repo)
+        return self._api_usage_service
+
+    def create_scoring_service(self) -> ScoringService:
+        if self._scoring_service is None:
+            policy = self.create_app_settings_service().load_score_gate_policy()
+            self._scoring_service = ScoringService(policy)
+        return self._scoring_service
+
+    def create_gate_evaluator(self) -> GateEvaluator:
+        if self._gate_evaluator is None:
+            policy = self.create_app_settings_service().load_score_gate_policy()
+            self._gate_evaluator = GateEvaluator(
+                GateRules(
+                    min_trade_value=int(policy.gate_min_trade_value),
+                    allowed_acquisition_or_disposition=tuple(policy.gate_allowed_acquisition_or_disposition),
+                    excluded_transaction_types=tuple(policy.gate_excluded_transaction_types),
+                    required_form_type=policy.gate_form_type_required,
+                    required_security_name=policy.gate_security_name_required,
+                    required_validation_status=policy.gate_validation_status_required,
                 )
-                LOGGER.warning("ServiceFactory: ImportService deaktiviert (%s).", ServiceFactory.last_import_issue)
-                raw_repo = None
-                company_mongo_repo = None
-
-        trade_repo = InsiderTradeMySqlRepository(mysql_client)
-        company_repo = CompanyMySqlRepository(mysql_client)
-        filter_repo = AppFilterSettingsRepository(mysql_client)
-        runtime_settings_repo = AppRuntimePreferencesRepository(mysql_client)
-        api_usage_repo = ApiUsageRepository(mysql_client)
-
-        # Services
-        api_usage_service = ApiUsageService(api_usage_repo)
-        runtime_settings_service = AppSettingsService(runtime_settings_repo, filter_repo, settings)
-        runtime_settings = runtime_settings_service.load()
-        score_gate_policy = runtime_settings_service.load_score_gate_policy()
-        gate_evaluator = GateEvaluator(
-            GateRules(
-                min_trade_value=int(score_gate_policy.gate_min_trade_value),
-                allowed_acquisition_or_disposition=tuple(score_gate_policy.gate_allowed_acquisition_or_disposition),
-                excluded_transaction_types=tuple(score_gate_policy.gate_excluded_transaction_types),
-                required_form_type=score_gate_policy.gate_form_type_required,
-                required_security_name=score_gate_policy.gate_security_name_required,
-                required_validation_status=score_gate_policy.gate_validation_status_required,
             )
-        )
+        return self._gate_evaluator
 
-        import_service: ImportService | None = None
-        fmp_client: FmpClient | None = None
-        if mongo_client is not None and raw_repo is not None and company_mongo_repo is not None:
-            try:
-                fmp_client = FmpClient(
-                    replace(
-                        settings.fmp,
-                        profile_ttl_days=runtime_settings.profile_ttl_days,
-                        lookup_mode=runtime_settings.lookup_mode,
-                    ),
-                    api_usage_service=api_usage_service
-                )
-                
-                # Enrichment Service vorbereiten
-                av_client = None
-                if settings.enrichment.alpha_vantage_api_key:
-                    av_client = AlphaVantageClient(settings.enrichment.alpha_vantage_api_key)
-                
-                poly_client = None
-                if settings.enrichment.polygon_api_key:
-                    poly_client = PolygonClient(settings.enrichment.polygon_api_key)
-                    
-                enrichment_service = CompanyEnrichmentService(
-                    fmp_client=fmp_client,
-                    alpha_vantage_client=av_client,
-                    polygon_client=poly_client
-                )
+    def create_dashboard_service(self) -> DashboardService | None:
+        if not self.mysql_client:
+            return None
+        
+        raw_repo = InsiderTradeMongoRepository(self.mongo_wrapper) if self.mongo_wrapper else None
+        company_mongo_repo = CompanyMongoRepository(self.mongo_wrapper) if self.mongo_wrapper else None
+        trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
+        company_repo = CompanyMySqlRepository(self.mysql_client)
+        
+        return DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo)
 
-                import_service = ImportService(
-                    fmp_client=fmp_client,
-                    gate_evaluator=gate_evaluator,
-                    raw_repo=raw_repo,
-                    company_mongo_repo=company_mongo_repo,
-                    trade_mysql_repo=trade_repo,
-                    company_mysql_repo=company_repo,
-                    profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
-                    api2_firing_mode=runtime_settings.api2_firing_mode,
-                    allow_write=not (settings.review_mode or settings.disable_import),
-                    tr_ingestion_service=TradeRepublicUniverseIngestionService(settings, mysql_client),
-                    tr_matching_service=TradeRepublicUniverseMatchingService(mysql_client),
-                    enrichment_service=enrichment_service,
-                )
-            except ValueError as exc:
-                ServiceFactory.last_import_issue = (
-                    f"FMP-Konfiguration ungueltig ({settings.fmp.api_key_source}):\n{str(exc)}"
-                )
-                LOGGER.warning("ServiceFactory: ImportService deaktiviert. Reason:\n%s", ServiceFactory.last_import_issue)
-            except Exception as exc:
-                ServiceFactory.last_import_issue = f"FMP-Client Initialisierung fehlgeschlagen: {exc}"
-                LOGGER.error("ServiceFactory: ImportService deaktiviert (%s)", ServiceFactory.last_import_issue)
-        else:
-            if ServiceFactory.last_import_issue is None:
-                ServiceFactory.last_import_issue = "MongoDB nicht verfuegbar."
-            LOGGER.warning("ServiceFactory: ImportService deaktiviert (%s)", ServiceFactory.last_import_issue)
-
-        dashboard_service = DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo)
-        analysis_service = AnalysisService(
-            trade_repo,
-            company_repo,
-            score_gate_policy=score_gate_policy,
-            fmp_client=fmp_client,
+    def create_analysis_service(self) -> AnalysisService | None:
+        if not self.mysql_client:
+            return None
+        
+        trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
+        company_repo = CompanyMySqlRepository(self.mysql_client)
+        policy = self.create_app_settings_service().load_score_gate_policy()
+        
+        # FMP Client
+        runtime_settings = self.create_app_settings_service().load()
+        fmp_client = FmpClient(
+            replace(
+                self.settings.fmp,
+                profile_ttl_days=runtime_settings.profile_ttl_days,
+                lookup_mode=runtime_settings.lookup_mode,
+            ),
+            api_usage_service=self.create_api_usage_service()
         )
         
-        return dashboard_service, analysis_service, import_service, runtime_settings_service, api_usage_service
-
-    @staticmethod
-    def build_ingestion_only(settings: AppSettings) -> tuple[ImportService | None, AppSettingsService, ApiUsageService]:
-        """Erstellt Services für den Fall 'Mongo erreichbar, MySQL nicht erreichbar'."""
-
-        ServiceFactory.last_import_issue = None
-        api_usage_service = ApiUsageService(None)
-
-        mongo_client = MongoClientWrapper(settings.mongo)
-        try:
-            raw_repo = InsiderTradeMongoRepository(mongo_client)
-            company_mongo_repo = CompanyMongoRepository(mongo_client)
-        except Exception as exc:
-            LOGGER.error("ServiceFactory: Ingestion-only Mongo init fehlgeschlagen: %s", exc, exc_info=True)
-            runtime_settings_service = AppSettingsService(runtime_repo=None, filter_repo=None, defaults=settings)
-            ServiceFactory.last_import_issue = "MongoDB-Daten inkonsistent oder Index fehlerhaft (companies/company_key)."
-            LOGGER.warning("ServiceFactory: Ingestion-only deaktiviert (%s)", ServiceFactory.last_import_issue)
-            return None, runtime_settings_service
-
-        runtime_settings_service = AppSettingsService(runtime_repo=None, filter_repo=None, defaults=settings)
-        runtime_settings = runtime_settings_service.load()
-
-        score_gate_policy = runtime_settings_service.load_score_gate_policy()
-        gate_evaluator = GateEvaluator(
-            GateRules(
-                min_trade_value=int(score_gate_policy.gate_min_trade_value),
-                allowed_acquisition_or_disposition=tuple(score_gate_policy.gate_allowed_acquisition_or_disposition),
-                excluded_transaction_types=tuple(score_gate_policy.gate_excluded_transaction_types),
-                required_form_type=score_gate_policy.gate_form_type_required,
-                required_security_name=score_gate_policy.gate_security_name_required,
-                required_validation_status=score_gate_policy.gate_validation_status_required,
-            )
+        return AnalysisService(
+            trade_repo,
+            company_repo,
+            score_gate_policy=policy,
+            fmp_client=fmp_client,
+            scoring_service=self.create_scoring_service()
         )
 
-        try:
-            fmp_client = FmpClient(
-                replace(
-                    settings.fmp,
-                    profile_ttl_days=runtime_settings.profile_ttl_days,
-                    lookup_mode=runtime_settings.lookup_mode,
-                ),
-                api_usage_service=api_usage_service
-            )
+    def create_import_service(self) -> ImportService | None:
+        # Requirement 9: Kein Betrieb ohne Kernkomponenten (MySQL hier Pflicht fuer vollen Import)
+        if not self.mysql_client or not self.mongo_wrapper:
+            LOGGER.warning("ServiceFactory: ImportService nicht moeglich (DB fehlt).")
+            return None
             
-            # Enrichment Service vorbereiten
-            av_client = None
-            if settings.enrichment.alpha_vantage_api_key:
-                av_client = AlphaVantageClient(settings.enrichment.alpha_vantage_api_key)
-            
-            poly_client = None
-            if settings.enrichment.polygon_api_key:
-                poly_client = PolygonClient(settings.enrichment.polygon_api_key)
-                
-            enrichment_service = CompanyEnrichmentService(
-                fmp_client=fmp_client,
-                alpha_vantage_client=av_client,
-                polygon_client=poly_client
-            )
+        trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
+        company_repo = CompanyMySqlRepository(self.mysql_client)
+        raw_repo = InsiderTradeMongoRepository(self.mongo_wrapper)
+        company_mongo_repo = CompanyMongoRepository(self.mongo_wrapper)
+        
+        runtime_settings = self.create_app_settings_service().load()
+        fmp_client = FmpClient(
+            replace(
+                self.settings.fmp,
+                profile_ttl_days=runtime_settings.profile_ttl_days,
+                lookup_mode=runtime_settings.lookup_mode,
+            ),
+            api_usage_service=self.create_api_usage_service()
+        )
+        
+        # Enrichment Service
+        av_client = AlphaVantageClient(self.settings.enrichment.alpha_vantage_api_key) if self.settings.enrichment.alpha_vantage_api_key else None
+        poly_client = PolygonClient(self.settings.enrichment.polygon_api_key) if self.settings.enrichment.polygon_api_key else None
+        enrichment_service = CompanyEnrichmentService(fmp_client, av_client, poly_client)
 
-            import_service = ImportService(
-                fmp_client=fmp_client,
-                gate_evaluator=gate_evaluator,
-                raw_repo=raw_repo,
-                company_mongo_repo=company_mongo_repo,
-                trade_mysql_repo=None,
-                company_mysql_repo=None,
-                profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
-                allow_write=not (settings.review_mode or settings.disable_import),
-                enrichment_service=enrichment_service,
-            )
-        except ValueError as exc:
-            import_service = None
-            ServiceFactory.last_import_issue = f"FMP-Konfiguration ungueltig ({settings.fmp.api_key_source}):\n{str(exc)}"
-            LOGGER.warning("ServiceFactory: Ingestion-only deaktiviert. Reason:\n%s", ServiceFactory.last_import_issue)
-        except Exception as exc:
-            import_service = None
-            ServiceFactory.last_import_issue = f"FMP-Client Initialisierung fehlgeschlagen: {exc}"
-            LOGGER.error("ServiceFactory: Ingestion-only deaktiviert (%s)", ServiceFactory.last_import_issue)
+        return ImportService(
+            fmp_client=fmp_client,
+            gate_evaluator=self.create_gate_evaluator(),
+            raw_repo=raw_repo,
+            company_mongo_repo=company_mongo_repo,
+            trade_mysql_repo=trade_repo,
+            company_mysql_repo=company_repo,
+            profile_fetch_statuses=runtime_settings.profile_gate_filter_statuses,
+            api2_firing_mode=runtime_settings.api2_firing_mode,
+            allow_write=not (self.settings.review_mode or self.settings.disable_import),
+            tr_ingestion_service=TradeRepublicUniverseIngestionService(self.settings, self.mysql_client),
+            tr_matching_service=TradeRepublicUniverseMatchingService(self.mysql_client),
+            enrichment_service=enrichment_service,
+            scoring_service=self.create_scoring_service()
+        )
 
-        if import_service is not None:
-            LOGGER.warning("ServiceFactory: Ingestion-only Modus aktiv (MySQL nicht verfuegbar).")
-        return import_service, runtime_settings_service, api_usage_service
+    def create_company_repository(self) -> CompanyMySqlRepository | None:
+        if not self.mysql_client:
+            return None
+        return CompanyMySqlRepository(self.mysql_client)

@@ -13,13 +13,14 @@ from src.data_sources.alpha_vantage_client import AlphaVantageClient
 from src.data_sources.polygon_client import PolygonClient
 from src.services.company_enrichment_service import CompanyEnrichmentService
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
-from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
+from src.db.repositories.company_repository import CompanyMySqlRepository
+from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
 from src.preprocessing.gate_evaluator import (
     GATE_PASS,
     GATE_PENDING,
     GateEvaluator,
 )
-from src.domain_rules import compute_discrete_score
+from src.services.scoring_service import ScoringService
 from src.preprocessing.cleaning import normalize_insider_trade
 from src.services.trade_republic_universe_service import (
     TradeRepublicUniverseIngestionService,
@@ -56,6 +57,7 @@ class ImportService:
         tr_ingestion_service: TradeRepublicUniverseIngestionService | None = None,
         tr_matching_service: TradeRepublicUniverseMatchingService | None = None,
         enrichment_service: CompanyEnrichmentService | None = None,
+        scoring_service: ScoringService | None = None,
     ) -> None:
         self.fmp_client = fmp_client
         self.gate_evaluator = gate_evaluator
@@ -69,6 +71,7 @@ class ImportService:
         self.tr_ingestion_service = tr_ingestion_service
         self.tr_matching_service = tr_matching_service
         self.enrichment_service = enrichment_service or CompanyEnrichmentService(fmp_client)
+        self.scoring_service = scoring_service or ScoringService()
 
     def run_hourly_import(
         self,
@@ -116,10 +119,10 @@ class ImportService:
             decision = self.gate_evaluator.evaluate(item)
             item["gate_status"] = decision.status
             item["gate_reason"] = decision.reason
-            score_value, score_class = self._compute_trade_score(item)
-            item["score"] = score_value
-            item["score_value"] = score_value
-            item["score_class"] = score_class
+            res = self.scoring_service.compute_trade_score(item)
+            item["score"] = res["score"]
+            item["score_value"] = res["score"]
+            item["score_class"] = res["score_class"]
 
             symbol = str(item.get("symbol") or "").strip().upper()
             if symbol:
@@ -225,10 +228,10 @@ class ImportService:
                     item["sector_resolution_status"] = comp.get("sector_resolution_status")
                     item["market_cap"] = comp.get("market_cap")
 
-            score_value, score_class = self._compute_trade_score(item)
-            item["score"] = score_value
-            item["score_value"] = score_value
-            item["score_class"] = score_class
+            res = self.scoring_service.compute_trade_score(item)
+            item["score"] = res["score"]
+            item["score_value"] = res["score"]
+            item["score_class"] = res["score_class"]
             
             # Dashboard-Validitätslogik
             item["dashboard_valid"] = self._is_dashboard_valid(item)
@@ -319,11 +322,6 @@ class ImportService:
         """Konvertiert optionale/heterogene Werte defensiv in String."""
 
         return "" if value is None else str(value)
-
-    @staticmethod
-    def _compute_trade_score(trade: dict[str, Any]) -> tuple[float | None, str | None]:
-        """Berechnet Score und Klasse basierend auf der diskreten Domain-Logik."""
-        return compute_discrete_score(trade)
 
     def _upsert_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> None:
         company_key = trade.get("company_key")

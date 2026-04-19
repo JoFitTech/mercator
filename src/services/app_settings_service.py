@@ -7,7 +7,7 @@ from typing import Any
 
 from src.config.settings import AppSettings
 from src.domain_rules import ScoreGatePolicy
-from src.db.mysql_repository import (
+from src.db.repositories.settings_repository import (
     AppFilterSettingsRepository,
     AppRuntimePreferencesRepository,
 )

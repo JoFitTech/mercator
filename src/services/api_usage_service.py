@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from src.db.mysql_repository import ApiUsageRepository
+from src.db.repositories.api_usage_repository import ApiUsageRepository
 
 
 class ApiUsageService:

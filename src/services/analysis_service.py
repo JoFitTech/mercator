@@ -6,14 +6,14 @@ import logging
 import pandas as pd
 
 from src.data_sources.fmp_client import FmpClient
-from src.db.mysql_repository import CompanyMySqlRepository, InsiderTradeMySqlRepository
+from src.db.repositories.company_repository import CompanyMySqlRepository
+from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
 from src.domain_rules import (
     ScoreGatePolicy,
-    classify_score,
-    compute_discrete_score,
     normalize_symbol,
     sanitize_symbol_options,
 )
+from src.services.scoring_service import ScoringService
 from src.models.analysis_result import AnalysisResult
 from src.services.accumulation_service import AccumulationService
 
@@ -57,11 +57,13 @@ class AnalysisService:
         company_repo: CompanyMySqlRepository,
         score_gate_policy: ScoreGatePolicy | None = None,
         fmp_client: FmpClient | None = None,
+        scoring_service: ScoringService | None = None,
     ) -> None:
         self.trade_repo = trade_repo
         self.company_repo = company_repo
         self.score_gate_policy = score_gate_policy or ScoreGatePolicy()
         self.fmp_client = fmp_client
+        self.scoring_service = scoring_service or ScoringService(self.score_gate_policy)
 
     def list_ticker_options(self) -> list[str]:
         """Liefert ausschließlich symbolbasierte, bereinigte Tickeroptionen.
@@ -155,9 +157,8 @@ class AnalysisService:
 
     def compute_trade_score(self, trade: dict | pd.Series) -> tuple[float, str | None]:
         """Berechnet den Gesamtscore für einen Trade basierend auf der diskreten Domain-Logik."""
-        if isinstance(trade, pd.Series):
-            trade = trade.to_dict()
-        return compute_discrete_score(trade)
+        res = self.scoring_service.compute_trade_score(trade)
+        return res["score"], res["score_class"]
 
     def _ensure_trade_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normalisiert UI-relevante Pflichtfelder defensiv für Explorer und Detailansicht."""
@@ -221,8 +222,8 @@ class AnalysisService:
 
         normalized["score"] = pd.to_numeric(normalized["score"], errors="coerce")
         normalized["score_class"] = normalized["score_class"].where(normalized["score_class"].notna(), None)
-        normalized["score_status"] = normalized["score"].apply(lambda v: classify_score(v, self.score_gate_policy)[0])
-        normalized["score_status_color"] = normalized["score"].apply(lambda v: classify_score(v, self.score_gate_policy)[1])
+        normalized["score_status"] = normalized["score"].apply(lambda v: self.scoring_service.compute_trade_score({"score": v})["status_label"])
+        normalized["score_status_color"] = normalized["score"].apply(lambda v: self.scoring_service.compute_trade_score({"score": v})["status_color"])
         if "trade_republic_universe_status" not in normalized.columns:
             normalized["trade_republic_universe_status"] = pd.NA
         if "company_trade_republic_universe_status" in normalized.columns:

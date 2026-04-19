@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 from datetime import date, timedelta
 from src.services.analysis_service import AnalysisService
-from src.ui.components.context_bar import render_context_bar
+from src.ui.components.context_bar import render_filter_chip_bar
 from src.ui.components.page_scaffold import render_kpi_row, render_page_header, render_empty_state
 from src.ui.components.tables import render_trade_table
 

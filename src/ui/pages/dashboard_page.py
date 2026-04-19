@@ -8,7 +8,7 @@ from src.config.settings import AppSettings
 from src.services.app_settings_service import AppSettingsService
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
-from src.ui.components.context_bar import render_context_bar
+from src.ui.components.context_bar import render_filter_chip_bar, render_status_bar
 from src.ui.components.page_scaffold import render_kpi_row, render_page_header
 
 def render_dashboard_page(
@@ -23,6 +23,7 @@ def render_dashboard_page(
         return
 
     # 1. Header (kein Import mehr hier)
+    # Requirement 5.6: render_page_header ist verpflichtend.
     render_page_header("Markt-Dashboard", "Zusammenfassung der Insider-Aktivitäten.")
     
     # 2. Zeitraum / Context (Requirement 2.1: transaction_date)
@@ -48,10 +49,9 @@ def render_dashboard_page(
     with st.spinner("Lade Übersicht..."):
         payload = service.build_dashboard_payload(filters=filters)
 
-    render_context_bar(
-        active_filters={"Zeitraum": f"{filters['date_from']} bis {filters['date_to']}"},
-        last_update=payload.get("last_update")
-    )
+    # Requirement 5.7: Spezialisierte Komponenten statt generischer context_bar
+    render_filter_chip_bar(active_filters={"Zeitraum": f"{filters['date_from']} bis {filters['date_to']}"})
+    render_status_bar(last_update=payload.get("last_update"))
 
     # 4. KPI-Bereich
     st.markdown("#### Kennzahlen (Dashboard-Valide Trades)")
