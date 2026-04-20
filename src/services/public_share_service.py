@@ -4,27 +4,33 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import os
+from queue import Empty, Queue
 import re
-import select
 import shutil
+import signal
 import subprocess
+import threading
 import time
 from typing import Protocol
+from urllib import error as url_error
+from urllib import request as url_request
 
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
 TRY_CLOUDFLARE_URL_PATTERN = re.compile(r"https://[a-zA-Z0-9.-]+\.trycloudflare\.com")
 _MAX_LOG_LINES = 40
+_HEALTHCHECK_INTERVAL_SECONDS = 15
 
 
 class TunnelStatus(str, Enum):
     STOPPED = "STOPPED"
     STARTING = "STARTING"
     RUNNING = "RUNNING"
+    WARNING = "WARNING"
     ERROR = "ERROR"
     STALE = "STALE"
 
@@ -40,6 +46,9 @@ class TunnelSession:
     raw_log_tail: list[str] = field(default_factory=list)
     error_message: str | None = None
     process: subprocess.Popen[str] | None = field(default=None, repr=False, compare=False)
+    stale_reason: str | None = None
+    last_healthcheck_at: datetime | None = None
+    last_healthcheck_ok: bool | None = None
 
 
 class TunnelProvider(Protocol):
@@ -54,9 +63,15 @@ class TunnelProvider(Protocol):
 
 
 class CloudflareQuickTunnelProvider:
-    def __init__(self, cloudflared_bin: str = "cloudflared", startup_timeout_seconds: int = 20):
+    def __init__(
+        self,
+        cloudflared_bin: str = "cloudflared",
+        startup_timeout_seconds: int = 20,
+        healthcheck_timeout_seconds: float = 2.0,
+    ):
         self.cloudflared_bin = cloudflared_bin
         self.startup_timeout_seconds = startup_timeout_seconds
+        self.healthcheck_timeout_seconds = healthcheck_timeout_seconds
 
     def is_binary_available(self) -> bool:
         if os.path.isabs(self.cloudflared_bin) or os.path.sep in self.cloudflared_bin:
@@ -113,28 +128,42 @@ class CloudflareQuickTunnelProvider:
                 error_message=f"cloudflared Start fehlgeschlagen: {exc}",
             )
 
+        output_queue: Queue[str | None] = Queue()
+        reader_thread = threading.Thread(
+            target=self._enqueue_output,
+            args=(process, output_queue),
+            daemon=True,
+            name="cloudflared-output-reader",
+        )
+        reader_thread.start()
+
         deadline = time.monotonic() + self.startup_timeout_seconds
         found_url: str | None = None
+
         while time.monotonic() < deadline:
-            if process.poll() is not None:
+            if process.poll() is not None and output_queue.empty():
                 break
 
-            stdout = process.stdout
-            if stdout is None:
-                break
-
-            ready, _, _ = select.select([stdout], [], [], 0.2)
-            if not ready:
+            try:
+                line = output_queue.get(timeout=0.2)
+            except Empty:
                 continue
 
-            line = stdout.readline().strip()
-            if not line:
+            if line is None:
+                if process.poll() is not None:
+                    break
                 continue
-            log_tail.append(line)
-            match = TRY_CLOUDFLARE_URL_PATTERN.search(line)
+
+            stripped = line.strip()
+            if not stripped:
+                continue
+            log_tail.append(stripped)
+            match = TRY_CLOUDFLARE_URL_PATTERN.search(stripped)
             if match:
                 found_url = match.group(0)
                 break
+
+        reader_thread.join(timeout=0.2)
 
         if found_url and process.poll() is None:
             return TunnelSession(
@@ -166,18 +195,59 @@ class CloudflareQuickTunnelProvider:
 
     def stop(self, session: TunnelSession) -> None:
         self._terminate_process(session.process)
+        if session.process is None and session.pid:
+            self._terminate_pid(session.pid)
 
     def get_status(self, session: TunnelSession) -> TunnelStatus:
+        if not session.public_url:
+            return TunnelStatus.STOPPED if session.status == TunnelStatus.STOPPED else session.status
+
         process = session.process
-        if process is None:
-            return session.status
-
-        if process.poll() is None:
-            return TunnelStatus.RUNNING
-
-        if session.status in {TunnelStatus.RUNNING, TunnelStatus.STARTING}:
+        if process is not None and process.poll() is not None:
             return TunnelStatus.STALE
-        return TunnelStatus.STOPPED
+
+        if session.last_healthcheck_at and datetime.now(timezone.utc) - session.last_healthcheck_at < timedelta(
+            seconds=_HEALTHCHECK_INTERVAL_SECONDS
+        ):
+            return TunnelStatus.RUNNING if session.last_healthcheck_ok else TunnelStatus.WARNING
+
+        reachable = self._is_public_url_reachable(session.public_url)
+        session.last_healthcheck_at = datetime.now(timezone.utc)
+        session.last_healthcheck_ok = reachable
+        if reachable:
+            session.error_message = None
+            return TunnelStatus.RUNNING
+        session.error_message = "Tunnel läuft, aber die öffentliche URL ist derzeit nicht erreichbar."
+        return TunnelStatus.WARNING
+
+    @staticmethod
+    def _enqueue_output(process: subprocess.Popen[str], output_queue: Queue[str | None]) -> None:
+        stdout = process.stdout
+        if stdout is None:
+            output_queue.put(None)
+            return
+
+        try:
+            for line in stdout:
+                output_queue.put(line)
+        except Exception:
+            LOGGER.debug("Ausgabe-Reader wurde beendet", exc_info=True)
+        finally:
+            output_queue.put(None)
+
+    def _is_public_url_reachable(self, url: str) -> bool:
+        for method in ("HEAD", "GET"):
+            req = url_request.Request(url, method=method)
+            try:
+                with url_request.urlopen(req, timeout=self.healthcheck_timeout_seconds) as resp:
+                    if 200 <= getattr(resp, "status", 200) < 500:
+                        return True
+            except url_error.HTTPError as exc:
+                if 200 <= exc.code < 500:
+                    return True
+            except Exception:
+                continue
+        return False
 
     @staticmethod
     def extract_public_url_from_log_line(line: str) -> str | None:
@@ -200,6 +270,15 @@ class CloudflareQuickTunnelProvider:
             except Exception:
                 LOGGER.warning("Tunnelprozess konnte nicht sauber beendet werden", exc_info=True)
 
+    @staticmethod
+    def _terminate_pid(pid: int) -> None:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except Exception:
+            LOGGER.debug("PID %s konnte nicht per SIGTERM beendet werden", pid, exc_info=True)
+
 
 class TunnelManager:
     def __init__(self, provider: TunnelProvider, provider_name: str, default_local_url: str):
@@ -209,13 +288,47 @@ class TunnelManager:
         self.session: TunnelSession | None = None
         self.last_error: str | None = None
 
+    @staticmethod
+    def is_process_alive(session: TunnelSession) -> bool:
+        process = session.process
+        if process is not None:
+            return process.poll() is None
+
+        if session.pid is None:
+            return False
+
+        try:
+            os.kill(session.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def mark_session_stale(session: TunnelSession, reason: str) -> None:
+        session.status = TunnelStatus.STALE
+        session.stale_reason = reason
+
+    @staticmethod
+    def cleanup_terminated_session(session: TunnelSession) -> None:
+        session.process = None
+        session.pid = None
+        session.public_url = None
+        session.last_healthcheck_ok = None
+        session.last_healthcheck_at = None
+
     def start(self, local_url: str | None = None) -> TunnelSession:
         existing = self.session
         if existing is not None:
             current_status = self.provider.get_status(existing)
             existing.status = current_status
-            if current_status in {TunnelStatus.STARTING, TunnelStatus.RUNNING}:
+            if current_status in {TunnelStatus.STARTING, TunnelStatus.RUNNING, TunnelStatus.WARNING}:
                 return existing
+            if current_status == TunnelStatus.STALE:
+                self.cleanup_terminated_session(existing)
 
         target_url = (local_url or self.default_local_url).strip()
         self.session = TunnelSession(
@@ -243,29 +356,42 @@ class TunnelManager:
             LOGGER.warning("Tunnel-Stop meldete Fehler: %s", exc)
         finally:
             self.session.status = TunnelStatus.STOPPED
-            self.session.process = None
-            self.session.public_url = None
+            self.cleanup_terminated_session(self.session)
+            self.session.error_message = None
+            self.session.stale_reason = None
         return self.session
 
     def get_session(self) -> TunnelSession | None:
         if self.session is None:
             return None
-        self.session.status = self.provider.get_status(self.session)
+
+        if self.session.status in {TunnelStatus.STARTING, TunnelStatus.RUNNING, TunnelStatus.WARNING}:
+            if not self.is_process_alive(self.session):
+                self.mark_session_stale(self.session, "Tunnelprozess ist nicht mehr aktiv.")
+
+        status = self.provider.get_status(self.session)
+        self.session.status = status
+
+        if self.session.status == TunnelStatus.STALE:
+            self.session.process = None
+            if not self.session.stale_reason:
+                self.session.stale_reason = "Tunnelprozess wurde beendet oder Session ist veraltet."
+
         return self.session
 
 
 def sync_public_share_sidebar_state(manager: TunnelManager | None) -> None:
     session = manager.get_session() if manager else None
-    if session and session.status == TunnelStatus.RUNNING and session.public_url:
-        st_url = session.public_url
-    else:
-        st_url = None
+    is_running = bool(session and session.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING} and session.public_url)
+    st_url = session.public_url if is_running else None
 
     # keine harte Streamlit-Abhängigkeit für Tests
     try:
         import streamlit as st
 
         st.session_state["public_share_url"] = st_url
+        st.session_state["public_share_active"] = is_running
         st.session_state["public_share_status"] = session.status.value if session else TunnelStatus.STOPPED.value
+        st.session_state["public_share_error"] = session.error_message if session else None
     except Exception:
         return

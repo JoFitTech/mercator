@@ -20,6 +20,20 @@ LOGGER = get_logger(__name__)
 PUBLIC_SHARE_MANAGER_STATE_KEY = "public_share_manager"
 
 
+def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
+    if status == TunnelStatus.RUNNING:
+        return "success", "Tunnel läuft."
+    if status == TunnelStatus.STARTING:
+        return "info", "Tunnel wird gestartet …"
+    if status == TunnelStatus.STALE:
+        return "warning", "Tunnelprozess ist stale/beendet."
+    if status == TunnelStatus.WARNING:
+        return "warning", "Tunnel läuft, aber die öffentliche URL ist aktuell nicht erreichbar."
+    if status == TunnelStatus.ERROR:
+        return "error", "Tunnel konnte nicht gestartet werden."
+    return "caption", "Tunnel ist gestoppt."
+
+
 def _get_public_share_manager(settings: AppSettings) -> TunnelManager:
     manager = st.session_state.get(PUBLIC_SHARE_MANAGER_STATE_KEY)
     if isinstance(manager, TunnelManager):
@@ -28,6 +42,7 @@ def _get_public_share_manager(settings: AppSettings) -> TunnelManager:
     provider = CloudflareQuickTunnelProvider(
         cloudflared_bin=settings.public_share.cloudflared_bin,
         startup_timeout_seconds=settings.public_share.startup_timeout_seconds,
+        healthcheck_timeout_seconds=settings.public_share.healthcheck_timeout_seconds,
     )
     manager = TunnelManager(
         provider=provider,
@@ -700,16 +715,17 @@ def render_admin_page(
                 with c1:
                     st.markdown("#### Status")
                     status = session.status if session else TunnelStatus.STOPPED
-                    if status == TunnelStatus.RUNNING:
-                        st.success("Tunnel läuft.")
-                    elif status == TunnelStatus.STARTING:
-                        st.info("Tunnel wird gestartet …")
-                    elif status == TunnelStatus.STALE:
-                        st.warning("Tunnelprozess ist stale/beendet.")
-                    elif status == TunnelStatus.ERROR:
-                        st.error("Tunnel konnte nicht gestartet werden.")
+                    kind, message = _public_share_status_message(status)
+                    if kind == "success":
+                        st.success(message)
+                    elif kind == "info":
+                        st.info(message)
+                    elif kind == "warning":
+                        st.warning(message)
+                    elif kind == "error":
+                        st.error(message)
                     else:
-                        st.caption("Tunnel ist gestoppt.")
+                        st.caption(message)
 
                 with c2:
                     is_running = bool(session and session.status == TunnelStatus.RUNNING)
@@ -749,6 +765,7 @@ def render_admin_page(
             with diagnostics_right:
                 public_url_value = session.public_url if session and session.public_url else "-"
                 st.text_input("Öffentliche URL", value=public_url_value, disabled=True)
+                st.caption("Tipp: Feld markieren und kopieren (Strg/Cmd+C).")
                 st.text_input(
                     "cloudflared Binärdatei",
                     value=settings.public_share.cloudflared_bin,
@@ -757,7 +774,7 @@ def render_admin_page(
                 binary_available = provider.is_binary_available() if isinstance(provider, CloudflareQuickTunnelProvider) else False
                 st.text_input("Binärdatei gefunden", value="Ja" if binary_available else "Nein", disabled=True)
 
-            can_open = bool(session and session.status == TunnelStatus.RUNNING and session.public_url)
+            can_open = bool(session and session.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING} and session.public_url)
             st.link_button(
                 "Öffentliche URL öffnen",
                 session.public_url if can_open and session and session.public_url else "http://localhost",

@@ -7,7 +7,7 @@ from src.app.bootstrap import bootstrap_app
 from src.app.infrastructure_mode import build_infrastructure_mode, render_infrastructure_banner
 from src.app.navigation import render_navigation_topbar, render_sidebar_navigation, render_system_status_sidebar
 from src.app.auto_import import handle_auto_import, render_import_status_toast
-from src.services.public_share_service import TunnelManager, sync_public_share_sidebar_state
+from src.services.public_share_service import CloudflareQuickTunnelProvider, TunnelManager, sync_public_share_sidebar_state
 
 from src.ui.pages.dashboard_page import render_dashboard_page
 from src.ui.pages.trades_page import render_trades_page
@@ -30,6 +30,18 @@ def main():
     # 2. Top-Navigation & Sidebar-Status
     # Requirement 5.1: Navigation & Systemstatus in eigene Module ausgelagert.
     nav_target = render_navigation_topbar()
+    st.session_state["public_share_enabled"] = bool(settings.public_share.enabled)
+    if settings.public_share.enabled and not isinstance(st.session_state.get("public_share_manager"), TunnelManager):
+        st.session_state["public_share_manager"] = TunnelManager(
+            provider=CloudflareQuickTunnelProvider(
+                cloudflared_bin=settings.public_share.cloudflared_bin,
+                startup_timeout_seconds=settings.public_share.startup_timeout_seconds,
+                healthcheck_timeout_seconds=settings.public_share.healthcheck_timeout_seconds,
+            ),
+            provider_name=settings.public_share.provider,
+            default_local_url=settings.public_share.local_url,
+        )
+
     public_share_manager = st.session_state.get("public_share_manager")
     sync_public_share_sidebar_state(
         public_share_manager if isinstance(public_share_manager, TunnelManager) else None

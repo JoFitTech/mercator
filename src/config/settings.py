@@ -166,6 +166,26 @@ def _read_int_env(name: str, default: int | None = None) -> int:
         ) from exc
 
 
+
+
+def _read_float_env(name: str, default: float | None = None) -> float:
+    """Liest einen Float-Wert aus der Umgebung."""
+
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        if default is None:
+            raise SettingsError(
+                f"Missing required float environment variable '{name}'."
+            )
+        return default
+
+    try:
+        return float(raw_value)
+    except ValueError as exc:
+        raise SettingsError(
+            f"Environment variable '{name}' must be a float, got '{raw_value}'."
+        ) from exc
+
 def _read_bool_env(name: str, default: bool | None = None) -> bool:
     """Liest einen booleschen Wert aus der Umgebung.
 
@@ -485,6 +505,7 @@ class PublicShareConfig:
     local_url: str = "http://localhost:8501"
     cloudflared_bin: str = "cloudflared"
     startup_timeout_seconds: int = 20
+    healthcheck_timeout_seconds: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -573,6 +594,7 @@ def load_settings() -> AppSettings:
             local_url=_read_string_env("PUBLIC_SHARE_LOCAL_URL", default="http://localhost:8501"),
             cloudflared_bin=_read_string_env("CLOUDFLARED_BIN", default="cloudflared"),
             startup_timeout_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS", default=20),
+            healthcheck_timeout_seconds=_read_float_env("PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS", default=2.0),
         ),
     )
 

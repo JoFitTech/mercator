@@ -7,7 +7,14 @@ import pandas as pd
 from src.ui.pages.dashboard_page import _build_dashboard_filters
 from src.ui.pages import dashboard_page
 from src.services.import_service import ImportSummary
-from src.ui.pages.admin_page import _build_import_metrics, _build_import_success_message, _humanize_import_error
+from src.ui.pages.admin_page import (
+    _build_import_metrics,
+    _build_import_success_message,
+    _humanize_import_error,
+    _public_share_status_message,
+)
+from src.app.navigation import public_share_sidebar_status_text
+from src.services.public_share_service import TunnelStatus
 from src.ui.pages.trades_page import (
     TRADE_FILTER_DEFAULTS,
     _build_query_filters,
@@ -138,3 +145,15 @@ def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:
     assert calls[0]["spec"]["mark"]["type"] == "bar"
     assert calls[0]["spec"]["encoding"]["x"]["field"] == "delta"
     assert calls[1]["spec"]["encoding"]["x"]["field"] == "companies"
+
+
+def test_public_share_admin_status_messages_cover_running_stale_and_warning() -> None:
+    assert _public_share_status_message(TunnelStatus.RUNNING) == ("success", "Tunnel läuft.")
+    assert _public_share_status_message(TunnelStatus.STALE)[0] == "warning"
+    assert "nicht erreichbar" in _public_share_status_message(TunnelStatus.WARNING)[1]
+
+
+def test_public_share_sidebar_status_texts_cover_disabled_states() -> None:
+    assert public_share_sidebar_status_text(TunnelStatus.STOPPED) == "Gestoppt"
+    assert public_share_sidebar_status_text(TunnelStatus.ERROR) == "Fehler"
+    assert public_share_sidebar_status_text(TunnelStatus.RUNNING) == "Läuft"
