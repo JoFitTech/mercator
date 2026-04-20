@@ -26,6 +26,8 @@ from src.ui.pages.trades_page import (
     _trade_action_symbol_label,
 )
 from src.ui.pages.companies_page import _company_display_name, _format_market_cap
+from src.ui.pages import companies_page
+from src.ui.components import tables as table_components
 from src.ui.pages.company_detail_page import _safe_text as company_safe_text
 from src.ui.pages.trade_detail_page import _safe_text as trade_safe_text
 from src.ui.components import page_scaffold
@@ -36,6 +38,22 @@ def test_build_dashboard_filters_handles_incomplete_range() -> None:
         "date_from": date(2026, 1, 1),
         "date_to": date(2026, 1, 1),
     }
+
+
+def test_dashboard_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        dashboard_page.st,
+        "session_state",
+        {
+            "dashboard_filters": {"date_range": (date(2026, 4, 1), date(2026, 4, 12))},
+            "dashboard_filter_date_range": (date(2026, 4, 1), date(2026, 4, 12)),
+        },
+    )
+
+    dashboard_page._reset_dashboard_filters_and_widgets()
+
+    assert dashboard_page.st.session_state["dashboard_filters"]["date_range"] == dashboard_page.DASHBOARD_FILTER_DEFAULTS["date_range"]
+    assert dashboard_page.st.session_state["dashboard_filter_date_range"] == dashboard_page.DASHBOARD_FILTER_DEFAULTS["date_range"]
 
 
 def test_normalize_trades_filters_resets_invalid_direction() -> None:
@@ -115,6 +133,24 @@ def test_action_labels_use_fallbacks_instead_of_nan() -> None:
     company_label = _company_display_name(pd.Series({"company_name": float("nan"), "current_symbol": None}))
     assert trade_label == "Unbekanntes Symbol"
     assert company_label == "Unbekanntes Unternehmen"
+
+
+def test_single_row_selection_parser_is_robust_for_invalid_payloads() -> None:
+    assert table_components.get_single_selected_row_index(None, 3) is None
+    assert table_components.get_single_selected_row_index({"selection": {"rows": []}}, 3) is None
+    assert table_components.get_single_selected_row_index({"selection": {"rows": ["abc"]}}, 3) is None
+    assert table_components.get_single_selected_row_index({"selection": {"rows": [99]}}, 3) is None
+    assert table_components.get_single_selected_row_index({"selection": {"rows": [1]}}, 3) == 1
+
+
+def test_dashboard_top_table_sort_prefers_value_then_date() -> None:
+    df = pd.DataFrame([
+        {"symbol_at_trade": "AAA", "accumulated_trade_value_estimated": 10, "trade_date": "2026-03-01"},
+        {"symbol_at_trade": "BBB", "accumulated_trade_value_estimated": 50, "trade_date": "2026-03-02"},
+        {"symbol_at_trade": "CCC", "accumulated_trade_value_estimated": 50, "trade_date": "2026-02-01"},
+    ])
+    sorted_df = table_components.sort_dashboard_top_rows(df)
+    assert list(sorted_df["symbol_at_trade"]) == ["BBB", "CCC", "AAA"]
 
 
 def test_ui_missing_values_are_sanitized_for_detail_and_company_views() -> None:
@@ -309,6 +345,33 @@ def test_safe_service_call_is_logic_only_without_direct_ui_rendering(monkeypatch
     assert isinstance(error, RuntimeError)
     assert calls["error"] == 0
     assert calls["expander"] == 0
+
+
+def test_companies_search_zero_results_shows_empty_state(monkeypatch) -> None:
+    class _RepoStub:
+        def list_active_companies(self, limit: int = 1000):  # noqa: ARG002
+            return [
+                {"company_name": "Apple Inc", "current_symbol": "AAPL", "trade_count": 4},
+                {"company_name": "Microsoft", "current_symbol": "MSFT", "trade_count": 3},
+            ]
+
+    monkeypatch.setattr(companies_page, "render_page_header", lambda *args, **kwargs: None)
+    monkeypatch.setattr(companies_page, "render_kpi_row", lambda *args, **kwargs: None)
+    monkeypatch.setattr(companies_page, "summarize_filters", lambda *args, **kwargs: None)
+    monkeypatch.setattr(companies_page.st, "spinner", lambda *args, **kwargs: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(companies_page.st, "text_input", lambda *args, **kwargs: "does-not-exist")
+    monkeypatch.setattr(companies_page.st, "button", lambda *args, **kwargs: False)
+    monkeypatch.setattr(companies_page.st, "session_state", {})
+
+    calls = {"empty_state": 0}
+    monkeypatch.setattr(
+        companies_page,
+        "render_empty_state",
+        lambda *args, **kwargs: calls.__setitem__("empty_state", calls["empty_state"] + 1),
+    )
+
+    companies_page.render_companies_page(repository=_RepoStub(), db_status=None)
+    assert calls["empty_state"] == 1
 
 
 def test_dashboard_payload_error_hides_kpis(monkeypatch) -> None:

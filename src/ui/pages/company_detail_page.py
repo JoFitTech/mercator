@@ -6,7 +6,7 @@ import pandas as pd
 from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
-from src.ui.components.tables import render_trade_table
+from src.ui.components.tables import get_single_selected_row_index, render_trade_table
 
 
 def _safe_text(value: object, fallback: str = "Nicht verfügbar") -> str:
@@ -81,14 +81,17 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
     else:
         # Wir nutzen die Standard-Tabelle
         event = render_trade_table(trades_df, height=500)
-        
-        if event and event.get("selection") and event["selection"].get("rows"):
-            selected_idx = event["selection"]["rows"][0]
+        selected_idx = get_single_selected_row_index(event, len(trades_df))
+        if selected_idx is not None:
             selected_trade = trades_df.iloc[selected_idx]
-            if st.button(f"Trade-Detail öffnen", type="primary", use_container_width=True):
-                st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
-                st.session_state["nav_target"] = "Trade-Detail"
-                st.rerun()
+            with st.container(border=True):
+                st.markdown("**Ausgewählt:** Trade-Historienzeile")
+                if st.button("Trade-Detail öffnen", type="primary", use_container_width=True):
+                    st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
+                    st.session_state["nav_target"] = "Trade-Detail"
+                    st.rerun()
+        else:
+            st.info("Bitte eine Zeile auswählen, um in den Trade-Detailmodus zu wechseln.")
 
     # Zurück Button
     if st.button("Zurück zur Übersicht", use_container_width=True):

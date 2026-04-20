@@ -14,7 +14,7 @@ from src.ui.components.page_scaffold import (
     safe_service_call,
     summarize_filters,
 )
-from src.ui.components.tables import render_trade_table
+from src.ui.components.tables import get_single_selected_row_index, render_trade_table
 
 TRADE_FILTER_DEFAULTS = {
     "symbol": "",
@@ -218,23 +218,28 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     
     # Detail-Button Logik via AgGrid Auswahl
     event = render_trade_table(trades_df, height=600)
-    st.caption("Sortierung: Neueste Transaktionsdaten zuerst. Tabelle ist einzeilig auswählbar.")
-    
-    if event and event.get("selection") and event["selection"].get("rows"):
-        selected_idx = int(event["selection"]["rows"][0])
-        selected_trade = trades_df.iloc[selected_idx]
+    st.caption(
+        "Sortierung: standardmäßig nach Datum (neueste zuerst). "
+        "Sie können zusätzlich über Spaltenüberschriften sortieren."
+    )
+    st.caption("Auswahl-Flow: 1) Zeile markieren 2) Aktion im Bereich darunter ausführen.")
+
+    selected_idx = get_single_selected_row_index(event, len(trades_df))
+    if selected_idx is not None:
+        selected_trade = trades_df.reset_index(drop=True).iloc[selected_idx]
         symbol_label = _trade_action_symbol_label(selected_trade)
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button(f"Trade-Detail öffnen: {symbol_label}", type="primary", use_container_width=True):
-                st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
-                st.session_state["nav_target"] = "Trade-Detail"
-                st.rerun()
-        with c2:
-            if st.button(f"Unternehmens-Detail öffnen: {symbol_label}", use_container_width=True):
-                st.session_state["selected_company_symbol"] = selected_trade.get("symbol_at_trade")
-                st.session_state["nav_target"] = "Unternehmens-Detail"
-                st.rerun()
+        with st.container(border=True):
+            st.markdown(f"**Ausgewählt:** {symbol_label}")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button(f"Trade-Detail öffnen: {symbol_label}", type="primary", use_container_width=True):
+                    st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
+                    st.session_state["nav_target"] = "Trade-Detail"
+                    st.rerun()
+            with c2:
+                if st.button(f"Unternehmens-Detail öffnen: {symbol_label}", use_container_width=True):
+                    st.session_state["selected_company_symbol"] = selected_trade.get("symbol_at_trade")
+                    st.session_state["nav_target"] = "Unternehmens-Detail"
+                    st.rerun()
     else:
-        st.info("Hinweis: Wählen Sie einen Trade aus der Tabelle aus, um Details anzuzeigen.")
+        st.info("Bitte eine Zeile markieren, damit die Detail-Aktionen aktiv werden.")

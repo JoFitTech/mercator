@@ -89,6 +89,7 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     df["gate_status"] = df["gate_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
     df["validation_status"] = df["validation_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
     df["transaction_date"] = pd.to_datetime(df["transaction_date"], errors="coerce")
+    df = df.sort_values("transaction_date", ascending=False, na_position="last").reset_index(drop=True)
 
     col_config = {
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small", pinned=True),
@@ -122,13 +123,48 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     )
 
 
+def get_single_selected_row_index(event: dict[str, Any] | None, row_count: int) -> int | None:
+    """Liest robust den ausgewählten Zeilenindex aus einem Streamlit-Selection-Event."""
+    if not event:
+        return None
+    selected = event.get("selection", {}).get("rows", [])
+    if not selected:
+        return None
+    try:
+        idx = int(selected[0])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if idx < 0 or idx >= row_count:
+        return None
+    return idx
+
+
+def sort_dashboard_top_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Sorgt für eine stabile, nachvollziehbare Default-Sortierung im Dashboard."""
+    work = df.copy()
+    if "accumulated_trade_value_estimated" in work.columns:
+        work["accumulated_trade_value_estimated"] = pd.to_numeric(
+            work["accumulated_trade_value_estimated"], errors="coerce"
+        )
+    if "trade_date" in work.columns:
+        work["trade_date"] = pd.to_datetime(work["trade_date"], errors="coerce")
+    sort_cols = [c for c in ["accumulated_trade_value_estimated", "trade_date"] if c in work.columns]
+    if sort_cols:
+        work = work.sort_values(
+            sort_cols,
+            ascending=[False] * len(sort_cols),
+            na_position="last",
+        )
+    return work.reset_index(drop=True)
+
+
 def render_dashboard_top_table(df: pd.DataFrame, key: str, height: int = 260) -> Any:
     """Kompakte Top-Tabellen mit Row-Selection für das Dashboard."""
     if df.empty:
         st.info("Keine Einträge im gewählten Zeitraum.")
         return None
 
-    work = df.copy().reset_index(drop=True)
+    work = sort_dashboard_top_rows(df)
     if "trade_date" not in work.columns:
         work["trade_date"] = None
 
