@@ -21,6 +21,7 @@ SIDEBAR_NAV_OPTIONS: dict[str, str] = {
 }
 
 DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
+HEADER_PAGES = set(HEADER_NAV_OPTIONS.values())
 
 
 def _resolve_parent_target(nav_target: str) -> str:
@@ -85,9 +86,9 @@ def render_navigation_topbar() -> PageName:
         with right:
             selected_label = _render_navbar_control(options_list, current_label)
 
-    # Update nav_target nur außerhalb von Detailseiten, damit Deep-Link-Details stabil bleiben.
+    # Update nav_target nur für Header-Seiten, damit Sidebar-Ziele stabil bleiben.
     new_target = HEADER_NAV_OPTIONS[selected_label]
-    if st.session_state["nav_target"] not in DETAIL_PAGES and st.session_state["nav_target"] != new_target:
+    if st.session_state["nav_target"] in HEADER_PAGES and st.session_state["nav_target"] != new_target:
         st.session_state["nav_target"] = new_target
 
     # Zurück-Button für Detailseiten.

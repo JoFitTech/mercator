@@ -1,14 +1,18 @@
-# Stabiler Tunnel-Launcher mit Retry-Logik und aktiven Health-Checks
 param(
     [int]$Port = 8501,
-    [int]$MaxRetries = 5,
-    [int]$RetryDelaySeconds = 10
+    [int]$MaxRetries = 4,
+    [int]$RetryDelaySeconds = 4,
+    [int]$RegisterTimeoutSeconds = 30,
+    [int]$PublicHealthRetries = 10,
+    [int]$PublicHealthDelaySeconds = 2,
+    [string[]]$Protocols = @("http2", "quic")
 )
 
-$ErrorActionPreference = "Continue"
-$cloudflaredPath = "C:\Users\josef.lautner\PycharmProjects\mercator\cloudflared.exe"
-$logFile = "C:\Users\josef.lautner\PycharmProjects\mercator\tunnel_launcher.log"
-$tunnelUrlFile = "C:\Users\josef.lautner\PycharmProjects\mercator\TUNNEL_URL.txt"
+$ErrorActionPreference = "Stop"
+$root = $PSScriptRoot
+$cloudflaredPath = Join-Path $root "cloudflared.exe"
+$logFile = Join-Path $root "tunnel_launcher.log"
+$publicUrlFile = Join-Path $root "PUBLIC_TUNNEL_URL.txt"
 
 function Write-Log {
     param([string]$Message)
@@ -16,125 +20,139 @@ function Write-Log {
     "$timestamp | $Message" | Tee-Object -FilePath $logFile -Append
 }
 
-function Test-AppReachable {
+function Get-TunnelUrlFromText {
+    param([string]$Text)
+    if (-not $Text) { return $null }
+    $m = [regex]::Match($Text, 'https://[a-z0-9\-]+\.trycloudflare\.com')
+    if ($m.Success) { return $m.Value }
+    return $null
+}
+
+function Test-LocalHealth {
+    param([int]$TargetPort)
     try {
-        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
-        return $true
-    } catch {
+        $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$TargetPort/_stcore/health" -TimeoutSec 8
+        return ($resp.StatusCode -eq 200 -and $resp.Content -match "ok")
+    }
+    catch {
         return $false
     }
 }
 
-function Extract-TunnelUrl {
-    param([string]$LogContent)
-    $matches = [regex]::Matches($LogContent, 'https://[a-z\-]+\.trycloudflare\.com')
-    if ($matches.Count -gt 0) {
-        return $matches[0].Value
+function Test-PublicHealth {
+    param(
+        [string]$BaseUrl,
+        [int]$Retries,
+        [int]$DelaySeconds
+    )
+
+    for ($i = 1; $i -le $Retries; $i++) {
+        try {
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/_stcore/health" -TimeoutSec 10
+            if ($resp.StatusCode -eq 200 -and $resp.Content -match "ok") {
+                Write-Log "Public health OK in try $i for $BaseUrl"
+                return $true
+            }
+        }
+        catch {
+            Write-Log "Public health try $i failed: $($_.Exception.Message)"
+        }
+        Start-Sleep -Seconds $DelaySeconds
     }
-    return $null
+    return $false
+}
+
+if (-not (Test-Path $cloudflaredPath)) {
+    throw "cloudflared not found: $cloudflaredPath"
 }
 
 Write-Log "=========================================="
-Write-Log "TUNNEL LAUNCHER GESTARTET"
-Write-Log "=========================================="
-Write-Log "Ziel: http://127.0.0.1:$Port"
+Write-Log "CLOUDFLARE QUICK TUNNEL LAUNCH"
+Write-Log "Target local app: http://127.0.0.1:$Port"
 Write-Log "cloudflared: $cloudflaredPath"
+Write-Log "=========================================="
 
-# Stelle sicher, dass alte Prozesse weg sind
-Write-Log "Beende alte cloudflared Prozesse..."
-taskkill /IM cloudflared.exe /F 2>&1 | Out-Null
-Start-Sleep -Seconds 2
+if (-not (Test-LocalHealth -TargetPort $Port)) {
+    Write-Log "Warning: local health endpoint is not OK yet on port $Port"
+}
+else {
+    Write-Log "Local health endpoint is OK"
+}
 
-$retryCount = 0
+Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 1
+
 $tunnelUrl = $null
+$activePid = $null
 
-while ($retryCount -lt $MaxRetries -and -not $tunnelUrl) {
-    $retryCount++
-    Write-Log "Versuch $retryCount/$($MaxRetries): Starte Tunnel..."
+for ($attempt = 1; $attempt -le $MaxRetries -and -not $tunnelUrl; $attempt++) {
+    foreach ($protocol in $Protocols) {
+        $outLog = Join-Path $root ("cloudflared_attempt_{0}_{1}.out.log" -f $attempt, $protocol)
+        $errLog = Join-Path $root ("cloudflared_attempt_{0}_{1}.err.log" -f $attempt, $protocol)
+        Remove-Item $outLog, $errLog -ErrorAction SilentlyContinue
 
-    # Prüfe ob App erreichbar ist
-    if (-not (Test-AppReachable)) {
-        Write-Log "⚠️  App auf Port $Port nicht erreichbar! Warte und versuche trotzdem..."
-    } else {
-        Write-Log "✅ App ist erreichbar auf http://127.0.0.1:$Port"
-    }
+        Write-Log "Attempt $attempt/$MaxRetries with protocol=$protocol"
 
-    # Starte cloudflared mit Timeout
-    $tunnelLog = "cloudflared_attempt_$retryCount.log"
-    Write-Log "Starte: .$cloudflaredPath tunnel --url http://127.0.0.1:$Port > $tunnelLog 2>&1"
+        $proc = Start-Process -FilePath $cloudflaredPath `
+            -ArgumentList @("tunnel", "--url", "http://127.0.0.1:$Port", "--protocol", $protocol, "--loglevel", "info") `
+            -RedirectStandardOutput $outLog `
+            -RedirectStandardError $errLog `
+            -PassThru
 
-    $job = Start-Job -ScriptBlock {
-        param($exe, $port, $log)
-        & $exe tunnel --url "http://127.0.0.1:$port" > $log 2>&1
-    } -ArgumentList $cloudflaredPath, $Port, $tunnelLog
+        $urlFromLog = $null
+        for ($wait = 1; $wait -le $RegisterTimeoutSeconds; $wait++) {
+            Start-Sleep -Seconds 1
 
-    # Warte auf Tunnel-URL (max 15 Sekunden)
-    Write-Log "Warte auf Tunnel-Registration (max 15s)..."
-    $waitTime = 0
-    $maxWait = 15
+            $combined = ""
+            if (Test-Path $outLog) { $combined += (Get-Content $outLog -Raw -ErrorAction SilentlyContinue) + "`n" }
+            if (Test-Path $errLog) { $combined += (Get-Content $errLog -Raw -ErrorAction SilentlyContinue) }
 
-    while ($waitTime -lt $maxWait -and -not $tunnelUrl) {
-        Start-Sleep -Seconds 1
-        $waitTime++
+            $urlFromLog = Get-TunnelUrlFromText -Text $combined
+            if ($urlFromLog) {
+                Write-Log "URL discovered after $wait s: $urlFromLog"
+                break
+            }
 
-        if (Test-Path $tunnelLog) {
-            $content = Get-Content $tunnelLog -Raw -ErrorAction SilentlyContinue
-            $tunnelUrl = Extract-TunnelUrl $content
-
-            if ($tunnelUrl) {
-                Write-Log "✅ TUNNEL-URL GEFUNDEN: $tunnelUrl"
+            if ($proc.HasExited) {
+                Write-Log "cloudflared exited early (code=$($proc.ExitCode))"
                 break
             }
         }
+
+        if (-not $urlFromLog) {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            Write-Log "No URL found for attempt=$attempt protocol=$protocol"
+            continue
+        }
+
+        if (Test-PublicHealth -BaseUrl $urlFromLog -Retries $PublicHealthRetries -DelaySeconds $PublicHealthDelaySeconds) {
+            $tunnelUrl = $urlFromLog
+            $activePid = $proc.Id
+            Set-Content -Path $publicUrlFile -Value "$tunnelUrl`r`n" -Encoding Ascii
+            Write-Log "PUBLIC_TUNNEL_URL updated: $publicUrlFile"
+            break
+        }
+
+        Write-Log "Public URL not healthy, stopping process PID=$($proc.Id)"
+        if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+        Start-Sleep -Seconds 1
     }
 
-    if ($tunnelUrl) {
-        # Tunnel erfolgreich erstellt
-        Write-Log "🎉 Tunnel erfolgreich registriert!"
-        Write-Log "URL: $tunnelUrl"
-
-        # Speichere URL in separater Datei für einfachen Zugriff
-        $tunnelUrl | Out-File -FilePath $tunnelUrlFile -Force
-        Write-Log "URL gespeichert in: $tunnelUrlFile"
-
-        # Halte den Job im Vordergrund
-        Wait-Job -Job $job
-        break
-    } else {
-        # Kein Erfolg, stoppe Job und versuche erneut
-        Write-Log "❌ Tunnel-URL nicht erhalten in Versuch $retryCount. Beende Job..."
-        Stop-Job -Job $job -Force
-        Remove-Job -Job $job
-        taskkill /IM cloudflared.exe /F 2>&1 | Out-Null
-
-        if ($retryCount -lt $MaxRetries) {
-            Write-Log "Warte $($RetryDelaySeconds)s vor Versuch $($retryCount + 1)..."
-            Start-Sleep -Seconds $RetryDelaySeconds
-        }
+    if (-not $tunnelUrl -and $attempt -lt $MaxRetries) {
+        Write-Log "Waiting $RetryDelaySeconds s before next retry round"
+        Start-Sleep -Seconds $RetryDelaySeconds
     }
 }
 
-if ($tunnelUrl) {
-    Write-Log "=========================================="
-    Write-Log "TUNNEL AKTIV"
-    Write-Log "URL: $tunnelUrl"
-    Write-Log "=========================================="
-    Write-Log "Tunnel läuft im Hintergrund. Beende dieses Fenster NICHT!"
-
-    # Halte den Prozess laufen
-    while ($true) {
-        $proc = Get-Process cloudflared -ErrorAction SilentlyContinue
-        if (-not $proc) {
-            Write-Log "⚠️  Tunnel-Prozess beendet! Versuche neu zu starten..."
-            Start-Sleep -Seconds 5
-        } else {
-            Start-Sleep -Seconds 10
-        }
-    }
-} else {
-    Write-Log "❌ FEHLER: Konnte Tunnel nach $MaxRetries Versuchen nicht starten!"
+if (-not $tunnelUrl) {
+    Write-Log "FAILED: could not establish a reachable Cloudflare tunnel"
     exit 1
 }
+
+Write-Log "SUCCESS: Cloudflare tunnel is reachable"
+Write-Log "URL: $tunnelUrl"
+Write-Log "cloudflared PID: $activePid"
+Write-Output "TUNNEL_OK $tunnelUrl"
 
 
 
