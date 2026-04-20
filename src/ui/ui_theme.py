@@ -182,35 +182,45 @@ def apply_ui_theme() -> None:
         }
 
         .mercator-topbar-brand {
-            min-height: 34px;
+            min-height: 52px;
+            justify-content: center;
         }
 
         .mercator-topbar-logo {
             border: 1px solid var(--mercator-border);
-            box-shadow: 0 1px 3px rgba(3, 17, 38, 0.10);
+            box-shadow: 0 2px 8px rgba(3, 17, 38, 0.14);
             background: #FFFFFF;
             object-fit: cover;
         }
 
         /* Segmented Control / Navigation */
         [data-testid="stSegmentedControl"] {
-            background: var(--mercator-ice-100);
+            background: #FFFFFF;
             border: 1px solid var(--mercator-border);
-            border-radius: 0.92rem;
-            padding: 0.3rem;
+            border-radius: 0.95rem;
+            padding: 0.22rem;
         }
 
         [data-testid="stSegmentedControl"] [role="radiogroup"] { gap: 0.35rem; }
         [data-testid="stSegmentedControl"] [role="radio"] {
-            border-radius: 0.7rem;
+            border-radius: 0.72rem;
             color: var(--mercator-text);
             border: 1px solid transparent;
+            padding: 0.3rem 0.95rem !important;
+            font-weight: 600;
+            transition: all 0.18s ease;
+        }
+
+        [data-testid="stSegmentedControl"] [role="radio"]:hover {
+            background: var(--mercator-ice-100) !important;
+            border-color: var(--mercator-blue-300) !important;
         }
 
         [data-testid="stSegmentedControl"] [aria-checked="true"] {
             background: var(--mercator-blue-600) !important;
             color: #FFFFFF !important;
             border-color: var(--mercator-blue-700) !important;
+            box-shadow: 0 2px 8px rgba(53, 93, 126, 0.22);
         }
 
         /* Streamlit Tabs: aktive/hover Farben erzwingen (kein Default-Rot) */

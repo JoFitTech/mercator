@@ -160,7 +160,7 @@ def render_navigation_topbar() -> PageName:
         st.session_state["main_navbar"] = current_label
 
     with st.container(border=True):
-        left, right = st.columns([1.2, 2.8], vertical_alignment="center")
+        left, right = st.columns([0.45, 3.55], vertical_alignment="center")
         with left:
             _render_topbar_brand()
         with right:
@@ -203,14 +203,13 @@ def _render_topbar_brand() -> None:
     """Rendert das Favicon im Header statt des Eyebrow-Texts."""
     data_url = _favicon_data_url()
     if data_url is None:
-        st.markdown("<div class='mercator-topbar-title'>Mercator Control Center</div>", unsafe_allow_html=True)
+        st.markdown("<div class='mercator-topbar-brand' aria-hidden='true'></div>", unsafe_allow_html=True)
         return
 
     st.markdown(
         f"""
         <div class="mercator-topbar-brand" style="display:flex; align-items:center; gap:0.6rem;">
-            <img src="{data_url}" alt="Mercator" class="mercator-topbar-logo" style="width:28px; height:28px; border-radius:6px;" />
-            <div class='mercator-topbar-title'>Mercator Control Center</div>
+            <img src="{data_url}" alt="Mercator" class="mercator-topbar-logo" style="width:48px; height:48px; border-radius:10px;" />
         </div>
         """,
         unsafe_allow_html=True,
