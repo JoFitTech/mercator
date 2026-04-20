@@ -187,18 +187,18 @@ def apply_ui_theme() -> None:
         }
 
         .mercator-topbar-logo {
-            border: 1px solid var(--mercator-border);
-            box-shadow: 0 2px 8px rgba(3, 17, 38, 0.14);
-            background: #FFFFFF;
+            border: 0 !important;
+            box-shadow: none !important;
+            background: transparent !important;
             object-fit: cover;
         }
 
         /* Segmented Control / Navigation */
         [data-testid="stSegmentedControl"] {
-            background: #FFFFFF;
-            border: 1px solid var(--mercator-border);
+            background: transparent;
+            border: 0;
             border-radius: 0.95rem;
-            padding: 0.22rem;
+            padding: 0;
         }
 
         [data-testid="stSegmentedControl"] [role="radiogroup"] { gap: 0.35rem; }

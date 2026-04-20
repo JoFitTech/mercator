@@ -53,27 +53,15 @@ def _resolve_parent_target(nav_target: str) -> str:
 
 
 def _render_navbar_control(options_list: list[str], current_label: str) -> str:
-    """Rendert eine saubere Navbar-Steuerung ohne Radio-/Checkbox-Optik."""
+    """Rendert die Header-Navigation als explizite Buttons."""
 
-    if hasattr(st, "segmented_control"):
-        selected = st.segmented_control(
-            "Navigation",
-            options=options_list,
-            default=current_label if current_label in options_list else options_list[0],
-            selection_mode="single",
-            label_visibility="collapsed",
-            key="main_navbar",
-        )
-        return str(selected) if selected else options_list[0]
-
-    # Fallback für ältere Streamlit-Versionen.
-    return st.radio(
-        "Navigation",
-        options=options_list,
-        index=options_list.index(current_label) if current_label in options_list else 0,
-        horizontal=True,
-        label_visibility="collapsed",
-    )
+    selected_label = current_label if current_label in options_list else options_list[0]
+    cols = st.columns(len(options_list))
+    for option, col in zip(options_list, cols):
+        button_type: Literal["primary", "secondary", "tertiary"] = "primary" if option == selected_label else "secondary"
+        if col.button(option, key=f"main_navbar_{option}", use_container_width=True, type=button_type):
+            selected_label = option
+    return selected_label
 
 
 def _set_nav_target(target: PageName) -> None:
@@ -156,11 +144,9 @@ def render_navigation_topbar() -> PageName:
         list(HEADER_NAV_OPTIONS.keys())[0],
     )
     options_list = list(HEADER_NAV_OPTIONS.keys())
-    if _should_reset_header_widget(current_target, st.session_state.get("main_navbar"), previous_header_target):
-        st.session_state["main_navbar"] = current_label
 
-    with st.container(border=True):
-        left, right = st.columns([0.45, 3.55], vertical_alignment="center")
+    with st.container():
+        left, right = st.columns([0.32, 3.68], vertical_alignment="center")
         with left:
             _render_topbar_brand()
         with right:
@@ -209,7 +195,7 @@ def _render_topbar_brand() -> None:
     st.markdown(
         f"""
         <div class="mercator-topbar-brand" style="display:flex; align-items:center; gap:0.6rem;">
-            <img src="{data_url}" alt="Mercator" class="mercator-topbar-logo" style="width:48px; height:48px; border-radius:10px;" />
+            <img src="{data_url}" alt="Mercator" class="mercator-topbar-logo" style="width:40px; height:40px;" />
         </div>
         """,
         unsafe_allow_html=True,
