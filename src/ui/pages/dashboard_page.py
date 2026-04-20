@@ -21,6 +21,7 @@ from src.ui.components.page_scaffold import (
     summarize_filters,
 )
 from src.ui.components.tables import render_dashboard_top_table
+from src.ui.ui_theme import CHART_PALETTE
 
 
 def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[date, ...]) -> dict[str, date | None]:
@@ -68,7 +69,7 @@ def _render_sector_pie_chart(df: pd.DataFrame) -> None:
             "mark": {"type": "arc", "outerRadius": 105},
             "encoding": {
                 "theta": {"field": "count", "type": "quantitative"},
-                "color": {"field": "sector", "type": "nominal", "legend": {"title": "Sektor"}},
+                "color": {"field": "sector", "type": "nominal", "legend": {"title": "Sektor"}, "scale": {"range": CHART_PALETTE["categorical"]}},
                 "tooltip": [
                     {"field": "sector", "type": "nominal", "title": "Sektor"},
                     {"field": "tooltip_count", "type": "quantitative", "title": "Trades"},
@@ -91,8 +92,8 @@ def _render_net_sector_signal_chart(df: pd.DataFrame) -> None:
                 "y": {"field": "sector", "type": "nominal", "sort": "-x", "title": "Sektor"},
                 "x": {"field": "delta", "type": "quantitative", "title": "Netto-Signal"},
                 "color": {
-                    "condition": {"test": "datum.delta >= 0", "value": "#5cb85c"},
-                    "value": "#d9534f",
+                    "condition": {"test": "datum.delta >= 0", "value": CHART_PALETTE["positive"]},
+                    "value": CHART_PALETTE["negative"],
                 },
                 "tooltip": [
                     {"field": "sector", "type": "nominal", "title": "Sektor"},
@@ -118,6 +119,7 @@ def _render_market_cap_distribution_chart(df: pd.DataFrame) -> None:
             "encoding": {
                 "y": {"field": "bucket", "type": "nominal", "sort": "-x", "title": "Market-Cap Bucket"},
                 "x": {"field": "companies", "type": "quantitative", "title": "Unternehmen"},
+                "color": {"field": "bucket", "type": "nominal", "legend": None, "scale": {"range": [CHART_PALETTE["neutral"], CHART_PALETTE["navy"], CHART_PALETTE["steel"], CHART_PALETTE["positive"]]}},
                 "tooltip": [
                     {"field": "bucket", "type": "nominal", "title": "Bucket"},
                     {"field": "companies", "type": "quantitative", "title": "Unternehmen"},

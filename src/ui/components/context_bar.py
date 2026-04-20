@@ -62,7 +62,7 @@ def render_filter_chip_bar(active_filters: dict[str, Any] | None = None) -> None
     
     if display_chips:
         chips_html = "".join([
-            f'<span class="mercator-badge" style="background-color: #f1f3f5; color: #1c7ed6; border: 1px solid #d0ebff; padding: 4px 10px; margin-right: 8px; border-radius: 16px; font-size: 0.75rem;">{f}</span>'
+            f'<span class="mercator-badge" style="background-color: var(--mercator-ice-100); color: var(--mercator-blue-700); border: 1px solid var(--mercator-blue-300); padding: 4px 10px; margin-right: 8px; border-radius: 16px; font-size: 0.75rem;">{f}</span>'
             for f in display_chips
         ])
         st.markdown(f'<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 1rem;">{chips_html}</div>', unsafe_allow_html=True)
@@ -72,4 +72,4 @@ def render_filter_chip_bar(active_filters: dict[str, Any] | None = None) -> None
 def render_status_bar(last_update: str | None = None, mysql_target: str | None = None) -> None:
     """Rendert eine Status-Bar mit Last Update Info."""
     if last_update:
-        st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: #adb5bd; margin-bottom: 1rem;">Stand: <span class="mono" style="color: #495057; font-weight: 500;">{last_update}</span> ({mysql_target or "local"})</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: var(--mercator-text-muted); margin-bottom: 1rem;">Stand: <span class="mono" style="color: var(--mercator-navy-900); font-weight: 500;">{last_update}</span> ({mysql_target or "local"})</div>', unsafe_allow_html=True)
