@@ -5,3 +5,5 @@ pymongo==4.16.0
 python-dotenv==1.2.2
 requests==2.33.1
 pytest==9.0.2
+
+plotly==6.0.1

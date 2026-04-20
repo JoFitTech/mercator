@@ -286,6 +286,56 @@ class ImportService:
             profile_failures=profile_failures,
         )
 
+
+    def refresh_company_profile_for_symbol(self, symbol: str) -> dict[str, Any]:
+        """Lädt ein einzelnes Unternehmensprofil gezielt nach und persistiert es."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return {"ok": False, "message": "Ungültiges Symbol."}
+
+        if self.company_mysql_repo is None:
+            return {"ok": False, "message": "MySQL-Repository nicht verfügbar."}
+
+        fetched_at = datetime.now(timezone.utc)
+        try:
+            existing_company = self.company_mysql_repo.get_company_by_current_symbol(normalized_symbol)
+            company_key = (existing_company or {}).get("company_key") or normalized_symbol
+
+            company_obj = self.enrichment_service.enrich_company_profile(normalized_symbol)
+
+            from dataclasses import asdict
+            company = asdict(company_obj)
+            company.setdefault("sector_resolution_status", "UNRESOLVED")
+            company["company_key"] = company_key
+            company["current_symbol"] = normalized_symbol
+            company["profile_status"] = "FETCHED" if company_obj.sector_resolution_status == "RESOLVED" else "FAILED"
+            company["profile_reason"] = "api_fetch" if company["profile_status"] == "FETCHED" else "unresolved_sector"
+            company["profile_updated_at"] = fetched_at
+            company["last_seen_at"] = fetched_at
+            company["source_system"] = "fmp"
+            company["sync_version"] = 1
+
+            if existing_company and existing_company.get("first_seen_at"):
+                company["first_seen_at"] = existing_company.get("first_seen_at")
+            else:
+                company["first_seen_at"] = fetched_at
+            company["created_at"] = existing_company.get("created_at") if existing_company else fetched_at
+            company["updated_at"] = fetched_at
+
+            self._apply_trade_republic_match(company)
+            self.company_mongo_repo.upsert_profile(company)
+            self.company_mysql_repo.upsert_company(company)
+
+            return {
+                "ok": True,
+                "message": f"Profil für {normalized_symbol} aktualisiert.",
+                "symbol": normalized_symbol,
+                "profile_status": company["profile_status"],
+            }
+        except Exception as exc:
+            LOGGER.exception("Gezielter Profil-Refresh fehlgeschlagen für %s", normalized_symbol)
+            return {"ok": False, "message": f"Profil-Refresh für {normalized_symbol} fehlgeschlagen: {exc}", "symbol": normalized_symbol}
+
     @staticmethod
     def _normalize_company_profile(profile: dict, trade: dict[str, Any], fetched_at: datetime) -> dict:
         """Überführt FMP-Profilfelder in das Projektschema."""
