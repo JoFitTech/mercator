@@ -15,10 +15,17 @@ Lokale Ausführung:
 from __future__ import annotations
 
 import os
+import socket
+import subprocess
+import sys
+import time
+from contextlib import closing
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import pytest
-from playwright.sync_api import Browser, BrowserContext, Page
+from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 try:
     from dotenv import load_dotenv
@@ -42,6 +49,9 @@ SLOW_MO: int = int(os.getenv("MERCATOR_E2E_SLOW_MO", "0"))
 PAGE_LOAD_TIMEOUT: int = int(os.getenv("MERCATOR_E2E_PAGE_LOAD_TIMEOUT_MS", "30000"))
 ACTION_TIMEOUT: int = int(os.getenv("MERCATOR_E2E_ACTION_TIMEOUT_MS", "15000"))
 STREAMLIT_READY_TIMEOUT: int = int(os.getenv("MERCATOR_E2E_STREAMLIT_READY_TIMEOUT_MS", "20000"))
+AUTOSTART_APP: bool = os.getenv("MERCATOR_E2E_AUTOSTART", "false").lower() in {"true", "1", "yes"}
+APP_START_TIMEOUT_SECONDS: int = int(os.getenv("MERCATOR_E2E_APP_START_TIMEOUT_SECONDS", "90"))
+CHROMIUM_EXECUTABLE: str | None = os.getenv("MERCATOR_E2E_CHROMIUM_EXECUTABLE")
 
 # Artefakt-Verzeichnisse
 ARTIFACT_DIR = Path(__file__).parent
@@ -72,10 +82,9 @@ def pytest_configure(config: pytest.Config) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session")
-def browser_context_args(browser_context_args: dict) -> dict:
-    """Erweitert die Standard-Playwright-Kontext-Argumente."""
+def browser_context_args() -> dict:
+    """Kontext-Argumente für den Browser."""
     return {
-        **browser_context_args,
         "base_url": BASE_URL,
         "viewport": {"width": 1400, "height": 900},
         "locale": "de-DE",
@@ -84,13 +93,97 @@ def browser_context_args(browser_context_args: dict) -> dict:
 
 
 @pytest.fixture(scope="session")
-def browser_type_launch_args(browser_type_launch_args: dict) -> dict:
-    """Setzt Browser-Launch-Optionen."""
+def browser_type_launch_args() -> dict:
+    """Launch-Optionen für Browser."""
     return {
-        **browser_type_launch_args,
         "headless": HEADLESS,
         "slow_mo": SLOW_MO,
     }
+
+
+@pytest.fixture(scope="session")
+def playwright_instance() -> Playwright:
+    with sync_playwright() as playwright:
+        yield playwright
+
+
+@pytest.fixture(scope="session")
+def browser(
+    playwright_instance: Playwright,
+    browser_type_launch_args: dict,
+) -> Browser:
+    launch_args = dict(browser_type_launch_args)
+    executable_path = CHROMIUM_EXECUTABLE or _detect_system_chromium()
+    if executable_path:
+        launch_args["executable_path"] = executable_path
+    try:
+        browser = playwright_instance.chromium.launch(**launch_args)
+    except Exception as exc:  # noqa: BLE001 - klare Setup-Fehlermeldung
+        raise RuntimeError(
+            "Chromium konnte nicht gestartet werden. "
+            "Bitte zuerst `python -m playwright install chromium` ausführen "
+            "oder MERCATOR_E2E_CHROMIUM_EXECUTABLE setzen."
+        ) from exc
+    yield browser
+    browser.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def streamlit_server() -> None:
+    """Startet optional die Streamlit-App für E2E-Läufe."""
+    process: subprocess.Popen[str] | None = None
+    if not AUTOSTART_APP:
+        yield
+        return
+
+    parsed = urlparse(BASE_URL)
+    if parsed.hostname not in {"localhost", "127.0.0.1"}:
+        raise RuntimeError(
+            "MERCATOR_E2E_AUTOSTART funktioniert nur mit localhost/127.0.0.1 als Base-URL."
+        )
+    port = parsed.port or 8501
+    if not _is_port_free(port):
+        # App läuft bereits (oder Port blockiert) -> wir verwenden den vorhandenen Server.
+        if not _is_http_available(BASE_URL):
+            raise RuntimeError(f"Port {port} ist belegt, aber {BASE_URL} antwortet nicht.")
+        yield
+        return
+
+    command = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        "streamlit_app.py",
+        "--server.headless",
+        "true",
+        "--server.port",
+        str(port),
+    ]
+    process = subprocess.Popen(  # noqa: S603
+        command,
+        cwd=str(ROOT_DIR),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if not _wait_for_http(BASE_URL, timeout_seconds=APP_START_TIMEOUT_SECONDS):
+        process.terminate()
+        process.wait(timeout=5)
+        raise RuntimeError(f"Autostart aktiv, aber App unter {BASE_URL} nicht erreichbar.")
+    yield
+    if process is not None:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+@pytest.fixture
+def page(context: BrowserContext) -> Page:
+    page = context.new_page()
+    yield page
+    page.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -219,6 +312,42 @@ def _test_failed(request: pytest.FixtureRequest) -> bool:
     return bool((rep_setup and rep_setup.failed) or (rep_call and rep_call.failed))
 
 
+def _is_port_free(port: int) -> bool:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.settimeout(0.4)
+        return sock.connect_ex(("127.0.0.1", port)) != 0
+
+
+def _is_http_available(base_url: str) -> bool:
+    try:
+        with urlopen(base_url, timeout=1.5):  # noqa: S310 - lokale Healthcheck-URL
+            return True
+    except Exception:
+        return False
+
+
+def _wait_for_http(base_url: str, timeout_seconds: int) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if _is_http_available(base_url):
+            return True
+        time.sleep(1)
+    return False
+
+
+def _detect_system_chromium() -> str | None:
+    candidates = [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+    ]
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
 _PAGE_ALIASES = {
     "Overview": "Dashboard",
     "Explorer": "Trades",
@@ -299,5 +428,3 @@ def wait_for_no_streamlit_error(page: Page) -> None:
     if error_box.count() > 0:
         error_text = error_box.first.inner_text()
         raise AssertionError(f"Streamlit zeigt eine Fehlermeldung: {error_text}")
-
-

@@ -101,13 +101,7 @@ def _push_admin_feedback(kind: str, message: str, details: str | None = None) ->
     }
 
 
-def _render_admin_feedback() -> None:
-    payload = st.session_state.pop("admin_feedback", None)
-    if not payload:
-        return
-    kind = payload.get("kind", "info")
-    message = payload.get("message", "")
-    details = payload.get("details")
+def _show_admin_feedback(kind: str, message: str, details: str | None = None) -> None:
     if kind == "success":
         st.success(message)
     elif kind == "warning":
@@ -119,6 +113,17 @@ def _render_admin_feedback() -> None:
     if details:
         with st.expander("Technische Details", expanded=False):
             st.code(details, language="text")
+
+
+def _render_admin_feedback() -> None:
+    payload = st.session_state.pop("admin_feedback", None)
+    if not payload:
+        return
+    _show_admin_feedback(
+        payload.get("kind", "info"),
+        payload.get("message", ""),
+        payload.get("details"),
+    )
 
 
 def compute_admin_capabilities(
@@ -610,7 +615,7 @@ def render_admin_page(
             help=None if write_available else "Import ist deaktiviert, solange MySQL oder MongoDB nicht verfügbar sind.",
         ):
             if not import_service:
-                st.error("Import-Service nicht verfügbar.")
+                _show_admin_feedback("error", "Import-Service nicht verfügbar.")
             else:
                 with st.spinner("Importiere Daten von FMP..."):
                     try:
@@ -622,9 +627,10 @@ def render_admin_page(
                             limit=int(import_limit if 'import_limit' in locals() else 100),
                             force_profile_refresh=force_profile_refresh,
                         )
-                        st.success(_build_import_success_message(summary, force_profile_refresh=force_profile_refresh))
+                        _show_admin_feedback("success", _build_import_success_message(summary, force_profile_refresh=force_profile_refresh))
                         if summary.profile_failures > 0:
-                            st.warning(
+                            _show_admin_feedback(
+                                "warning",
                                 "Einzelne Profilabrufe sind fehlgeschlagen. "
                                 "Der Import wurde fortgesetzt; Details siehe Kennzahlen unten."
                             )
@@ -637,9 +643,7 @@ def render_admin_page(
                             columns[idx % 4].metric(label, value)
                         st.balloons()
                     except Exception as e:
-                        st.error(_humanize_import_error(e))
-                        with st.expander("Technische Details", expanded=False):
-                            st.code(str(e), language="text")
+                        _show_admin_feedback("error", _humanize_import_error(e), str(e))
 
     # 3. SYNC STATUS TAB
     with tab_sync:
@@ -717,10 +721,10 @@ def render_admin_page(
                     with st.spinner("Lösche MySQL Daten..."):
                         success, msg = admin_service.clear_mysql_all()
                         if success:
-                            st.success(msg)
+                            _show_admin_feedback("success", msg)
                             st.rerun()
                         else:
-                            st.error(msg)
+                            _show_admin_feedback("error", msg)
 
             with st.popover("MongoDB-Rohdaten löschen", use_container_width=True):
                 if not mongo_online:
@@ -739,10 +743,10 @@ def render_admin_page(
                     with st.spinner("Lösche MongoDB Daten..."):
                         success, msg = admin_service.clear_mongo_all()
                         if success:
-                            st.success(msg)
+                            _show_admin_feedback("success", msg)
                             st.rerun()
                         else:
-                            st.error(msg)
+                            _show_admin_feedback("error", msg)
 
     # 5. OEFFENTLICHE FREIGABE
     with tab_public_share:
@@ -765,13 +769,13 @@ def render_admin_page(
                     status = session.status if session else TunnelStatus.STOPPED
                     kind, message = _public_share_status_message(status)
                     if kind == "success":
-                        st.success(message)
+                        _show_admin_feedback("success", message)
                     elif kind == "info":
-                        st.info(message)
+                        _show_admin_feedback("info", message)
                     elif kind == "warning":
-                        st.warning(message)
+                        _show_admin_feedback("warning", message)
                     elif kind == "error":
-                        st.error(message)
+                        _show_admin_feedback("error", message)
                     else:
                         st.caption(message)
 
@@ -786,9 +790,9 @@ def render_admin_page(
                         with st.spinner("Starte Cloudflare Quick Tunnel ..."):
                             started = manager.start(settings.public_share.local_url)
                             if started.status == TunnelStatus.RUNNING:
-                                st.success("Freigabe aktiv.")
+                                _show_admin_feedback("success", "Freigabe aktiv.")
                             else:
-                                st.error(started.error_message or "Tunnelstart fehlgeschlagen.")
+                                _show_admin_feedback("error", started.error_message or "Tunnelstart fehlgeschlagen.")
                         st.rerun()
 
                     if st.button(
@@ -797,7 +801,7 @@ def render_admin_page(
                         disabled=not bool(session),
                     ):
                         manager.stop()
-                        st.success("Freigabe gestoppt.")
+                        _show_admin_feedback("success", "Freigabe gestoppt.")
                         st.rerun()
 
             diagnostics_left, diagnostics_right = st.columns(2)
@@ -837,4 +841,4 @@ def render_admin_page(
                 st.caption("Noch keine Tunnel-Logs verfügbar.")
 
             if session and session.error_message:
-                st.error(session.error_message)
+                _show_admin_feedback("error", "Tunnel meldet einen Fehler.", session.error_message)

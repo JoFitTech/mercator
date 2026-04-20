@@ -29,6 +29,13 @@ Optional über das Projektskript:
 .\mercator.ps1 e2e-smoke
 ```
 
+Optional mit Auto-Start der App durch die Test-Fixtures:
+
+```powershell
+$env:MERCATOR_E2E_AUTOSTART = "true"
+pytest tests/e2e/test_navigation.py -v
+```
+
 ---
 
 ## Voraussetzungen
@@ -36,7 +43,7 @@ Optional über das Projektskript:
 | Voraussetzung | Beschreibung |
 |---|---|
 | Python 3.11+ | Im Projekt vorhandene Version |
-| Playwright | `pip install playwright pytest-playwright` |
+| Playwright | `pip install playwright` (optional zusätzlich `pytest-playwright`) |
 | Chromium | `python -m playwright install chromium` |
 | Streamlit App | Muss auf `http://localhost:8501` laufen |
 
@@ -80,6 +87,9 @@ tests/
 # Nur Smoke-Tests (schnellstes Feedback, ~15s)
 pytest tests/e2e/ -m smoke -v
 
+# Navigationsvalidierung (Header/Sidebar + Sequenzen)
+pytest tests/e2e/test_navigation.py -v
+
 # Tests ohne Datenbankabhängigkeit
 pytest tests/e2e/ -m "not requires_data" -v
 
@@ -116,6 +126,9 @@ pytest tests/e2e/ -m smoke -v
 | `MERCATOR_E2E_PAGE_LOAD_TIMEOUT_MS` | `30000` | Timeout für das initiale Laden |
 | `MERCATOR_E2E_ACTION_TIMEOUT_MS` | `15000` | Timeout für UI-Aktionen |
 | `MERCATOR_E2E_STREAMLIT_READY_TIMEOUT_MS` | `20000` | Warten auf Streamlit-Bereitschaft |
+| `MERCATOR_E2E_AUTOSTART` | `false` | Startet Streamlit automatisch (nur localhost/127.0.0.1) |
+| `MERCATOR_E2E_APP_START_TIMEOUT_SECONDS` | `90` | Timeout für den automatischen App-Start |
+| `MERCATOR_E2E_CHROMIUM_EXECUTABLE` | _leer_ | Optionaler Pfad zu System-Chromium/Chrome, falls Playwright-Browser nicht installierbar sind |
 
 `tests/e2e/conftest.py` lädt zusätzlich automatisch eine optionale Datei `.env.e2e`,
 falls sie im Projekt-Root existiert.
@@ -222,5 +235,3 @@ Diese Tests erkennen Fehler, die **statische Prüfung und Unit-Tests nicht finde
 | Timing-Probleme | Streamlit rerendert nach Interaktion asynchron | `_wait_for_streamlit_ready()` als robuste Wait-Strategie |
 | Echte DB benötigt | `requires_data`-Tests brauchen gefüllte DB | Klare Skip-Logik, kein stiller Fehler |
 | Windows-spezifisch | `playwright install` kann unter Windows langsam sein | Einmalig, Chromium ~150MB |
-
-

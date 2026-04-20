@@ -106,11 +106,12 @@ def safe_service_call(
     context_label: str,
     fallback: T,
 ) -> tuple[T, Exception | None]:
-    """Führt Serviceaufrufe robust aus und liefert kontrollierten Fallback."""
+    """Führt Serviceaufrufe robust aus und liefert kontrollierten Fallback.
+
+    Die Funktion rendert bewusst keine UI, damit Seiten genau einen klaren
+    Error-/Warning-State steuern können.
+    """
     try:
         return call(), None
     except Exception as exc:  # noqa: BLE001 - zentrale UI-Fehlerbehandlung
-        render_error_state(f"{context_label} konnte nicht geladen werden.")
-        with st.expander("Technische Details", expanded=False):
-            st.code(str(exc), language="text")
         return fallback, exc

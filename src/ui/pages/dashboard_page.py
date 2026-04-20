@@ -16,6 +16,7 @@ from src.ui.components.page_scaffold import (
     render_kpi_row,
     render_page_header,
     render_empty_state,
+    render_error_state,
     safe_service_call,
     summarize_filters,
 )
@@ -237,14 +238,18 @@ def render_dashboard_page(
             fallback={},
         )
     if load_error is not None:
-        st.warning("Dashboard ist aktuell nur eingeschränkt verfügbar.")
+        render_error_state("Dashboard-Daten konnten aktuell nicht geladen werden.")
+        with st.expander("Technische Details", expanded=False):
+            st.code(str(load_error), language="text")
         return
 
     payload_error = str(payload.get("payload_error_message") or "").strip()
     if payload_error:
-        st.error("Datenquelle aktuell nicht erreichbar. Es werden ggf. nur Teilinformationen angezeigt.")
+        render_error_state("Datenquelle aktuell nicht erreichbar. Dashboard läuft im eingeschränkten Modus.")
+        st.info("Kennzahlen werden vorübergehend ausgeblendet, bis die Datenquelle wieder verfügbar ist.")
         with st.expander("Technische Details", expanded=False):
             st.code(payload_error, language="text")
+        return
 
     kpis = [
         {"label": "Actionable Buys", "value": str(payload.get("kpi_actionable_buys", 0))},
