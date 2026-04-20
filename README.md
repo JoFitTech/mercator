@@ -177,6 +177,38 @@ Optionale Import-/Gate-Parameter:
 - `GATE_REQUIRE_COMMON_STOCK` (`true`/`false`)
 - `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
 
+## Öffentliche Freigabe (lokale Demo/Test-Shares)
+- Zweck: kurzfristige, öffentliche Freigabe einer **lokal laufenden** Streamlit-Instanz für Demo- und Testzwecke.
+- Standardprovider: **Cloudflare Quick Tunnel** via `cloudflared`.
+- UI-Ort: Admin-Bereich, Tab **„Öffentliche Freigabe“**.
+- Sicherheitsrahmen: nur temporär nutzen; die erzeugte URL ist extern erreichbar.
+
+### Voraussetzungen
+- `cloudflared` muss installiert und im PATH verfügbar sein (oder via `CLOUDFLARED_BIN` gesetzt).
+- App läuft lokal (z. B. `http://localhost:8501`).
+
+Installationshilfe (Cloudflare):
+- https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+
+### Relevante ENV-Variablen
+- `ENABLE_PUBLIC_SHARE=true|false` (Default: `false`)
+- `PUBLIC_SHARE_PROVIDER=cloudflare` (aktuell vollständig implementiert)
+- `PUBLIC_SHARE_LOCAL_URL=http://localhost:8501` (optional)
+- `CLOUDFLARED_BIN=cloudflared` (optional, z. B. absoluter Pfad)
+- `PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS=20` (optional)
+
+### Lokale Nutzung
+1. App lokal starten.
+2. In **Admin → Öffentliche Freigabe** wechseln.
+3. **Freigabe starten** klicken.
+4. Erzeugte öffentliche URL teilen (nur temporär).
+5. Nach Demo/Test **Freigabe stoppen** klicken.
+
+### Limitierungen
+- Kein permanenter Tunnel, keine Zero-Trust-Policy-Absicherung.
+- URL-Lebensdauer und Stabilität hängen vom Quick-Tunnel-Laufprozess ab.
+- Aktuell nur Cloudflare Quick Tunnel aktiv; Architektur ist auf weitere Provider (z. B. ngrok, Managed Tunnel) vorbereitbar.
+
 
 ## In-App-Konfiguration (Advanced Mode)
 Die Anwendung verfügt über einen **Advanced Mode** in der Sidebar, der zusätzliche Details und technische Informationen freischaltet:

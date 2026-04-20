@@ -477,6 +477,17 @@ class EnrichmentConfig:
     polygon_api_key: str | None = None
 
 @dataclass(frozen=True)
+class PublicShareConfig:
+    """Konfiguration für temporäre öffentliche Freigabe via Tunnelprovider."""
+
+    enabled: bool = False
+    provider: str = "cloudflare"
+    local_url: str = "http://localhost:8501"
+    cloudflared_bin: str = "cloudflared"
+    startup_timeout_seconds: int = 20
+
+
+@dataclass(frozen=True)
 class AppSettings:
     """Zentrale Anwendungseinstellungen für Services und UI."""
 
@@ -495,6 +506,7 @@ class AppSettings:
     ui_test_mode: bool
     trade_republic_universe_url: str
     trade_republic_refresh_ttl_hours: int
+    public_share: PublicShareConfig = PublicShareConfig()
 
 
 def load_settings() -> AppSettings:
@@ -555,6 +567,13 @@ def load_settings() -> AppSettings:
             default="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",
         ),
         trade_republic_refresh_ttl_hours=_read_int_env("TRADE_REPUBLIC_REFRESH_TTL_HOURS", default=24),
+        public_share=PublicShareConfig(
+            enabled=_read_bool_env("ENABLE_PUBLIC_SHARE", default=False),
+            provider=_read_string_env("PUBLIC_SHARE_PROVIDER", default="cloudflare").lower(),
+            local_url=_read_string_env("PUBLIC_SHARE_LOCAL_URL", default="http://localhost:8501"),
+            cloudflared_bin=_read_string_env("CLOUDFLARED_BIN", default="cloudflared"),
+            startup_timeout_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS", default=20),
+        ),
     )
 
     if not _SETTINGS_DEBUG_LOGGED:

@@ -12,10 +12,30 @@ from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
 from src.services.database_status_service import DatabaseStatus
 from src.services.import_service import ImportService, ImportSummary
+from src.services.public_share_service import CloudflareQuickTunnelProvider, TunnelManager, TunnelStatus
 from src.ui.components.page_scaffold import render_page_header
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
+PUBLIC_SHARE_MANAGER_STATE_KEY = "public_share_manager"
+
+
+def _get_public_share_manager(settings: AppSettings) -> TunnelManager:
+    manager = st.session_state.get(PUBLIC_SHARE_MANAGER_STATE_KEY)
+    if isinstance(manager, TunnelManager):
+        return manager
+
+    provider = CloudflareQuickTunnelProvider(
+        cloudflared_bin=settings.public_share.cloudflared_bin,
+        startup_timeout_seconds=settings.public_share.startup_timeout_seconds,
+    )
+    manager = TunnelManager(
+        provider=provider,
+        provider_name=settings.public_share.provider,
+        default_local_url=settings.public_share.local_url,
+    )
+    st.session_state[PUBLIC_SHARE_MANAGER_STATE_KEY] = manager
+    return manager
 
 
 def _build_import_success_message(summary: ImportSummary, force_profile_refresh: bool) -> str:
@@ -426,8 +446,8 @@ def render_admin_page(
                 st.rerun()
 
     # 1. Hauptnavigation über echte Tabs (Requirement 8.2)
-    tab_import, tab_sync, tab_db_control = st.tabs([
-        "Import und API2", "Sync-Status", "Datenbank-Kontrolle"
+    tab_import, tab_sync, tab_db_control, tab_public_share = st.tabs([
+        "Import und API2", "Sync-Status", "Datenbank-Kontrolle", "Öffentliche Freigabe"
     ])
 
     admin_service = AdminDashboardService(settings, mysql_client, mongo_available)
@@ -660,3 +680,96 @@ def render_admin_page(
                             st.rerun()
                         else:
                             st.error(msg)
+
+    # 5. OEFFENTLICHE FREIGABE
+    with tab_public_share:
+        st.subheader("Öffentliche Freigabe")
+        if not settings.public_share.enabled:
+            st.caption("Die Funktion ist über ENABLE_PUBLIC_SHARE=false deaktiviert.")
+        else:
+            manager = _get_public_share_manager(settings)
+            session = manager.get_session()
+            provider = manager.provider
+
+            st.warning(
+                "Nur für lokale Demo/Test-Freigaben nutzen. Die öffentliche URL ist extern erreichbar."
+            )
+
+            with st.container(border=True):
+                c1, c2 = st.columns([1.2, 1], vertical_alignment="bottom")
+                with c1:
+                    st.markdown("#### Status")
+                    status = session.status if session else TunnelStatus.STOPPED
+                    if status == TunnelStatus.RUNNING:
+                        st.success("Tunnel läuft.")
+                    elif status == TunnelStatus.STARTING:
+                        st.info("Tunnel wird gestartet …")
+                    elif status == TunnelStatus.STALE:
+                        st.warning("Tunnelprozess ist stale/beendet.")
+                    elif status == TunnelStatus.ERROR:
+                        st.error("Tunnel konnte nicht gestartet werden.")
+                    else:
+                        st.caption("Tunnel ist gestoppt.")
+
+                with c2:
+                    is_running = bool(session and session.status == TunnelStatus.RUNNING)
+                    if st.button(
+                        "Freigabe starten",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=is_running,
+                    ):
+                        with st.spinner("Starte Cloudflare Quick Tunnel ..."):
+                            started = manager.start(settings.public_share.local_url)
+                            if started.status == TunnelStatus.RUNNING:
+                                st.success("Freigabe aktiv.")
+                            else:
+                                st.error(started.error_message or "Tunnelstart fehlgeschlagen.")
+                        st.rerun()
+
+                    if st.button(
+                        "Freigabe stoppen",
+                        use_container_width=True,
+                        disabled=not bool(session),
+                    ):
+                        manager.stop()
+                        st.success("Freigabe gestoppt.")
+                        st.rerun()
+
+            diagnostics_left, diagnostics_right = st.columns(2)
+            with diagnostics_left:
+                st.text_input("Lokale Ziel-URL", value=settings.public_share.local_url, disabled=True)
+                st.text_input("Provider", value=settings.public_share.provider, disabled=True)
+                started_at = (
+                    session.started_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    if session
+                    else "-"
+                )
+                st.text_input("Startzeit", value=started_at, disabled=True)
+            with diagnostics_right:
+                public_url_value = session.public_url if session and session.public_url else "-"
+                st.text_input("Öffentliche URL", value=public_url_value, disabled=True)
+                st.text_input(
+                    "cloudflared Binärdatei",
+                    value=settings.public_share.cloudflared_bin,
+                    disabled=True,
+                )
+                binary_available = provider.is_binary_available() if isinstance(provider, CloudflareQuickTunnelProvider) else False
+                st.text_input("Binärdatei gefunden", value="Ja" if binary_available else "Nein", disabled=True)
+
+            can_open = bool(session and session.status == TunnelStatus.RUNNING and session.public_url)
+            st.link_button(
+                "Öffentliche URL öffnen",
+                session.public_url if can_open and session and session.public_url else "http://localhost",
+                disabled=not can_open,
+                use_container_width=True,
+            )
+
+            st.markdown("##### Letzter Log-Ausschnitt")
+            if session and session.raw_log_tail:
+                st.code("\n".join(session.raw_log_tail[-15:]), language="text")
+            else:
+                st.caption("Noch keine Tunnel-Logs verfügbar.")
+
+            if session and session.error_message:
+                st.error(session.error_message)
