@@ -57,6 +57,7 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
     # 3. Trade-Historie (Requirement 7.2)
     st.markdown("---")
     st.subheader("Insider Trade-Historie")
+    st.caption("Sortierung: Neueste Trades zuerst. Wählen Sie eine Zeile für Detailaktionen.")
     trades_df = pd.DataFrame(result.rows)
     if trades_df.empty:
         st.info("Keine Trades in der Historie gefunden.")

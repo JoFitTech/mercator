@@ -19,6 +19,16 @@ from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
 
+def _humanize_import_error(exc: Exception) -> str:
+    """Übersetzt technische Importfehler in UI-taugliche deutsche Meldungen."""
+    raw = str(exc)
+    if "trade_republic_match_method" in raw and "cannot be null" in raw.lower():
+        return (
+            "Import abgebrochen: Für das Trade-Republic-Matching fehlen Pflichtwerte "
+            "(Zuordnungsmethode). Bitte erneut ausführen; der Importpfad setzt Standardwerte."
+        )
+    return f"Import fehlgeschlagen: {raw}"
+
 
 def compute_admin_capabilities(
     db_status: DatabaseStatus | None,
@@ -506,7 +516,7 @@ def render_admin_page(
                         c4.metric("Profile Fetched", summary.fetched_profiles)
                         st.balloons()
                     except Exception as e:
-                        st.error(f"Fehler beim Import: {e}")
+                        st.error(_humanize_import_error(e))
 
     # 3. SYNC STATUS TAB
     with tab_sync:

@@ -44,6 +44,7 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
 
     # 4. Tabelle (Requirement 6.3)
     st.subheader("Unternehmens-Verzeichnis")
+    st.caption("Sortierung: Unternehmen mit den meisten Trades zuerst. Zeilen sind einzeln auswählbar.")
     
     display_cols = ["current_symbol", "company_name", "sector", "industry", "market_cap", "trade_count", "last_trade_date"]
     
@@ -58,7 +59,7 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
             "company_name": st.column_config.TextColumn("Name"),
             "sector": st.column_config.TextColumn("Sektor"),
             "industry": st.column_config.TextColumn("Industrie"),
-            "market_cap": st.column_config.NumberColumn("Market Cap", format="$%d"),
+            "market_cap": st.column_config.NumberColumn("Marktkapitalisierung", format="$%d"),
             "trade_count": st.column_config.NumberColumn("Trades"),
             "last_trade_date": st.column_config.DateColumn("Letzter Trade", format="DD.MM.YY")
         },

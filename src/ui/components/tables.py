@@ -41,6 +41,9 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     # Spaltenpriorität gemäß Spec:
     # 1. Symbol, 2. Insider, 3. Richtung, 4. Value, 5. Score, 6. Date
     
+    # Defensive Kopie, damit Seitenzustände nicht durch Nebenwirkungen mutiert werden.
+    df = df.copy().reset_index(drop=True)
+
     # Richtung normalisieren (falls nicht vorhanden)
     if "direction" not in df.columns and "acquisition_or_disposition" in df.columns:
         df["direction"] = df["acquisition_or_disposition"].map({"A": "BUY", "D": "SELL"}).fillna("UNKNOWN")
@@ -66,12 +69,12 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small", pinned=True),
         "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
         "direction": st.column_config.TextColumn("Richtung", width="small"),
-        "sector": st.column_config.TextColumn("Sector", width="medium"),
-        "trade_value_estimated": st.column_config.NumberColumn("Value", format="$%d", width="small"),
+        "sector": st.column_config.TextColumn("Sektor", width="medium"),
+        "trade_value_estimated": st.column_config.NumberColumn("Wert", format="$%d", width="small"),
         "score": st.column_config.NumberColumn("Score", format="%.1f", width="small"),
-        "gate_status": st.column_config.TextColumn("Gate", width="small"),
-        "validation_status": st.column_config.TextColumn("Validation", width="small"),
-        "transaction_date": st.column_config.DateColumn("Date", width="small", format="DD.MM.YY"),
+        "gate_status": st.column_config.TextColumn("Gate-Status", width="small"),
+        "validation_status": st.column_config.TextColumn("Validierungsstatus", width="small"),
+        "transaction_date": st.column_config.DateColumn("Datum", width="small", format="DD.MM.YY"),
     }
     
     return st.dataframe(

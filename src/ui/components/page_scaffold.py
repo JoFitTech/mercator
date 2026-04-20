@@ -10,18 +10,6 @@ def render_page_header(title: str, subtitle: str | None = None, actions: list[di
     
     Titel links, Aktionen rechts, vertikal zentriert.
     """
-    st.markdown("""
-        <style>
-        .page-header-container {
-            margin-bottom: 2rem;
-        }
-        /* Verhindert hängende Buttons bei Titeln mit Unterlängen */
-        div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] {
-            align-items: center !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
     col1, col2 = st.columns([0.7, 0.3], vertical_alignment="center")
     with col1:
         st.markdown(f'<h1 style="margin: 0; padding: 0; line-height: 1.2;">{title}</h1>', unsafe_allow_html=True)
