@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pandas as pd
+
 from src.ui.pages.dashboard_page import _build_dashboard_filters
 from src.ui.pages import dashboard_page
 from src.services.import_service import ImportSummary
@@ -93,3 +95,46 @@ def test_admin_import_summary_helpers_include_new_profile_counters() -> None:
     assert metrics["Profile frisch geladen"] == 0
     assert metrics["Profile aus Cache"] == 40
     assert metrics["Profilfehler"] == 2
+
+
+def test_dashboard_sector_chart_uses_vega_lite_without_plotly(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def _fake_vega_lite_chart(data, spec, **kwargs):  # noqa: ANN001
+        calls.append({"data": data, "spec": spec, "kwargs": kwargs})
+
+    monkeypatch.setattr(dashboard_page.st, "vega_lite_chart", _fake_vega_lite_chart)
+
+    df = pd.DataFrame([
+        {"sector": "Technology", "count": 3, "volume": 1_500_000},
+        {"sector": "Unknown", "count": 1, "volume": 120_000},
+    ])
+
+    dashboard_page._render_sector_pie_chart(df)
+
+    assert len(calls) == 1
+    assert calls[0]["spec"]["mark"]["type"] == "arc"
+    assert calls[0]["spec"]["encoding"]["theta"]["field"] == "count"
+    assert calls[0]["kwargs"]["use_container_width"] is True
+
+
+def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def _fake_vega_lite_chart(data, spec, **kwargs):  # noqa: ANN001
+        calls.append({"data": data, "spec": spec, "kwargs": kwargs})
+
+    monkeypatch.setattr(dashboard_page.st, "vega_lite_chart", _fake_vega_lite_chart)
+
+    net_df = pd.DataFrame([
+        {"sector": "Technology", "delta": 4, "buy_count": 5, "sell_count": 1, "buy_volume": 5_000, "sell_volume": 2_000}
+    ])
+    cap_df = pd.DataFrame([{"bucket": "Large Cap", "companies": 12}])
+
+    dashboard_page._render_net_sector_signal_chart(net_df)
+    dashboard_page._render_market_cap_distribution_chart(cap_df)
+
+    assert len(calls) == 2
+    assert calls[0]["spec"]["mark"]["type"] == "bar"
+    assert calls[0]["spec"]["encoding"]["x"]["field"] == "delta"
+    assert calls[1]["spec"]["encoding"]["x"]["field"] == "companies"
