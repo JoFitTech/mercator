@@ -215,6 +215,8 @@ def _render_public_share_sidebar_controls() -> None:
         st.caption("Nur Steuerungstools – keine eigenständige Seite.")
         status_text = public_share_sidebar_status_text(status)
         st.caption(f"Status: {status_text}")
+        if session and session.error_message:
+            st.caption(f"Hinweis: {session.error_message}")
 
         running_like = status in {TunnelStatus.RUNNING, TunnelStatus.WARNING, TunnelStatus.STARTING}
         primary_label = "Freigabe stoppen" if running_like else "Freigabe starten"

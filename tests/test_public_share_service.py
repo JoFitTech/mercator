@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from queue import Queue
 
 from src.services.public_share_service import (
@@ -85,6 +86,30 @@ def test_missing_binary_returns_error_session() -> None:
     assert session.status == TunnelStatus.ERROR
     assert session.pid is None
     assert "cloudflared" in (session.error_message or "")
+
+
+def test_resolve_bin_prefers_repo_local_cloudflared_exe_when_not_in_path(monkeypatch, tmp_path) -> None:
+    provider = CloudflareQuickTunnelProvider(cloudflared_bin="cloudflared")
+    fake_repo_root = tmp_path / "repo"
+    fake_repo_root.mkdir()
+    fake_exe = fake_repo_root / "cloudflared.exe"
+    fake_exe.write_text("binary")
+
+    monkeypatch.setattr("shutil.which", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+    monkeypatch.setattr(
+        CloudflareQuickTunnelProvider,
+        "_is_executable_file",
+        staticmethod(lambda path: path == fake_exe),
+    )
+    monkeypatch.setattr(
+        "src.services.public_share_service.Path.resolve",
+        lambda self: fake_repo_root / "src" / "services" / "public_share_service.py",
+    )
+
+    resolved = provider._resolve_bin()
+
+    assert resolved == str(fake_exe)
 
 
 def test_output_reader_enqueues_all_lines() -> None:

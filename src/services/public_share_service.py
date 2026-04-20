@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 import os
+from pathlib import Path
 from queue import Empty, Queue
 import re
 import shutil
@@ -74,15 +75,38 @@ class CloudflareQuickTunnelProvider:
         self.healthcheck_timeout_seconds = healthcheck_timeout_seconds
 
     def is_binary_available(self) -> bool:
-        if os.path.isabs(self.cloudflared_bin) or os.path.sep in self.cloudflared_bin:
-            return os.path.isfile(self.cloudflared_bin) and os.access(self.cloudflared_bin, os.X_OK)
-        return shutil.which(self.cloudflared_bin) is not None
+        return self._resolve_bin() is not None
 
-    def _resolve_bin(self) -> str:
+    @staticmethod
+    def _is_executable_file(path: Path) -> bool:
+        if not path.is_file():
+            return False
+        if os.name == "nt":
+            return path.suffix.lower() == ".exe"
+        return os.access(str(path), os.X_OK)
+
+    def _resolve_bin(self) -> str | None:
         if os.path.isabs(self.cloudflared_bin) or os.path.sep in self.cloudflared_bin:
-            return self.cloudflared_bin
+            configured_path = Path(self.cloudflared_bin)
+            if self._is_executable_file(configured_path):
+                return str(configured_path)
+            return None
+
         resolved = shutil.which(self.cloudflared_bin)
-        return resolved or self.cloudflared_bin
+        if resolved:
+            return resolved
+
+        repo_root = Path(__file__).resolve().parents[2]
+        local_candidates = (
+            Path.cwd() / "cloudflared",
+            Path.cwd() / "cloudflared.exe",
+            repo_root / "cloudflared",
+            repo_root / "cloudflared.exe",
+        )
+        for candidate in local_candidates:
+            if self._is_executable_file(candidate):
+                return str(candidate)
+        return None
 
     def _build_missing_binary_session(self, local_url: str) -> TunnelSession:
         return TunnelSession(
@@ -100,10 +124,11 @@ class CloudflareQuickTunnelProvider:
         )
 
     def start(self, local_url: str) -> TunnelSession:
-        if not self.is_binary_available():
+        resolved_bin = self._resolve_bin()
+        if not resolved_bin:
             return self._build_missing_binary_session(local_url)
 
-        command = [self._resolve_bin(), "tunnel", "--url", local_url]
+        command = [resolved_bin, "tunnel", "--url", local_url]
         started_at = datetime.now(timezone.utc)
         log_tail: deque[str] = deque(maxlen=_MAX_LOG_LINES)
 
