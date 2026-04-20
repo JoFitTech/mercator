@@ -18,6 +18,40 @@ NAV_OPTIONS: dict[str, str] = {
 
 DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
 
+
+def _resolve_parent_target(nav_target: str) -> str:
+    """Leitet Detailseiten auf ihre Parent-Seite für den Navbar-Active-State ab."""
+
+    if nav_target == "Trade-Detail":
+        return "Trades"
+    if nav_target == "Unternehmens-Detail":
+        return "Unternehmen"
+    return nav_target
+
+
+def _render_navbar_control(options_list: list[str], current_label: str) -> str:
+    """Rendert eine saubere Navbar-Steuerung ohne Radio-/Checkbox-Optik."""
+
+    if hasattr(st, "segmented_control"):
+        selected = st.segmented_control(
+            "Navigation",
+            options=options_list,
+            default=current_label if current_label in options_list else options_list[0],
+            selection_mode="single",
+            label_visibility="collapsed",
+            key="main_navbar",
+        )
+        return str(selected) if selected else options_list[0]
+
+    # Fallback für ältere Streamlit-Versionen.
+    return st.radio(
+        "Navigation",
+        options=options_list,
+        index=options_list.index(current_label) if current_label in options_list else 0,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
 def render_navigation_topbar() -> PageName:
     """Rendert die Hauptnavigation als obere Navbar."""
 
@@ -25,19 +59,14 @@ def render_navigation_topbar() -> PageName:
     if "nav_target" not in st.session_state:
         st.session_state["nav_target"] = "Dashboard"
 
+    parent_target = _resolve_parent_target(str(st.session_state["nav_target"]))
     current_label = next(
-        (k for k, v in NAV_OPTIONS.items() if v == st.session_state["nav_target"]),
+        (k for k, v in NAV_OPTIONS.items() if v == parent_target),
         "Dashboard",
     )
     options_list = list(NAV_OPTIONS.keys())
 
-    selected_label = st.radio(
-        "Navigation",
-        options=options_list,
-        index=options_list.index(current_label) if current_label in options_list else 0,
-        horizontal=True,
-        label_visibility="collapsed",
-    )
+    selected_label = _render_navbar_control(options_list, current_label)
 
     # Update nav_target nur außerhalb von Detailseiten, damit Deep-Link-Details stabil bleiben.
     new_target = NAV_OPTIONS[selected_label]

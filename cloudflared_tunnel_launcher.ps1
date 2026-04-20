@@ -18,7 +18,7 @@ function Write-Log {
 
 function Test-AppReachable {
     try {
-        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port" -TimeoutSec 2 -ErrorAction Stop
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
         return $true
     } catch {
         return $false

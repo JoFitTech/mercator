@@ -9,6 +9,73 @@ $composeFile = Join-Path $PSScriptRoot "mercator-compose.yml"
 
 Set-Location -Path $PSScriptRoot
 
+function Get-DockerAvailability {
+    $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+    if (-not $dockerCmd) {
+        return @{
+            IsAvailable = $false
+            Message = "Docker CLI wurde nicht gefunden. Bitte Docker Desktop installieren oder starten."
+        }
+    }
+
+    $outFile = Join-Path $env:TEMP "mercator_docker_check_out.tmp"
+    $errorFile = Join-Path $env:TEMP "mercator_docker_check_error.tmp"
+    Remove-Item $outFile -ErrorAction SilentlyContinue
+    Remove-Item $errorFile -ErrorAction SilentlyContinue
+
+    $proc = Start-Process -FilePath $dockerCmd.Source `
+        -ArgumentList @('version', '--format', '{{.Server.Version}}') `
+        -RedirectStandardOutput $outFile `
+        -RedirectStandardError $errorFile `
+        -PassThru `
+        -Wait `
+        -WindowStyle Hidden
+    $exitCode = $proc.ExitCode
+
+    if ($exitCode -eq 0) {
+        Remove-Item $outFile, $errorFile -ErrorAction SilentlyContinue
+        return @{
+            IsAvailable = $true
+            Message = "Docker daemon verfuegbar."
+        }
+    }
+
+    $detail = Get-Content $errorFile -Raw -ErrorAction SilentlyContinue
+    if (-not $detail) {
+        $detail = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+    }
+    if (-not $detail) {
+        $detail = "Docker daemon ist aktuell nicht erreichbar."
+    }
+
+    Remove-Item $outFile, $errorFile -ErrorAction SilentlyContinue
+
+    return @{
+        IsAvailable = $false
+        Message = $detail
+    }
+}
+
+function Ensure-DockerAvailable {
+    param(
+        [Parameter(Mandatory=$true)][string]$Context,
+        [switch]$AllowMissing
+    )
+
+    $dockerState = Get-DockerAvailability
+    if ($dockerState.IsAvailable) {
+        return $true
+    }
+
+    $message = "Docker ist nicht verfuegbar. $Context`nDetails: $($dockerState.Message)"
+    if ($AllowMissing) {
+        Write-Host $message -ForegroundColor Yellow
+        return $false
+    }
+
+    throw $message
+}
+
 # Hilfsfunktionen zum Lesen von .env und Prüfen der Uni-DB-Erreichbarkeit
 function Get-DotEnvValue {
     param([Parameter(Mandatory=$true)][string]$Key)
@@ -62,6 +129,9 @@ function Test-UniDatabaseConnectivity {
 
 # Hilfsfunktion zum Bereinigen von verwaisten Containern
 function Remove-Legacy-Containers {
+     if (-not (Ensure-DockerAvailable -Context "Legacy-Container koennen ohne Docker nicht bereinigt werden." -AllowMissing)) {
+         return
+     }
      Write-Host "Suche nach alten Mercator-Containern..." -ForegroundColor Cyan
      # Docker behandelt mehrere name-Filter mit AND – daher separat abfragen und zusammenführen
      $mercatorContainers = @(docker ps -a --filter "name=mercator-" --format "{{.Names}}" 2>$null) | Where-Object { $_ -match '\S' }
@@ -87,12 +157,14 @@ function Get-AppUrl {
     #>
 
     try {
-        $ports = docker ps --filter "name=^/mercator-app$" --format "{{.Ports}}"
-        if ($ports) {
-            # Beispiel: 127.0.0.1:8501->8501/tcp
-            $m = [regex]::Match(($ports | Out-String), "127\.0\.0\.1:(\d+)->")
-            if ($m.Success) {
-                return "http://localhost:$($m.Groups[1].Value)"
+        if ((Ensure-DockerAvailable -Context "Docker-Port-Mapping kann nicht gelesen werden." -AllowMissing)) {
+            $ports = docker ps --filter "name=^/mercator-app$" --format "{{.Ports}}"
+            if ($ports) {
+                # Beispiel: 127.0.0.1:8501->8501/tcp
+                $m = [regex]::Match(($ports | Out-String), "127\.0\.0\.1:(\d+)->")
+                if ($m.Success) {
+                    return "http://localhost:$($m.Groups[1].Value)"
+                }
             }
         }
     } catch {
@@ -122,6 +194,8 @@ function Invoke-Compose {
         [string[]]$Args
     )
 
+    Ensure-DockerAvailable -Context "Der Docker-Compose-Befehl kann nicht ausgefuehrt werden."
+
     $oldEAP = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
@@ -141,6 +215,8 @@ function Invoke-ComposeQuiet {
         [Parameter(ValueFromRemainingArguments = $true)]
         [string[]]$ComposeArgs
     )
+
+    Ensure-DockerAvailable -Context "Der Docker-Compose-Befehl kann nicht ausgefuehrt werden."
 
     $joinedArgs = $ComposeArgs -join " "
     # Fuehre den Befehl aus und fange stderr ab, um es im Fehlerfall anzuzeigen.
@@ -210,6 +286,10 @@ switch ($Action) {
         Write-Host "Mercator gestartet. App: $appUrl" -ForegroundColor Green
     }
     "stop" {
+        if (-not (Ensure-DockerAvailable -Context "Es gibt keinen Docker-Stack zum Stoppen." -AllowMissing)) {
+            Write-Host "Mercator-Stop uebersprungen: Docker Desktop/Daemon laeuft nicht." -ForegroundColor Yellow
+            break
+        }
         Invoke-Compose down
         Write-Host "Mercator gestoppt." -ForegroundColor Yellow
     }
@@ -229,6 +309,10 @@ switch ($Action) {
         Write-Host "Mercator neu gestartet. App: $appUrl" -ForegroundColor Green
     }
     "status" {
+        if (-not (Ensure-DockerAvailable -Context "Docker-Status kann nicht abgefragt werden." -AllowMissing)) {
+            Write-Host "Mercator-Status: Docker nicht verfuegbar. Lokale DB-Container laufen daher nicht." -ForegroundColor Yellow
+            break
+        }
         Invoke-Compose ps
     }
     "logs" {
@@ -251,6 +335,10 @@ switch ($Action) {
         Start-Process $appUrl
     }
     "cleanup" {
+        if (-not (Ensure-DockerAvailable -Context "Cleanup des Docker-Stacks kann nicht ausgefuehrt werden." -AllowMissing)) {
+            Write-Host "Cleanup uebersprungen: Docker Desktop/Daemon laeuft nicht." -ForegroundColor Yellow
+            break
+        }
         # Entfernt alte Container, die nicht zum neuen Stack gehoeren (Name 'mercator-*').
         Remove-Legacy-Containers
         # Optional: Raeumt auch den aktuellen Stack auf.
