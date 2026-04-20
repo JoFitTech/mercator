@@ -184,6 +184,51 @@ def test_manager_marks_stale_if_process_missing_but_pid_is_dead(monkeypatch) -> 
     assert result.stale_reason is not None
 
 
+def test_manager_with_real_provider_keeps_stale_when_pid_is_dead_and_public_url_exists(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.process = None
+    session.pid = 999999
+    manager = TunnelManager(provider=provider, provider_name="cloudflare", default_local_url="http://localhost:8501")
+    manager.session = session
+
+    def _raise_process_lookup(pid: int, sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr("os.kill", _raise_process_lookup)
+    monkeypatch.setattr(provider, "_is_public_url_reachable", lambda _url: True)
+
+    result = manager.get_session()
+
+    assert result is not None
+    assert result.status == TunnelStatus.STALE
+    assert result.stale_reason is not None
+
+
+def test_real_provider_stale_session_stays_stale() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.STALE)
+    session.process = None
+    session.pid = None
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.STALE
+
+
+def test_real_provider_reachability_true_does_not_reactivate_stale_session(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.STALE)
+    session.process = None
+    session.pid = None
+
+    monkeypatch.setattr(provider, "_is_public_url_reachable", lambda _url: True)
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.STALE
+
+
 def test_stop_logic_sets_stopped_even_if_provider_stop_has_partial_failure() -> None:
     class _ErrorStopProvider(_ProviderStub):
         def stop(self, session: TunnelSession) -> None:

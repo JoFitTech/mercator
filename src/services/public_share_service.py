@@ -199,6 +199,9 @@ class CloudflareQuickTunnelProvider:
             self._terminate_pid(session.pid)
 
     def get_status(self, session: TunnelSession) -> TunnelStatus:
+        if session.status == TunnelStatus.STALE:
+            return TunnelStatus.STALE
+
         if not session.public_url:
             return TunnelStatus.STOPPED if session.status == TunnelStatus.STOPPED else session.status
 
@@ -368,6 +371,14 @@ class TunnelManager:
         if self.session.status in {TunnelStatus.STARTING, TunnelStatus.RUNNING, TunnelStatus.WARNING}:
             if not self.is_process_alive(self.session):
                 self.mark_session_stale(self.session, "Tunnelprozess ist nicht mehr aktiv.")
+                self.session.process = None
+                return self.session
+
+        if self.session.status == TunnelStatus.STALE:
+            self.session.process = None
+            if not self.session.stale_reason:
+                self.session.stale_reason = "Tunnelprozess wurde beendet oder Session ist veraltet."
+            return self.session
 
         status = self.provider.get_status(self.session)
         self.session.status = status
