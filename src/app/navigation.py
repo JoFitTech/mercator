@@ -5,6 +5,8 @@ from typing import Literal
 
 import streamlit as st
 
+from src.services.public_share_service import TunnelManager, TunnelStatus
+
 # Typer-Definition für Seiten
 PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Methodik", "Trade-Detail", "Unternehmens-Detail"]
 
@@ -22,6 +24,17 @@ SIDEBAR_NAV_OPTIONS: dict[str, str] = {
 
 DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
 HEADER_PAGES = set(HEADER_NAV_OPTIONS.values())
+
+
+def public_share_sidebar_status_text(status: TunnelStatus) -> str:
+    return {
+        TunnelStatus.RUNNING: "Läuft",
+        TunnelStatus.WARNING: "Läuft (Warnung)",
+        TunnelStatus.STARTING: "Startet …",
+        TunnelStatus.STALE: "Stale",
+        TunnelStatus.ERROR: "Fehler",
+        TunnelStatus.STOPPED: "Gestoppt",
+    }.get(status, "Gestoppt")
 
 
 def _resolve_parent_target(nav_target: str) -> str:
@@ -64,6 +77,7 @@ def _set_nav_target(target: PageName) -> None:
     st.session_state["nav_target"] = target
     st.rerun()
 
+
 def render_navigation_topbar() -> PageName:
     """Rendert die Hauptnavigation als obere Navbar."""
 
@@ -103,6 +117,41 @@ def render_navigation_topbar() -> PageName:
     return st.session_state["nav_target"]
 
 
+def _render_public_share_sidebar_controls() -> None:
+    manager = st.session_state.get("public_share_manager")
+    enabled = bool(st.session_state.get("public_share_enabled"))
+    if not enabled or not isinstance(manager, TunnelManager):
+        return
+
+    session = manager.get_session()
+    status = session.status if session else TunnelStatus.STOPPED
+
+    st.markdown("---")
+    with st.expander("Öffentliche Freigabe", expanded=False):
+        status_text = public_share_sidebar_status_text(status)
+        st.caption(f"Status: {status_text}")
+
+        running_like = status in {TunnelStatus.RUNNING, TunnelStatus.WARNING, TunnelStatus.STARTING}
+        primary_label = "Freigabe stoppen" if running_like else "Freigabe starten"
+        if st.button(primary_label, key="sidebar_public_share_primary", use_container_width=True, type="primary"):
+            if running_like:
+                manager.stop()
+            else:
+                manager.start()
+            st.rerun()
+
+        can_open = bool(session and session.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING} and session.public_url)
+        st.link_button(
+            "Öffnen",
+            session.public_url if can_open and session and session.public_url else "http://localhost",
+            disabled=not can_open,
+            use_container_width=True,
+        )
+
+        if st.button("Im Admin verwalten", key="sidebar_public_share_admin", use_container_width=True):
+            _set_nav_target("Admin")
+
+
 def render_sidebar_navigation() -> None:
     """Rendert sekundäre Seiten in der linken Sidebar als ausklappbare Navigation."""
 
@@ -117,14 +166,7 @@ def render_sidebar_navigation() -> None:
                 )
                 if st.button(label, key=f"sidebar_nav_{target}", use_container_width=True, type=button_type):
                     _set_nav_target(target)  # type: ignore[arg-type]
-        public_share_url = st.session_state.get("public_share_url")
-        if public_share_url:
-            st.markdown("---")
-            st.link_button(
-                "Öffentliche Freigabe",
-                public_share_url,
-                use_container_width=True,
-            )
+        _render_public_share_sidebar_controls()
 
 
 def render_system_status_sidebar(db_status, mysql_res):

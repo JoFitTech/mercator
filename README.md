@@ -180,7 +180,9 @@ Optionale Import-/Gate-Parameter:
 ## Öffentliche Freigabe (lokale Demo/Test-Shares)
 - Zweck: kurzfristige, öffentliche Freigabe einer **lokal laufenden** Streamlit-Instanz für Demo- und Testzwecke.
 - Standardprovider: **Cloudflare Quick Tunnel** via `cloudflared`.
-- UI-Ort: Admin-Bereich, Tab **„Öffentliche Freigabe“**.
+- UI-Orte:
+  - Sidebar (unter „Verwaltung & Hilfe“): Status + Start/Stop (primäre Aktion) + Öffnen + Sprung in Admin.
+  - Admin-Bereich, Tab **„Öffentliche Freigabe“**: Diagnose, Log-Tail, Detailinfos.
 - Sicherheitsrahmen: nur temporär nutzen; die erzeugte URL ist extern erreichbar.
 
 ### Voraussetzungen
@@ -196,13 +198,19 @@ Installationshilfe (Cloudflare):
 - `PUBLIC_SHARE_LOCAL_URL=http://localhost:8501` (optional)
 - `CLOUDFLARED_BIN=cloudflared` (optional, z. B. absoluter Pfad)
 - `PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS=20` (optional)
+- `PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS=2.0` (optional, kurzer Reachability-Check)
 
 ### Lokale Nutzung
 1. App lokal starten.
-2. In **Admin → Öffentliche Freigabe** wechseln.
-3. **Freigabe starten** klicken.
-4. Erzeugte öffentliche URL teilen (nur temporär).
-5. Nach Demo/Test **Freigabe stoppen** klicken.
+2. Entweder in der Sidebar direkt **Freigabe starten** klicken oder im Admin-Tab starten.
+3. Öffentliche URL teilen (im Admin-Feld Copy-freundlich markierbar; Öffnen-Button in Sidebar/Admin).
+4. Nach Demo/Test **Freigabe stoppen** (Sidebar oder Admin).
+
+### Troubleshooting
+- **`cloudflared` fehlt**: Status wird auf Fehler gesetzt; `CLOUDFLARED_BIN` prüfen.
+- **Keine URL erhalten**: Start läuft in Timeout und beendet den Prozess sauber.
+- **Tunnel stale**: Prozess wurde beendet oder Session veraltet; erneut starten.
+- **Öffentliche URL nicht erreichbar**: Status „Warnung“ (Prozess läuft, URL antwortet aber nicht).
 
 ### Limitierungen
 - Kein permanenter Tunnel, keine Zero-Trust-Policy-Absicherung.
