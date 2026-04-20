@@ -9,15 +9,15 @@ import streamlit as st
 PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Methodik", "Trade-Detail", "Unternehmens-Detail"]
 
 HEADER_NAV_OPTIONS: dict[str, str] = {
-    "📊 Dashboard": "Dashboard",
-    "🧾 Trades": "Trades",
-    "🏢 Unternehmen": "Unternehmen",
+    "Dashboard": "Dashboard",
+    "Trades": "Trades",
+    "Unternehmen": "Unternehmen",
 }
 
 SIDEBAR_NAV_OPTIONS: dict[str, str] = {
-    "📘 Methodik": "Methodik",
-    "⚙️ Einstellungen": "Einstellungen",
-    "🛠️ Admin": "Admin",
+    "Methodik": "Methodik",
+    "Einstellungen": "Einstellungen",
+    "Admin": "Admin",
 }
 
 DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
@@ -117,6 +117,14 @@ def render_sidebar_navigation() -> None:
                 )
                 if st.button(label, key=f"sidebar_nav_{target}", use_container_width=True, type=button_type):
                     _set_nav_target(target)  # type: ignore[arg-type]
+        public_share_url = st.session_state.get("public_share_url")
+        if public_share_url:
+            st.markdown("---")
+            st.link_button(
+                "Öffentliche Freigabe",
+                public_share_url,
+                use_container_width=True,
+            )
 
 
 def render_system_status_sidebar(db_status, mysql_res):
