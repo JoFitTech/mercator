@@ -127,7 +127,7 @@ class AppSettingsService:
         return ScoreGatePolicy(
             gate_validation_status_required="VALID",
             gate_form_type_required="4",
-            gate_security_name_required="Common Stock",
+            gate_security_name_required="",
             gate_allowed_acquisition_or_disposition=tuple(self.defaults.gate.allowed_acquisition_or_disposition),
             gate_excluded_transaction_types=("A-Award", "M-Exempt"),
             gate_min_trade_value=int(self.defaults.gate.min_trade_value),

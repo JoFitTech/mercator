@@ -128,6 +128,14 @@ class ImportService:
             item["score"] = res["score"]
             item["score_value"] = res["score"]
             item["score_class"] = res["score_class"]
+            item["core_insider_score"] = res.get("core_insider_score")
+            item["investability_score"] = res.get("investability_score")
+            item["execution_score"] = res.get("execution_score")
+            item["trade_republic_score"] = res.get("trade_republic_score")
+            item["final_score"] = res.get("final_score", res["score"])
+            item["final_class"] = res.get("final_class", res["score_class"])
+            item["decision_status"] = res.get("decision_status")
+            item["filing_age_days"] = res.get("filing_age_days", item.get("filing_age_days"))
 
             symbol = str(item.get("symbol") or "").strip().upper()
             if symbol:
@@ -252,6 +260,14 @@ class ImportService:
             item["score"] = res["score"]
             item["score_value"] = res["score"]
             item["score_class"] = res["score_class"]
+            item["core_insider_score"] = res.get("core_insider_score")
+            item["investability_score"] = res.get("investability_score")
+            item["execution_score"] = res.get("execution_score")
+            item["trade_republic_score"] = res.get("trade_republic_score")
+            item["final_score"] = res.get("final_score", res["score"])
+            item["final_class"] = res.get("final_class", res["score_class"])
+            item["decision_status"] = res.get("decision_status")
+            item["filing_age_days"] = res.get("filing_age_days", item.get("filing_age_days"))
             
             # Dashboard-Validitätslogik
             item["dashboard_valid"] = self._is_dashboard_valid(item)
@@ -445,11 +461,18 @@ class ImportService:
             record["trade_republic_source_refreshed_at"] = result.source_refreshed_at
             record["trade_republic_reference_isin"] = result.reference_isin
             record["trade_republic_reference_name"] = result.reference_name
+            status_map = {"IN_UNIVERSE": "CONFIRMED_MATCH", "NOT_IN_UNIVERSE": "NOT_FOUND", "UNKNOWN": "UNKNOWN"}
+            record["tr_availability_state"] = status_map.get(result.status, "UNKNOWN")
+            record["tr_tradability_state"] = "OK" if result.status == "IN_UNIVERSE" else "UNKNOWN"
+            record["tr_match_confidence"] = result.match_confidence
         except Exception:
             LOGGER.exception("TR matching fehlgeschlagen.")
             record["trade_republic_universe_status"] = "UNKNOWN"
             record["trade_republic_match_method"] = "NONE"
             record["trade_republic_match_confidence"] = "LOW"
+            record["tr_availability_state"] = "UNKNOWN"
+            record["tr_tradability_state"] = "UNKNOWN"
+            record["tr_match_confidence"] = "LOW"
 
     def _is_dashboard_valid(self, trade: dict[str, Any]) -> bool:
         """Prüft, ob ein Trade alle Kriterien für das Dashboard erfüllt."""

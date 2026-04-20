@@ -41,6 +41,11 @@ class ApiUsageService:
         except Exception as exc:
             LOGGER.warning("API-Usage konnte nicht geschrieben werden (provider=%s): %s", provider, exc)
 
+    def can_make_call(self, provider: str = "fmp", limit: int = 250) -> bool:
+        """Prüft das Tagesbudget defensiv."""
+        usage = self.get_current_usage(provider=provider)
+        return int(usage.get("call_count", 0)) < int(usage.get("limit_count", limit))
+
     def get_current_usage(self, provider: str = "fmp") -> dict[str, Any]:
         """Liefert die heutige Nutzung für einen Provider."""
         if not self.repository:

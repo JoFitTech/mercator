@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -16,6 +17,7 @@ from src.config.settings import (
     PROFILE_CIK_ENDPOINT,
     PROFILE_ENDPOINT,
     SEARCH_CIK_ENDPOINT,
+    EXCHANGE_VARIANTS_ENDPOINT,
     SEARCH_INSIDER_TRADES_ENDPOINT,
     FmpConfig,
     validate_fmp_api_key,
@@ -47,6 +49,35 @@ class FmpClient:
         if self.api_usage_service:
             self.api_usage_service.track_call(provider="fmp", limit=250)
 
+    def _request(self, endpoint: str, params: dict[str, Any], retries: int = 2) -> Any:
+        if self.api_usage_service and not self.api_usage_service.can_make_call(provider="fmp", limit=250):
+            raise FmpApiError("FMP Tagesbudget erschöpft (250 Calls).")
+        last_exc: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                self._track_call()
+                response = requests.get(
+                    f"{self.config.base_url}{endpoint}",
+                    params=params,
+                    timeout=self.timeout_seconds,
+                )
+                if response.status_code == 403:
+                    raise FmpApiError("FMP API-Key ungültig oder gesperrt (HTTP 403).")
+                if response.status_code == 429 and attempt < retries:
+                    time.sleep(min(2 ** attempt, 8))
+                    continue
+                if response.status_code >= 500 and attempt < retries:
+                    time.sleep(min(2 ** attempt, 8))
+                    continue
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as exc:
+                last_exc = exc
+                if attempt >= retries:
+                    break
+                time.sleep(min(2 ** attempt, 8))
+        raise FmpApiError(f"Verbindungsfehler zur FMP-API: {last_exc}")
+
     def fetch_latest_insider_trades(self, page: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         """Lädt den Latest-Insider-Feed.
 
@@ -59,19 +90,7 @@ class FmpClient:
         """
 
         params = {"page": page, "limit": limit, "apikey": self.config.api_key}
-        try:
-            self._track_call()
-            response = requests.get(
-                f"{self.config.base_url}{LATEST_INSIDER_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            LOGGER.exception("FMP-Feed konnte nicht geladen werden: %s", exc)
-            raise FmpApiError(f"Verbindungsfehler zur FMP-API: {exc}") from exc
-
-        payload = response.json()
+        payload = self._request(LATEST_INSIDER_ENDPOINT, params=params)
         if not isinstance(payload, list):
             raise FmpApiError("Unerwartetes Antwortformat für Latest Insider Trading.")
         return payload
@@ -87,19 +106,7 @@ class FmpClient:
         """
 
         params = {"symbol": symbol, "apikey": self.config.api_key}
-        try:
-            self._track_call()
-            response = requests.get(
-                f"{self.config.base_url}{PROFILE_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            LOGGER.exception("FMP-Profil konnte nicht geladen werden (%s): %s", symbol, exc)
-            raise FmpApiError(f"Fehler beim Laden des Profils für {symbol}: {exc}") from exc
-
-        payload = response.json()
+        payload = self._request(PROFILE_ENDPOINT, params=params)
         if isinstance(payload, list):
             return payload[0] if payload else None
         if isinstance(payload, dict):
@@ -109,19 +116,7 @@ class FmpClient:
     def fetch_company_profile_by_cik(self, cik: str) -> dict[str, Any] | None:
         """Lädt das Unternehmensprofil primär über CIK."""
         params = {"cik": cik, "apikey": self.config.api_key}
-        try:
-            self._track_call()
-            response = requests.get(
-                f"{self.config.base_url}{PROFILE_CIK_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            LOGGER.exception("FMP-Profil-CIK konnte nicht geladen werden (%s): %s", cik, exc)
-            raise FmpApiError(f"Fehler beim Laden des Profils für CIK {cik}: {exc}") from exc
-
-        payload = response.json()
+        payload = self._request(PROFILE_CIK_ENDPOINT, params=params)
         if isinstance(payload, list):
             return payload[0] if payload else None
         if isinstance(payload, dict):
@@ -131,55 +126,25 @@ class FmpClient:
     def search_insider_trades(self, symbol: str, page: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         """Optionaler, manueller Backfill je Firma."""
         params = {"symbol": symbol, "page": page, "limit": limit, "apikey": self.config.api_key}
-        try:
-            self._track_call()
-            response = requests.get(
-                f"{self.config.base_url}{SEARCH_INSIDER_TRADES_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            LOGGER.exception("FMP-Suche fehlgeschlagen für %s: %s", symbol, exc)
-            raise FmpApiError(f"Fehler bei der Insider-Suche für {symbol}: {exc}") from exc
-
-        payload = response.json()
+        payload = self._request(SEARCH_INSIDER_TRADES_ENDPOINT, params=params)
         return payload if isinstance(payload, list) else []
 
     def fetch_insider_trades_by_reporting_name(self, name: str, page: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         """Sucht Insider-Trades nach dem Namen des Insiders."""
         params = {"reportingName": name, "page": page, "limit": limit, "apikey": self.config.api_key}
-        try:
-            self._track_call()
-            response = requests.get(
-                f"{self.config.base_url}{INSIDER_REPORTING_NAME_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            LOGGER.exception("FMP-Suche nach Name fehlgeschlagen für %s: %s", name, exc)
-            raise FmpApiError(f"Fehler bei der Insider-Suche nach Name für {name}: {exc}") from exc
-
-        payload = response.json()
+        payload = self._request(INSIDER_REPORTING_NAME_ENDPOINT, params=params)
         return payload if isinstance(payload, list) else []
 
     def fetch_cik_lookup(self, symbol: str) -> list[dict[str, Any]]:
         """Sucht nach CIK-Informationen für ein Symbol."""
         params = {"ticker": symbol, "apikey": self.config.api_key}
-        try:
-            self._track_call()
-            response = requests.get(
-                f"{self.config.base_url}{SEARCH_CIK_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            LOGGER.exception("FMP-CIK-Lookup fehlgeschlagen für %s: %s", symbol, exc)
-            raise FmpApiError(f"Fehler beim CIK-Lookup für {symbol}: {exc}") from exc
+        payload = self._request(SEARCH_CIK_ENDPOINT, params=params)
+        return payload if isinstance(payload, list) else []
 
-        payload = response.json()
+    def fetch_exchange_variants(self, symbol: str) -> list[dict[str, Any]]:
+        """Gezielter API3-Call zur Exchange-/Listing-Auflösung."""
+        params = {"symbol": symbol, "apikey": self.config.api_key}
+        payload = self._request(EXCHANGE_VARIANTS_ENDPOINT, params=params)
         return payload if isinstance(payload, list) else []
 
     def fetch_insider_trade_statistics(self, symbol: str) -> dict[str, Any]:

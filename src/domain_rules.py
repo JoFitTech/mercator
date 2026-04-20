@@ -26,7 +26,7 @@ class ScoreGatePolicy:
 
     gate_validation_status_required: str = "VALID"
     gate_form_type_required: str = "4"
-    gate_security_name_required: str = "Common Stock"
+    gate_security_name_required: str = ""
     gate_allowed_acquisition_or_disposition: tuple[str, ...] = ("A", "D")
     gate_excluded_transaction_types: tuple[str, ...] = ("A-Award", "M-Exempt")
     gate_min_trade_value: int = 100_000

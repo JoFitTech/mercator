@@ -7,6 +7,7 @@ from typing import Any
 
 from src.preprocessing.deduplication import build_dedupe_key
 from src.preprocessing.normalization import parse_datetime, parse_float
+from src.services.buy_engine import normalize_security_type
 
 
 def build_company_key(company_cik: Any, symbol: Any) -> str | None:
@@ -47,9 +48,14 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
 
     normalized_symbol = str(raw_trade.get("symbol", "")).strip().upper() or None
     company_cik = raw_trade.get("companyCik")
+    filing_date = parse_datetime(raw_trade.get("filingDate"), "filingDate")
+    filing_age_days = None
+    if filing_date is not None:
+        filing_age_days = max(0, (now.date() - filing_date.date()).days)
+
     normalized = {
         "symbol": normalized_symbol,
-        "filing_date": parse_datetime(raw_trade.get("filingDate"), "filingDate"),
+        "filing_date": filing_date,
         "transaction_date": parse_datetime(raw_trade.get("transactionDate"), "transactionDate"),
         "reporting_cik": raw_trade.get("reportingCik"),
         "company_cik": company_cik,
@@ -65,6 +71,9 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
         "trade_value_estimated": trade_value_estimated,
         "validation_status": validation_status,
         "security_name": raw_trade.get("securityName"),
+        "normalized_instrument_type": normalize_security_type(raw_trade.get("securityName")),
+        "filing_age_days": filing_age_days,
+        "is_actively_trading": raw_trade.get("isActivelyTrading"),
         "source_url": raw_trade.get("url"),
         "fetched_at": now,
         "first_seen_at": now,
@@ -77,6 +86,9 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
         "score_class": None,
         "profile_status": "NOT_REQUESTED",
         "profile_reason": None,
+        "tr_availability_state": "UNKNOWN",
+        "tr_tradability_state": "UNKNOWN",
+        "tr_match_confidence": "LOW",
         "raw_payload": raw_trade,
     }
     normalized["dedupe_key"] = build_dedupe_key(normalized)

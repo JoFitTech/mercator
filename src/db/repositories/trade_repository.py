@@ -24,19 +24,25 @@ class InsiderTradeRepository:
                 company_key, symbol_at_trade, filing_date, transaction_date, reporting_cik, company_cik,
                 reporting_name, type_of_owner, transaction_type, acquisition_or_disposition,
                 direct_or_indirect, form_type, security_name, qty, price,
-                trade_value_estimated, validation_status, dashboard_valid, gate_status, gate_reason, score, score_class,
+                trade_value_estimated, normalized_instrument_type, filing_age_days,
+                core_insider_score, investability_score, execution_score, trade_republic_score, final_score, final_class, decision_status,
+                validation_status, dashboard_valid, gate_status, gate_reason, score, score_class,
                 profile_status, profile_reason, source_url,
                 trade_republic_universe_status, trade_republic_match_method, trade_republic_match_confidence,
                 trade_republic_source_refreshed_at, trade_republic_reference_isin, trade_republic_reference_name,
+                tr_availability_state, tr_tradability_state, tr_match_confidence,
                 dedupe_key, fetched_at
             ) VALUES (
                 %(company_key)s, %(symbol_at_trade)s, %(filing_date)s, %(transaction_date)s, %(reporting_cik)s, %(company_cik)s,
                 %(reporting_name)s, %(type_of_owner)s, %(transaction_type)s, %(acquisition_or_disposition)s,
                 %(direct_or_indirect)s, %(form_type)s, %(security_name)s, %(qty)s, %(price)s,
-                %(trade_value_estimated)s, %(validation_status)s, %(dashboard_valid)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
+                %(trade_value_estimated)s, %(normalized_instrument_type)s, %(filing_age_days)s,
+                %(core_insider_score)s, %(investability_score)s, %(execution_score)s, %(trade_republic_score)s, %(final_score)s, %(final_class)s, %(decision_status)s,
+                %(validation_status)s, %(dashboard_valid)s, %(gate_status)s, %(gate_reason)s, %(score)s, %(score_class)s,
                 %(profile_status)s, %(profile_reason)s, %(source_url)s,
                 %(trade_republic_universe_status)s, %(trade_republic_match_method)s, %(trade_republic_match_confidence)s,
                 %(trade_republic_source_refreshed_at)s, %(trade_republic_reference_isin)s, %(trade_republic_reference_name)s,
+                %(tr_availability_state)s, %(tr_tradability_state)s, %(tr_match_confidence)s,
                 %(dedupe_key)s, %(fetched_at)s
             )
             ON DUPLICATE KEY UPDATE
@@ -56,6 +62,15 @@ class InsiderTradeRepository:
                 qty = VALUES(qty),
                 price = VALUES(price),
                 trade_value_estimated = VALUES(trade_value_estimated),
+                normalized_instrument_type = VALUES(normalized_instrument_type),
+                filing_age_days = VALUES(filing_age_days),
+                core_insider_score = VALUES(core_insider_score),
+                investability_score = VALUES(investability_score),
+                execution_score = VALUES(execution_score),
+                trade_republic_score = VALUES(trade_republic_score),
+                final_score = VALUES(final_score),
+                final_class = VALUES(final_class),
+                decision_status = VALUES(decision_status),
                 validation_status = VALUES(validation_status),
                 dashboard_valid = VALUES(dashboard_valid),
                 gate_status = VALUES(gate_status),
@@ -71,16 +86,22 @@ class InsiderTradeRepository:
                 trade_republic_source_refreshed_at = VALUES(trade_republic_source_refreshed_at),
                 trade_republic_reference_isin = VALUES(trade_republic_reference_isin),
                 trade_republic_reference_name = VALUES(trade_republic_reference_name),
+                tr_availability_state = VALUES(tr_availability_state),
+                tr_tradability_state = VALUES(tr_tradability_state),
+                tr_match_confidence = VALUES(tr_match_confidence),
                 fetched_at = VALUES(fetched_at)
         """
         fields = [
             "company_key", "symbol_at_trade", "filing_date", "transaction_date", "reporting_cik", "company_cik",
             "reporting_name", "type_of_owner", "transaction_type", "acquisition_or_disposition",
             "direct_or_indirect", "form_type", "security_name", "qty", "price",
-            "trade_value_estimated", "validation_status", "dashboard_valid", "gate_status", "gate_reason", "score", "score_class",
+            "trade_value_estimated", "normalized_instrument_type", "filing_age_days",
+            "core_insider_score", "investability_score", "execution_score", "trade_republic_score", "final_score", "final_class", "decision_status",
+            "validation_status", "dashboard_valid", "gate_status", "gate_reason", "score", "score_class",
             "profile_status", "profile_reason", "source_url",
             "trade_republic_universe_status", "trade_republic_match_method", "trade_republic_match_confidence",
             "trade_republic_source_refreshed_at", "trade_republic_reference_isin", "trade_republic_reference_name",
+            "tr_availability_state", "tr_tradability_state", "tr_match_confidence",
             "dedupe_key", "fetched_at"
         ]
         params = {k: trade.get(k) for k in fields}
@@ -88,6 +109,9 @@ class InsiderTradeRepository:
         params["trade_republic_universe_status"] = trade.get("trade_republic_universe_status") or "UNKNOWN"
         params["trade_republic_match_method"] = trade.get("trade_republic_match_method") or "NONE"
         params["trade_republic_match_confidence"] = trade.get("trade_republic_match_confidence") or "LOW"
+        params["tr_availability_state"] = trade.get("tr_availability_state") or "UNKNOWN"
+        params["tr_tradability_state"] = trade.get("tr_tradability_state") or "UNKNOWN"
+        params["tr_match_confidence"] = trade.get("tr_match_confidence") or trade.get("trade_republic_match_confidence") or "LOW"
 
         self._client.execute(sql, params)
 

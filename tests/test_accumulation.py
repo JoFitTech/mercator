@@ -86,8 +86,30 @@ def test_accumulation_preserves_score_columns_for_ui() -> None:
     assert "score_mean" not in acc_df.columns
     assert "accumulation_start_date" in acc_df.columns
     assert "accumulation_end_date" in acc_df.columns
-    assert "accumulated_trade_count" in acc_df.columns
-    assert "accumulated_qty" in acc_df.columns
-    assert "accumulated_trade_value_estimated" in acc_df.columns
-    assert "accumulated_avg_price_weighted" in acc_df.columns
 
+
+def test_accumulation_never_merges_mixed_a_d() -> None:
+    df = pd.DataFrame(
+        [
+            {"symbol_at_trade": "AAPL", "reporting_name": "A", "acquisition_or_disposition": "A", "transaction_date": "2026-04-01", "qty": 10, "price": 100, "trade_value_estimated": 1000},
+            {"symbol_at_trade": "AAPL", "reporting_name": "A", "acquisition_or_disposition": "D", "transaction_date": "2026-04-02", "qty": 10, "price": 100, "trade_value_estimated": 1000},
+        ]
+    )
+    tagged = AccumulationService.tag_trades_with_groups(df, window_days=3)
+    assert tagged["accumulation_group_id"].nunique() == 2
+
+
+def test_accumulation_adds_multi_insider_cluster_metrics() -> None:
+    df = pd.DataFrame(
+        [
+            {"symbol_at_trade": "AAPL", "reporting_name": "A", "acquisition_or_disposition": "A", "transaction_date": "2026-04-01", "qty": 10, "price": 100, "trade_value_estimated": 1000},
+            {"symbol_at_trade": "AAPL", "reporting_name": "B", "acquisition_or_disposition": "A", "transaction_date": "2026-04-02", "qty": 10, "price": 100, "trade_value_estimated": 1000},
+        ]
+    )
+    result = AccumulationService.accumulate_trades(df, window_days=3)
+    assert "distinct_reporting_names_same_symbol_same_direction_3d" in result.columns
+    assert result["distinct_reporting_names_same_symbol_same_direction_3d"].max() >= 2
+    assert "accumulated_trade_count" in result.columns
+    assert "accumulated_qty" in result.columns
+    assert "accumulated_trade_value_estimated" in result.columns
+    assert "accumulated_avg_price_weighted" in result.columns

@@ -201,6 +201,12 @@ class DashboardService:
                 "kpi_affected_companies_count": 0,
                 "kpi_largest_buy_value": 0.0,
                 "kpi_largest_sell_value": 0.0,
+                "kpi_actionable_buys": 0,
+                "kpi_buy_candidates": 0,
+                "kpi_watchlist": 0,
+                "kpi_sell_warnings": 0,
+                "kpi_tr_not_found": 0,
+                "kpi_exchange_resolution_issues": 0,
                 "gate_passed_count": gate_passed_count,
                 "fetched_profiles_count": 0,
                 "missing_profiles_count": 0,
@@ -221,6 +227,9 @@ class DashboardService:
         largest_buy = core_df.loc[core_df["direction"] == "BUY", "accumulated_trade_value_estimated"]
         largest_sell = core_df.loc[core_df["direction"] == "SELL", "accumulated_trade_value_estimated"]
 
+        decision_series = all_df.get("decision_status", pd.Series(dtype="object")).astype(str).str.upper()
+        tr_series = all_df.get("tr_availability_state", pd.Series(dtype="object")).astype(str).str.upper()
+        resolution_issues = all_df.get("exchange_resolution_confidence", pd.Series(dtype="object")).astype(str).str.upper().isin(["LOW", "UNKNOWN"]).sum()
         return {
             "kpi_buy_sell_ratio_count": f"{buy_count}:{sell_count}",
             "kpi_buy_sell_ratio_volume": f"{buy_volume:,.0f}:{sell_volume:,.0f}",
@@ -228,6 +237,12 @@ class DashboardService:
             "kpi_affected_companies_count": affected_companies_count,
             "kpi_largest_buy_value": float(largest_buy.max()) if not largest_buy.empty else 0.0,
             "kpi_largest_sell_value": float(largest_sell.max()) if not largest_sell.empty else 0.0,
+            "kpi_actionable_buys": int((decision_series == "ACTIONABLE_BUY").sum()),
+            "kpi_buy_candidates": int((decision_series == "BUY_CANDIDATE").sum()),
+            "kpi_watchlist": int((decision_series == "WATCHLIST").sum()),
+            "kpi_sell_warnings": int((decision_series == "SELL_WARNING").sum()),
+            "kpi_tr_not_found": int((tr_series == "NOT_FOUND").sum()),
+            "kpi_exchange_resolution_issues": int(resolution_issues),
             "gate_passed_count": gate_passed_count,
             "fetched_profiles_count": fetched_profiles_count,
             "missing_profiles_count": missing_profiles_count,

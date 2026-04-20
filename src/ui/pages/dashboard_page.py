@@ -246,23 +246,12 @@ def render_dashboard_page(
         payload = service.build_dashboard_payload(filters=filters)
 
     kpis = [
-        {"label": "Buy/Sell Verhältnis (Anzahl)", "value": payload.get("kpi_buy_sell_ratio_count", "0:0")},
-        {"label": "Buy/Sell Verhältnis (Volumen)", "value": payload.get("kpi_buy_sell_ratio_volume", "0:0")},
-        {
-            "label": "Relevante Trades im Zeitraum",
-            "value": str(payload.get("kpi_relevant_trades_count", 0)),
-            "subtext": f"Gate PASS: {payload.get('gate_passed_count', 0)}",
-        },
-        {
-            "label": "Betroffene Unternehmen",
-            "value": str(payload.get("kpi_affected_companies_count", 0)),
-            "subtext": (
-                f"Profile vorhanden: {payload.get('fetched_profiles_count', 0)} / "
-                f"Fehlend: {payload.get('missing_profiles_count', 0)}"
-            ),
-        },
-        {"label": "Größter Buy", "value": _fmt_currency(payload.get("kpi_largest_buy_value", 0))},
-        {"label": "Größter Sell", "value": _fmt_currency(payload.get("kpi_largest_sell_value", 0))},
+        {"label": "Actionable Buys", "value": str(payload.get("kpi_actionable_buys", 0))},
+        {"label": "Buy Candidates", "value": str(payload.get("kpi_buy_candidates", 0))},
+        {"label": "Watchlist", "value": str(payload.get("kpi_watchlist", 0))},
+        {"label": "Sell Warnings", "value": str(payload.get("kpi_sell_warnings", 0))},
+        {"label": "TR Not Found", "value": str(payload.get("kpi_tr_not_found", 0))},
+        {"label": "Exchange Issues", "value": str(payload.get("kpi_exchange_resolution_issues", 0))},
     ]
     render_kpi_row(kpis)
 

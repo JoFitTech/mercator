@@ -52,8 +52,10 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
 
     # Alle potenziellen Spalten für die Datenbasis
     all_cols = [
-        "symbol_at_trade", "reporting_name", "direction", "sector",
-        "trade_value_estimated", "score", "gate_status", "validation_status", "transaction_date"
+        "symbol_at_trade", "reporting_name", "direction", "trade_value_estimated",
+        "core_insider_score", "final_score", "final_class", "decision_status",
+        "tr_availability_state", "primary_exchange", "filing_age_days", "earnings_distance_days",
+        "score", "gate_status", "validation_status", "transaction_date"
     ]
 
     # Sicherstellen dass Spalten existieren
@@ -63,7 +65,11 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
 
     # Sichtbare Spalten drastisch einschränken um horizontales Scrollen zu vermeiden
     # Wir zeigen nur die absolut kritischen Spalten.
-    visible_cols = ["symbol_at_trade", "reporting_name", "direction", "trade_value_estimated", "score", "transaction_date"]
+    visible_cols = [
+        "symbol_at_trade", "reporting_name", "direction", "trade_value_estimated",
+        "core_insider_score", "final_score", "final_class", "decision_status",
+        "tr_availability_state", "primary_exchange", "filing_age_days", "earnings_distance_days",
+    ]
 
     col_config = {
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small", pinned=True),
@@ -71,6 +77,14 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         "direction": st.column_config.TextColumn("Richtung", width="small"),
         "sector": st.column_config.TextColumn("Sektor", width="medium"),
         "trade_value_estimated": st.column_config.NumberColumn("Wert", format="$%d", width="small"),
+        "core_insider_score": st.column_config.NumberColumn("Core Insider", format="%.1f", width="small"),
+        "final_score": st.column_config.NumberColumn("Final Score", format="%.1f", width="small"),
+        "final_class": st.column_config.TextColumn("Class", width="small"),
+        "decision_status": st.column_config.TextColumn("Decision", width="small"),
+        "tr_availability_state": st.column_config.TextColumn("TR Status", width="small"),
+        "primary_exchange": st.column_config.TextColumn("Listing", width="small"),
+        "filing_age_days": st.column_config.NumberColumn("Filing Age", width="small"),
+        "earnings_distance_days": st.column_config.NumberColumn("Earnings Dist.", width="small"),
         "score": st.column_config.NumberColumn("Score", format="%.1f", width="small"),
         "gate_status": st.column_config.TextColumn("Gate-Status", width="small"),
         "validation_status": st.column_config.TextColumn("Validierungsstatus", width="small"),
