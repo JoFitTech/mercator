@@ -1,6 +1,9 @@
 """Navigations-Logik für Mercator (Requirement 5.1)."""
 
 from __future__ import annotations
+import base64
+from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 import streamlit as st
@@ -159,8 +162,7 @@ def render_navigation_topbar() -> PageName:
     with st.container(border=True):
         left, right = st.columns([1.2, 2.8], vertical_alignment="center")
         with left:
-            st.markdown("<div class='mercator-topbar-eyebrow'>Operative Arbeitsbereiche</div>", unsafe_allow_html=True)
-            st.markdown("<div class='mercator-topbar-title'>Mercator Control Center</div>", unsafe_allow_html=True)
+            _render_topbar_brand()
         with right:
             selected_label = _render_navbar_control(options_list, current_label)
 
@@ -182,6 +184,39 @@ def render_navigation_topbar() -> PageName:
     return st.session_state["nav_target"]
 
 
+def _resolve_favicon_path() -> Path | None:
+    favicon_path = Path(__file__).resolve().parents[2] / "assets" / "favicon" / "favicon.png"
+    return favicon_path if favicon_path.exists() else None
+
+
+@lru_cache(maxsize=1)
+def _favicon_data_url() -> str | None:
+    favicon_path = _resolve_favicon_path()
+    if favicon_path is None:
+        return None
+    favicon_bytes = bytearray(favicon_path.read_bytes())
+    favicon_b64 = base64.standard_b64encode(favicon_bytes).decode("ascii")  # type: ignore[arg-type]
+    return f"data:image/png;base64,{favicon_b64}"
+
+
+def _render_topbar_brand() -> None:
+    """Rendert das Favicon im Header statt des Eyebrow-Texts."""
+    data_url = _favicon_data_url()
+    if data_url is None:
+        st.markdown("<div class='mercator-topbar-title'>Mercator Control Center</div>", unsafe_allow_html=True)
+        return
+
+    st.markdown(
+        f"""
+        <div class="mercator-topbar-brand" style="display:flex; align-items:center; gap:0.6rem;">
+            <img src="{data_url}" alt="Mercator" class="mercator-topbar-logo" style="width:28px; height:28px; border-radius:6px;" />
+            <div class='mercator-topbar-title'>Mercator Control Center</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_public_share_sidebar_controls() -> None:
     manager = st.session_state.get("public_share_manager")
     enabled = bool(st.session_state.get("public_share_enabled"))
@@ -191,7 +226,6 @@ def _render_public_share_sidebar_controls() -> None:
     session = manager.get_session()
     status = session.status if session else TunnelStatus.STOPPED
 
-    st.markdown("---")
     with st.expander("Öffentliche Freigabe", expanded=False):
         status_text = public_share_sidebar_status_text(status)
         st.caption(f"Status: {status_text}")
@@ -237,7 +271,6 @@ def render_sidebar_navigation() -> None:
 def render_system_status_sidebar(db_status, mysql_res):
     """Rendert den System-Status in der Sidebar."""
     with st.sidebar:
-        st.markdown("---")
         with st.expander("System-Status", expanded=True):
             mysql_color = "green" if db_status.mysql.is_connected else "red"
             mysql_label = "MySQL: Online" if db_status.mysql.is_connected else "MySQL: Offline"

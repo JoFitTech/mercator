@@ -12,3 +12,10 @@ gatherUsageStats = false
 serverAddress = "localhost"
 serverPort = 8501
 
+[theme]
+base = "light"
+primaryColor = "#355D7E"
+backgroundColor = "#F4F7F8"
+secondaryBackgroundColor = "#E9EFF1"
+textColor = "#28323D"
+

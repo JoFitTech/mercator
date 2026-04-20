@@ -33,16 +33,16 @@ THEME_COLORS: dict[str, str] = {
 CHART_PALETTE: dict[str, object] = {
     "positive": THEME_COLORS["success"],
     "negative": THEME_COLORS["danger"],
-    "neutral": THEME_COLORS["blue_600"],
-    "navy": THEME_COLORS["navy_800"],
-    "steel": THEME_COLORS["steel_500"],
+    "neutral": THEME_COLORS["blue_500"],
+    "navy": THEME_COLORS["blue_700"],
+    "steel": THEME_COLORS["blue_300"],
     "categorical": [
-        THEME_COLORS["blue_600"],
-        THEME_COLORS["navy_800"],
         THEME_COLORS["blue_500"],
-        THEME_COLORS["steel_500"],
-        "#28323D",
         "#85A9B4",
+        "#6E97AB",
+        "#9EB9C2",
+        "#B7CBD1",
+        "#CAD9DE",
     ],
 }
 
@@ -143,6 +143,16 @@ def apply_ui_theme() -> None:
             box-shadow: none;
         }
 
+        [data-testid="stSidebar"] [data-testid="stExpander"]:hover {
+            border-color: var(--mercator-blue-300) !important;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary:focus-visible {
+            outline: 2px solid var(--mercator-blue-600) !important;
+            outline-offset: 2px !important;
+            box-shadow: 0 0 0 3px var(--mercator-focus-ring) !important;
+        }
+
         [data-testid="stSidebar"] h3 {
             color: var(--mercator-navy-900) !important;
             letter-spacing: 0.01em !important;
@@ -171,6 +181,17 @@ def apply_ui_theme() -> None:
             line-height: 1.2;
         }
 
+        .mercator-topbar-brand {
+            min-height: 34px;
+        }
+
+        .mercator-topbar-logo {
+            border: 1px solid var(--mercator-border);
+            box-shadow: 0 1px 3px rgba(3, 17, 38, 0.10);
+            background: #FFFFFF;
+            object-fit: cover;
+        }
+
         /* Segmented Control / Navigation */
         [data-testid="stSegmentedControl"] {
             background: var(--mercator-ice-100);
@@ -190,6 +211,26 @@ def apply_ui_theme() -> None:
             background: var(--mercator-blue-600) !important;
             color: #FFFFFF !important;
             border-color: var(--mercator-blue-700) !important;
+        }
+
+        /* Streamlit Tabs: aktive/hover Farben erzwingen (kein Default-Rot) */
+        [data-baseweb="tab-list"] {
+            border-bottom-color: var(--mercator-border) !important;
+        }
+
+        [data-baseweb="tab"] {
+            color: var(--mercator-text) !important;
+            border-color: transparent !important;
+        }
+
+        [data-baseweb="tab"]:hover {
+            color: var(--mercator-blue-700) !important;
+            background: var(--mercator-ice-100) !important;
+        }
+
+        [data-baseweb="tab"][aria-selected="true"] {
+            color: var(--mercator-blue-700) !important;
+            border-bottom-color: var(--mercator-blue-600) !important;
         }
 
         /* Karten / Container / Tabellenhülle */
