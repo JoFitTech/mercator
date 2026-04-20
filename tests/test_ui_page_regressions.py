@@ -4,7 +4,8 @@ from datetime import date
 
 from src.ui.pages.dashboard_page import _build_dashboard_filters
 from src.ui.pages import dashboard_page
-from src.ui.pages.admin_page import _humanize_import_error
+from src.services.import_service import ImportSummary
+from src.ui.pages.admin_page import _build_import_metrics, _build_import_success_message, _humanize_import_error
 from src.ui.pages.trades_page import (
     TRADE_FILTER_DEFAULTS,
     _build_query_filters,
@@ -68,3 +69,27 @@ def test_humanize_import_error_masks_raw_sql_column_name() -> None:
     message = _humanize_import_error(Exception("1048 (23000): Column 'trade_republic_match_method' cannot be null"))
     assert "trade_republic_match_method" not in message
     assert "Import abgebrochen" in message
+
+
+def test_admin_import_summary_helpers_include_new_profile_counters() -> None:
+    summary = ImportSummary(
+        fetched_feed_records=100,
+        inserted_raw_records=88,
+        upserted_clean_records=75,
+        fetched_profiles=0,
+        symbols_considered_for_enrichment=40,
+        profile_fetch_attempts=0,
+        profile_cache_hits=40,
+        profile_failures=2,
+    )
+
+    message = _build_import_success_message(summary, force_profile_refresh=False)
+    assert "Profile frisch geladen: 0" in message
+    assert "Cache-Hits: 40" in message
+    assert "Profilfehler: 2" in message
+
+    metrics = dict(_build_import_metrics(summary))
+    assert metrics["Enrichment-Kandidaten"] == 40
+    assert metrics["Profile frisch geladen"] == 0
+    assert metrics["Profile aus Cache"] == 40
+    assert metrics["Profilfehler"] == 2

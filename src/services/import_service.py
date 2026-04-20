@@ -38,6 +38,10 @@ class ImportSummary:
     inserted_raw_records: int
     upserted_clean_records: int
     fetched_profiles: int
+    symbols_considered_for_enrichment: int
+    profile_fetch_attempts: int
+    profile_cache_hits: int
+    profile_failures: int
 
 
 class ImportService:
@@ -78,6 +82,7 @@ class ImportService:
         page: int = DEFAULT_FEED_PAGE,
         limit: int = DEFAULT_FEED_LIMIT,
         profile_fetch_statuses: tuple[str, ...] | None = None,
+        force_profile_refresh: bool = False,
     ) -> ImportSummary:
         """Führt einen vollständigen MVP-Importlauf aus."""
         if not self.allow_write:
@@ -140,6 +145,9 @@ class ImportService:
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
 
         fetched_profiles = 0
+        profile_fetch_attempts = 0
+        profile_cache_hits = 0
+        profile_failures = 0
         
         # Bestimme Symbole für Enrichment
         symbols_to_enrich: set[str] = set()
@@ -153,11 +161,16 @@ class ImportService:
                     if sym:
                         symbols_to_enrich.add(sym)
         
+        symbols_considered_for_enrichment = len(symbols_to_enrich)
+        trades_by_symbol: dict[str, list[dict[str, Any]]] = {}
+        for trade in normalized:
+            sym = str(trade.get("symbol") or "").strip().upper()
+            if sym:
+                trades_by_symbol.setdefault(sym, []).append(trade)
+
         # Führe Enrichment durch
         for symbol in symbols_to_enrich:
-            # Wir brauchen einen Trade-Kontext oder company_key für den Cache-Check
-            # Wir suchen uns den ersten Trade mit diesem Symbol aus dem Batch
-            matching_trades = [t for t in normalized if str(t.get("symbol") or "").strip().upper() == symbol]
+            matching_trades = trades_by_symbol.get(symbol, [])
             if not matching_trades:
                 continue
             
@@ -167,17 +180,20 @@ class ImportService:
             if not company_key_str:
                 continue
 
-            cached = self.company_mongo_repo.get_recent_profile(
-                company_key=company_key_str,
-                ttl_days=self.fmp_client.config.profile_ttl_days,
-            )
-            if cached:
-                for t in matching_trades:
-                    t["profile_status"] = "FETCHED"
-                    t["profile_reason"] = "cache_hit"
-                continue
+            if not force_profile_refresh:
+                cached = self.company_mongo_repo.get_recent_profile(
+                    company_key=company_key_str,
+                    ttl_days=self.fmp_client.config.profile_ttl_days,
+                )
+                if cached:
+                    profile_cache_hits += 1
+                    for t in matching_trades:
+                        t["profile_status"] = "FETCHED"
+                        t["profile_reason"] = "cache_hit"
+                    continue
 
             try:
+                profile_fetch_attempts += 1
                 # Nutze die neue Enrichment-Kette
                 company_obj = self.enrichment_service.enrich_company_profile(symbol)
                 
@@ -204,12 +220,14 @@ class ImportService:
                     self.company_mysql_repo.upsert_company(company)
                 
                 for t in matching_trades:
-                    t["profile_status"] = "FETCHED"
-                    t["profile_reason"] = "api_fetch"
-                
-                fetched_profiles += 1
+                    t["profile_status"] = company["profile_status"]
+                    t["profile_reason"] = company["profile_reason"]
+
+                if company["profile_status"] == "FETCHED":
+                    fetched_profiles += 1
             except Exception:
                 LOGGER.exception("Profilabruf fehlgeschlagen für %s", symbol)
+                profile_failures += 1
                 for t in matching_trades:
                     t["profile_status"] = "FAILED"
                     t["profile_reason"] = "request_failed"
@@ -246,17 +264,26 @@ class ImportService:
             LOGGER.warning("Import läuft im Degraded-Mode ohne MySQL-Upsert.")
 
         LOGGER.info(
-            "Import abgeschlossen: feed=%s raw_inserted=%s clean_upserted=%s profiles=%s",
+            "Import abgeschlossen: feed=%s raw_inserted=%s clean_upserted=%s symbols_considered=%s attempts=%s cache_hits=%s fetched=%s failures=%s force_refresh=%s",
             len(raw_feed),
             inserted_raw,
             upserted_clean_records,
+            symbols_considered_for_enrichment,
+            profile_fetch_attempts,
+            profile_cache_hits,
             fetched_profiles,
+            profile_failures,
+            force_profile_refresh,
         )
         return ImportSummary(
             fetched_feed_records=len(raw_feed),
             inserted_raw_records=inserted_raw,
             upserted_clean_records=upserted_clean_records,
             fetched_profiles=fetched_profiles,
+            symbols_considered_for_enrichment=symbols_considered_for_enrichment,
+            profile_fetch_attempts=profile_fetch_attempts,
+            profile_cache_hits=profile_cache_hits,
+            profile_failures=profile_failures,
         )
 
     @staticmethod
