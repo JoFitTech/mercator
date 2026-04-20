@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 
 from src.config.settings import AppSettings
@@ -51,6 +50,77 @@ def _fmt_currency(value: float | int | None) -> str:
     if value is None:
         return "$0"
     return f"${float(value):,.0f}"
+
+
+def _render_sector_pie_chart(df: pd.DataFrame) -> None:
+    chart_df = df.copy()
+    chart_df["tooltip_volume"] = chart_df.get("volume", 0).apply(_fmt_currency)
+    chart_df["tooltip_count"] = chart_df.get("count", 0)
+    st.vega_lite_chart(
+        chart_df,
+        {
+            "mark": {"type": "arc", "outerRadius": 105},
+            "encoding": {
+                "theta": {"field": "count", "type": "quantitative"},
+                "color": {"field": "sector", "type": "nominal", "legend": {"title": "Sektor"}},
+                "tooltip": [
+                    {"field": "sector", "type": "nominal", "title": "Sektor"},
+                    {"field": "tooltip_count", "type": "quantitative", "title": "Trades"},
+                    {"field": "tooltip_volume", "type": "nominal", "title": "Volumen"},
+                ],
+            },
+            "view": {"stroke": None},
+        },
+        use_container_width=True,
+    )
+
+
+def _render_net_sector_signal_chart(df: pd.DataFrame) -> None:
+    chart_df = df.copy()
+    st.vega_lite_chart(
+        chart_df,
+        {
+            "mark": {"type": "bar"},
+            "encoding": {
+                "y": {"field": "sector", "type": "nominal", "sort": "-x", "title": "Sektor"},
+                "x": {"field": "delta", "type": "quantitative", "title": "Netto-Signal"},
+                "color": {
+                    "condition": {"test": "datum.delta >= 0", "value": "#5cb85c"},
+                    "value": "#d9534f",
+                },
+                "tooltip": [
+                    {"field": "sector", "type": "nominal", "title": "Sektor"},
+                    {"field": "delta", "type": "quantitative", "title": "Delta"},
+                    {"field": "buy_count", "type": "quantitative", "title": "Buy Count"},
+                    {"field": "sell_count", "type": "quantitative", "title": "Sell Count"},
+                    {"field": "buy_volume", "type": "quantitative", "title": "Buy Volumen"},
+                    {"field": "sell_volume", "type": "quantitative", "title": "Sell Volumen"},
+                ],
+            },
+            "view": {"stroke": None},
+        },
+        use_container_width=True,
+    )
+
+
+def _render_market_cap_distribution_chart(df: pd.DataFrame) -> None:
+    chart_df = df.copy()
+    st.vega_lite_chart(
+        chart_df,
+        {
+            "mark": {"type": "bar"},
+            "encoding": {
+                "y": {"field": "bucket", "type": "nominal", "sort": "-x", "title": "Market-Cap Bucket"},
+                "x": {"field": "companies", "type": "quantitative", "title": "Unternehmen"},
+                "tooltip": [
+                    {"field": "bucket", "type": "nominal", "title": "Bucket"},
+                    {"field": "companies", "type": "quantitative", "title": "Unternehmen"},
+                ],
+            },
+            "view": {"stroke": None},
+        },
+        use_container_width=True,
+    )
 
 
 def _navigate_to_trade(dedupe_key: str | None) -> None:
@@ -182,14 +252,7 @@ def render_dashboard_page(
         if buy_sector_df.empty:
             st.info("Keine BUY-Daten im Zeitraum.")
         else:
-            fig_buy = px.pie(
-                buy_sector_df,
-                names="sector",
-                values="count",
-                title=None,
-                hover_data=["volume"],
-            )
-            st.plotly_chart(fig_buy, use_container_width=True)
+            _render_sector_pie_chart(buy_sector_df)
         st.caption(f"Gesamt Buy Volumen: {_fmt_currency(payload.get('total_buy_volume', 0))}")
 
     with c2:
@@ -197,14 +260,7 @@ def render_dashboard_page(
         if sell_sector_df.empty:
             st.info("Keine SELL-Daten im Zeitraum.")
         else:
-            fig_sell = px.pie(
-                sell_sector_df,
-                names="sector",
-                values="count",
-                title=None,
-                hover_data=["volume"],
-            )
-            st.plotly_chart(fig_sell, use_container_width=True)
+            _render_sector_pie_chart(sell_sector_df)
         st.caption(f"Gesamt Sell Volumen: {_fmt_currency(payload.get('total_sell_volume', 0))}")
 
     st.markdown("#### Netto-Sektor-Signal")
@@ -212,35 +268,14 @@ def render_dashboard_page(
     if net_sector_signal.empty:
         st.info("Kein Netto-Sektor-Signal verfügbar.")
     else:
-        chart_df = net_sector_signal.copy()
-        chart_df["signal_label"] = chart_df["delta"].apply(lambda x: f"{x:+.0f}")
-        fig_net = px.bar(
-            chart_df,
-            x="delta",
-            y="sector",
-            orientation="h",
-            color="delta",
-            color_continuous_scale=["#d9534f", "#f0ad4e", "#5cb85c"],
-            hover_data=["buy_count", "sell_count", "buy_volume", "sell_volume"],
-        )
-        fig_net.update_traces(text=chart_df["signal_label"], textposition="outside")
-        st.plotly_chart(fig_net, use_container_width=True)
+        _render_net_sector_signal_chart(net_sector_signal)
 
     st.markdown("#### Market-Cap-Verteilung")
     market_cap_df = payload.get("market_cap_distribution", pd.DataFrame())
     if market_cap_df.empty:
         st.info("Keine Market-Cap-Daten verfügbar.")
     else:
-        fig_market_cap = px.bar(
-            market_cap_df,
-            x="companies",
-            y="bucket",
-            orientation="h",
-            text="companies",
-            color="bucket",
-        )
-        fig_market_cap.update_layout(showlegend=False)
-        st.plotly_chart(fig_market_cap, use_container_width=True)
+        _render_market_cap_distribution_chart(market_cap_df)
 
     _render_missing_profile_actions(payload, import_service)
 
