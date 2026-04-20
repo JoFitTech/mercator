@@ -6,6 +6,7 @@ import pandas as pd
 
 from src.ui.pages.dashboard_page import _build_dashboard_filters
 from src.ui.pages import dashboard_page
+from src.ui.pages import trades_page
 from src.services.import_service import ImportSummary
 from src.ui.pages.admin_page import (
     _build_import_metrics,
@@ -20,7 +21,13 @@ from src.ui.pages.trades_page import (
     TRADE_FILTER_DEFAULTS,
     _build_query_filters,
     _normalize_trades_filters,
+    _read_trade_filters_from_widgets,
+    _reset_trade_filters_and_widgets,
+    _trade_action_symbol_label,
 )
+from src.ui.pages.companies_page import _company_display_name, _format_market_cap
+from src.ui.pages.company_detail_page import _safe_text as company_safe_text
+from src.ui.pages.trade_detail_page import _safe_text as trade_safe_text
 from src.ui.components import page_scaffold
 
 
@@ -54,6 +61,66 @@ def test_build_query_filters_maps_direction_and_blank_values() -> None:
     assert query["reporting_name"] is None
     assert query["validation_status"] == "VALID"
     assert query["acquisition_or_disposition"] == "D"
+
+
+def test_trades_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        trades_page.st,
+        "session_state",
+        {
+            "trades_filters": {"symbol": "AAPL", "direction": "BUY"},
+            "trades_filter_symbol": "AAPL",
+            "trades_filter_direction": "BUY",
+            "trades_filter_reporting_name": "Doe",
+            "trades_filter_min_score": 33,
+            "trades_filter_min_value": 200000,
+        },
+    )
+
+    _reset_trade_filters_and_widgets()
+
+    assert trades_page.st.session_state["trades_filters"]["symbol"] == ""
+    assert trades_page.st.session_state["trades_filter_symbol"] == ""
+    assert trades_page.st.session_state["trades_filter_direction"] == "Alle"
+    assert trades_page.st.session_state["trades_filter_min_score"] == 0
+    assert trades_page.st.session_state["trades_filter_min_value"] == 0
+
+
+def test_trades_apply_reads_current_widget_values_without_enter(monkeypatch) -> None:
+    monkeypatch.setattr(
+        trades_page.st,
+        "session_state",
+        {
+            "trades_filter_symbol": " msft ",
+            "trades_filter_reporting_name": "  Jane Doe ",
+            "trades_filter_direction": "BUY",
+            "trades_filter_gate_status": "PASS",
+            "trades_filter_validation_status": "VALID",
+            "trades_filter_date_range": TRADE_FILTER_DEFAULTS["date_range"],
+            "trades_filter_min_score": 50,
+            "trades_filter_min_value": 123000,
+        },
+    )
+
+    filters = _read_trade_filters_from_widgets()
+    assert filters["symbol"] == "msft"
+    assert filters["reporting_name"] == "Jane Doe"
+    assert filters["direction"] == "BUY"
+    assert filters["min_score"] == 50
+    assert filters["min_value"] == 123000
+
+
+def test_action_labels_use_fallbacks_instead_of_nan() -> None:
+    trade_label = _trade_action_symbol_label(pd.Series({"symbol_at_trade": float("nan")}))
+    company_label = _company_display_name(pd.Series({"company_name": float("nan"), "current_symbol": None}))
+    assert trade_label == "Unbekanntes Symbol"
+    assert company_label == "Unbekanntes Unternehmen"
+
+
+def test_ui_missing_values_are_sanitized_for_detail_and_company_views() -> None:
+    assert company_safe_text("nan") == "Nicht verfügbar"
+    assert trade_safe_text("None") == "Nicht verfügbar"
+    assert _format_market_cap(None) == "Nicht verfügbar"
 
 
 def test_navigate_to_trades_sets_nav_target_and_reruns(monkeypatch) -> None:

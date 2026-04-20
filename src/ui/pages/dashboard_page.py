@@ -211,6 +211,14 @@ def render_dashboard_page(
         return
 
     render_page_header("Markt-Dashboard", "Signalorientierter Überblick auf akkumulierter Basis.")
+    st.caption("Direkter Sprung in die operative Analyse:")
+    if st.button(
+        "Zur Trades-Arbeitsfläche",
+        key="dashboard_open_trades_workspace",
+        type="secondary",
+        use_container_width=False,
+    ):
+        _navigate_to_trades()
 
     if "dashboard_filters" not in st.session_state:
         st.session_state.dashboard_filters = {
@@ -289,6 +297,7 @@ def render_dashboard_page(
         st.caption(f"Gesamt Sell Volumen: {_fmt_currency(payload.get('total_sell_volume', 0))}")
 
     st.markdown("#### Netto-Sektor-Signal")
+    st.caption("Positiv = BUY-Überhang, negativ = SELL-Überhang im gewählten Zeitraum.")
     net_sector_signal = payload.get("net_sector_signal", pd.DataFrame())
     if net_sector_signal.empty:
         st.info("Kein Netto-Sektor-Signal verfügbar.")
@@ -296,6 +305,7 @@ def render_dashboard_page(
         _render_net_sector_signal_chart(net_sector_signal)
 
     st.markdown("#### Market-Cap-Verteilung")
+    st.caption("Zeigt die Anzahl betroffener Unternehmen pro Größenklasse.")
     market_cap_df = payload.get("market_cap_distribution", pd.DataFrame())
     if market_cap_df.empty:
         st.info("Keine Market-Cap-Daten verfügbar.")
