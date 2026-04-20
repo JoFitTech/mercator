@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from datetime import date
+
+from src.ui.pages.dashboard_page import _build_dashboard_filters
+from src.ui.pages import dashboard_page
+from src.ui.pages.admin_page import _humanize_import_error
+from src.ui.pages.trades_page import (
+    TRADE_FILTER_DEFAULTS,
+    _build_query_filters,
+    _normalize_trades_filters,
+)
+
+
+def test_build_dashboard_filters_handles_incomplete_range() -> None:
+    assert _build_dashboard_filters((date(2026, 1, 1),)) == {
+        "date_from": date(2026, 1, 1),
+        "date_to": date(2026, 1, 1),
+    }
+
+
+def test_normalize_trades_filters_resets_invalid_direction() -> None:
+    normalized = _normalize_trades_filters({"direction": "UP", "min_score": None, "min_value": None})
+    assert normalized["direction"] == "Alle"
+    assert normalized["min_score"] == 0
+    assert normalized["min_value"] == 0
+
+
+def test_build_query_filters_maps_direction_and_blank_values() -> None:
+    filters = dict(TRADE_FILTER_DEFAULTS)
+    filters.update({
+        "symbol": "  AAPL ",
+        "reporting_name": "  ",
+        "direction": "SELL",
+        "gate_status": "Alle",
+        "validation_status": "VALID",
+    })
+
+    query = _build_query_filters(filters)
+
+    assert query["symbol"] == "AAPL"
+    assert query["reporting_name"] is None
+    assert query["validation_status"] == "VALID"
+    assert query["acquisition_or_disposition"] == "D"
+
+
+def test_navigate_to_trades_sets_nav_target_and_reruns(monkeypatch) -> None:
+    called = {"rerun": False}
+    monkeypatch.setattr(dashboard_page.st, "session_state", {})
+
+    def _fake_rerun() -> None:
+        called["rerun"] = True
+
+    monkeypatch.setattr(dashboard_page.st, "rerun", _fake_rerun)
+    dashboard_page._navigate_to_trades()
+
+    assert dashboard_page.st.session_state["nav_target"] == "Trades"
+    assert called["rerun"] is True
+
+
+def test_format_period_label_without_none_artifacts() -> None:
+    label = dashboard_page._format_period_label({"date_from": date(2026, 4, 1), "date_to": None})
+    assert "None" not in label
+    assert label.startswith("ab ")
+
+
+def test_humanize_import_error_masks_raw_sql_column_name() -> None:
+    message = _humanize_import_error(Exception("1048 (23000): Column 'trade_republic_match_method' cannot be null"))
+    assert "trade_republic_match_method" not in message
+    assert "Import abgebrochen" in message

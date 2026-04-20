@@ -162,3 +162,22 @@ def test_fetch_trades_enriched_supports_dedupe_key_filter():
     assert "t.dedupe_key = %s" in captured["sql"]
     assert "abc" in captured["params"]
     assert "score_value" in captured["sql"]
+
+
+def test_upsert_trade_sets_trade_republic_defaults() -> None:
+    mock_client = MagicMock()
+    repo = InsiderTradeRepository(mock_client)
+
+    repo.upsert_trade(
+        {
+            "company_key": "SYM:ABC",
+            "symbol_at_trade": "ABC",
+            "dedupe_key": "abc_1",
+            "fetched_at": "2026-01-01 00:00:00",
+        }
+    )
+
+    _, params = mock_client.execute.call_args[0]
+    assert params["trade_republic_universe_status"] == "UNKNOWN"
+    assert params["trade_republic_match_method"] == "NONE"
+    assert params["trade_republic_match_confidence"] == "LOW"

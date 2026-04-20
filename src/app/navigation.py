@@ -9,7 +9,7 @@ PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen
 
 NAV_OPTIONS: dict[str, str] = {
     "Dashboard": "Dashboard",
-    "Trade-Explorer": "Trades",
+    "Trades": "Trades",
     "Unternehmen": "Unternehmen",
     "Einstellungen": "Einstellungen",
     "Methodik": "Methodik",

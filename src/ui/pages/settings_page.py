@@ -8,6 +8,11 @@ from src.services.database_status_service import DatabaseStatus
 from src.domain_rules import ScoreGatePolicy
 from src.ui.components.page_scaffold import render_page_header
 
+def _render_save_feedback(persistence_available: bool, scope: str) -> None:
+    suffix = "dauerhaft gespeichert." if persistence_available else "nur für diese Sitzung übernommen."
+    st.success(f"{scope} wurden {suffix}")
+
+
 def render_settings_page(
     runtime_settings_service: AppSettingsService,
     db_status: DatabaseStatus | None = None,
@@ -92,10 +97,7 @@ def render_settings_page(
                     gate_min_trade_value=int(min_trade_value)
                 )
                 runtime_settings_service.save_score_gate_policy(new_policy)
-                if persistence_available:
-                    st.success("Gate-Einstellungen erfolgreich gespeichert.")
-                else:
-                    st.success("Gate-Einstellungen für diese Sitzung übernommen.")
+                _render_save_feedback(persistence_available, "Gate-Einstellungen")
                 st.rerun()
 
     with tab_score:
@@ -130,10 +132,7 @@ def render_settings_page(
                     gate_min_trade_value=policy.gate_min_trade_value
                 )
                 runtime_settings_service.save_score_gate_policy(new_policy)
-                if persistence_available:
-                    st.success("Scoring-Einstellungen erfolgreich gespeichert.")
-                else:
-                    st.success("Scoring-Einstellungen für diese Sitzung übernommen.")
+                _render_save_feedback(persistence_available, "Scoring-Einstellungen")
                 st.rerun()
 
     with tab_explanation:

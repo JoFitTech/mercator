@@ -85,6 +85,9 @@ class InsiderTradeRepository:
         ]
         params = {k: trade.get(k) for k in fields}
         params["score"] = trade.get("score", trade.get("score_value"))
+        params["trade_republic_universe_status"] = trade.get("trade_republic_universe_status") or "UNKNOWN"
+        params["trade_republic_match_method"] = trade.get("trade_republic_match_method") or "NONE"
+        params["trade_republic_match_confidence"] = trade.get("trade_republic_match_confidence") or "LOW"
 
         self._client.execute(sql, params)
 

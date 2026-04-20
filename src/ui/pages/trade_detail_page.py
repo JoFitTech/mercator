@@ -73,13 +73,16 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
     with c2:
         with st.container(border=True):
             st.subheader("Status & Scoring")
-            st.write("**Gate Status:**", trade.get("gate_status"))
-            st.write("**Gate Reason:**", trade.get("gate_reason") or "N/A")
-            st.write("**Validation:**", trade.get("validation_status"))
-            st.write("**Dashboard Valid:**", "Ja" if trade.get("dashboard_valid") else "Nein")
-            st.write("**Dedupe Key:**", f"`{trade.get('dedupe_key')}`")
-            if trade.get("source_url"):
-                st.link_button("Original SEC Filing öffnen", trade.get("source_url"))
+            st.write("**Gate-Status:**", trade.get("gate_status"))
+            st.write("**Gate-Begründung:**", trade.get("gate_reason") or "Nicht vorhanden")
+            st.write("**Validierungsstatus:**", trade.get("validation_status"))
+            st.write("**Dashboard-valide:**", "Ja" if trade.get("dashboard_valid") else "Nein")
+            st.write("**Dedupe-Key:**", f"`{trade.get('dedupe_key')}`")
+            source_url = str(trade.get("source_url") or "").strip()
+            if source_url:
+                st.link_button("Originales SEC-Filing (externer Link)", source_url, help="Öffnet das Filing in einem neuen Browser-Tab.")
+            else:
+                st.caption("Kein Original-SEC-Filing für diesen Trade hinterlegt.")
 
     # 3. Insider Quality (Requirement 4.4)
     st.markdown("---")
