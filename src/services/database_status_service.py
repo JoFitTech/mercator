@@ -132,17 +132,8 @@ class DatabaseStatusService:
             )
             LOGGER.error("db_check mysql failed requested=%s error=%s", requested_target, exc)
 
-        try:
-            mongo_db = mongo_client.get_database()
-            mongo_db.command("ping")
-            mongo_status = MongoStatus(is_connected=True, message="MongoDB-Verbindung erfolgreich.")
-            LOGGER.info("db_check mongo ok")
-        except Exception as exc:
-            mongo_status = MongoStatus(
-                is_connected=False,
-                message="MongoDB aktuell nicht erreichbar.",
-            )
-            LOGGER.error("db_check mongo failed error=%s", exc)
+        # MongoDB mit Fallback-Logik
+        mongo_status = self._check_mongo_status(mongo_client)
 
         LOGGER.info(
             "db_check result mysql=%s mongo=%s analysis=%s ingestion=%s",
@@ -153,3 +144,18 @@ class DatabaseStatusService:
         )
 
         return DatabaseStatus(mysql=mysql_status, mongo=mongo_status), mysql_resolution
+
+    def _check_mongo_status(self, mongo_client: MongoClientWrapper) -> MongoStatus:
+        """Prüft MongoDB mit interner Fallback-Logik bei Fehlern."""
+        try:
+            mongo_db = mongo_client.get_database()
+            mongo_db.command("ping")
+            LOGGER.info("db_check mongo ok")
+            return MongoStatus(is_connected=True, message="MongoDB-Verbindung erfolgreich.")
+        except Exception as exc:
+            LOGGER.error("db_check mongo failed error=%s", exc)
+            return MongoStatus(
+                is_connected=False,
+                message=f"MongoDB aktuell nicht erreichbar: {exc}",
+            )
+

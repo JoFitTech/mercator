@@ -7,6 +7,12 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# cloudflared Linux-Binary herunterladen
+RUN curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+    -o /usr/local/bin/cloudflared \
+    && chmod +x /usr/local/bin/cloudflared \
+    && cloudflared --version
+
 # Abhängigkeiten kopieren und installieren
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

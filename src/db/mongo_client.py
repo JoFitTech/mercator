@@ -11,7 +11,7 @@ from src.config.settings import MongoConfig
 class MongoClientWrapper:
     """Erzeugt eine MongoDB-Datenbankverbindung für Rohdaten und Profile."""
 
-    def __init__(self, config: MongoConfig, server_selection_timeout_ms: int = 3000) -> None:
+    def __init__(self, config: MongoConfig, server_selection_timeout_ms: int = 10000) -> None:
         self.config = config
         self._server_selection_timeout_ms = server_selection_timeout_ms
         self._client: MongoClient | None = None
