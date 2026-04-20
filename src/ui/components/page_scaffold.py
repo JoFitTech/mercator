@@ -66,7 +66,7 @@ def render_loading_state() -> None:
     """Zeigt einen dezenten Ladezustand."""
     st.markdown(
         """
-        <div style="display: flex; align-items: center; gap: 10px; padding: 1rem; color: #6c757d;">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 1rem; color: var(--mercator-text-muted);">
             <div class="stSpinner"></div>
             <span>Analysiere Daten...</span>
         </div>
