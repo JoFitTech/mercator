@@ -95,6 +95,13 @@ def test_invalid_nav_target_falls_back_to_dashboard(monkeypatch) -> None:
     assert app_navigation.st.session_state["nav_target"] == "Dashboard"
 
 
+def test_missing_nav_target_is_initialized_to_dashboard(monkeypatch) -> None:
+    monkeypatch.setattr(app_navigation.st, "session_state", {})
+    current = app_navigation.ensure_valid_nav_target()
+    assert current == "Dashboard"
+    assert app_navigation.st.session_state["nav_target"] == "Dashboard"
+
+
 def test_sidebar_nav_target_is_not_overwritten_by_header_fallback() -> None:
     update = app_navigation._determine_header_nav_update(
         current_target="Admin",

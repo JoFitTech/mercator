@@ -82,7 +82,12 @@ def _set_nav_target(target: PageName) -> None:
 
 def ensure_valid_nav_target(default_target: PageName = "Dashboard") -> PageName:
     """Sichert den Navigationszustand gegen ungültige oder veraltete Werte ab."""
-    current_target = str(st.session_state.get("nav_target") or default_target)
+    raw_target = st.session_state.get("nav_target")
+    if raw_target is None:
+        st.session_state["nav_target"] = default_target
+        return default_target
+
+    current_target = str(raw_target)
     if current_target not in ALL_NAV_TARGETS:
         st.session_state["nav_target"] = default_target
         return default_target
