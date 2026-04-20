@@ -557,10 +557,9 @@ def load_settings() -> AppSettings:
     )
 
     if not _SETTINGS_DEBUG_LOGGED:
-        # DB-relevante Env-Werte einmalig beim Start protokollieren.
-        mysql_host_debug = _read_string_env("MYSQL_HOST", default=app_settings.mysql.local_mysql.host)
-        mysql_port_debug = _read_int_env("MYSQL_PORT", default=app_settings.mysql.local_mysql.port)
-        mongo_uri_debug = _read_string_env("MONGO_URI", default=app_settings.mongo.uri)
+        # Effektiv aktive DB-Ziele einmalig protokollieren, damit Multi-Target-Setups klar nachvollziehbar bleiben.
+        active_mysql = app_settings.mysql.get_active_mysql_target()
+        mongo_uri_debug = app_settings.mongo.uri
         masked_mongo_uri = mongo_uri_debug
         if "://" in mongo_uri_debug and "@" in mongo_uri_debug:
             scheme, rest = mongo_uri_debug.split("://", 1)
@@ -569,9 +568,11 @@ def load_settings() -> AppSettings:
                 username = credentials.split(":", 1)[0]
                 masked_mongo_uri = f"{scheme}://{username}:***@{host_part}"
         LOGGER.info(
-            "ENV geladen: MYSQL_HOST=%s MYSQL_PORT=%s MONGO_URI=%s",
-            mysql_host_debug,
-            mysql_port_debug,
+            "ENV geladen: MYSQL_ACTIVE_TARGET=%s MYSQL_HOST=%s MYSQL_PORT=%s MONGO_ACTIVE_TARGET=%s MONGO_URI=%s",
+            app_settings.mysql.mysql_active_target,
+            active_mysql.host,
+            active_mysql.port,
+            app_settings.mongo.active_target,
             masked_mongo_uri,
         )
         _SETTINGS_DEBUG_LOGGED = True

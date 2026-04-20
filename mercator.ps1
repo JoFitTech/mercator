@@ -106,8 +106,8 @@ function Test-UniDatabaseConnectivity {
     $mysqlHost = Get-DotEnvValue "UNI_MYSQL_HOST"
     $mysqlPort = (Get-DotEnvValue "UNI_MYSQL_PORT")
     if (-not $mysqlPort) { $mysqlPort = "3306" }
+    # Fuer den Uni-Check niemals auf MONGO_URI zurueckfallen, sonst entstehen False-Positives auf localhost.
     $mongoUri = Get-DotEnvValue "UNI_MONGO_URI"
-    if (-not $mongoUri) { $mongoUri = Get-DotEnvValue "MONGO_URI" }
     $mongo = Get-MongoHostPortFromUri -Uri $mongoUri
 
     $mysqlOk = $false
