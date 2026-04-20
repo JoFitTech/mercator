@@ -20,7 +20,7 @@ from src.ui.components.page_scaffold import (
     safe_service_call,
     summarize_filters,
 )
-from src.ui.components.tables import render_dashboard_top_table
+from src.ui.components.tables import get_single_selected_row_index, render_dashboard_top_table, sort_dashboard_top_rows
 from src.ui.ui_theme import CHART_PALETTE
 
 
@@ -32,6 +32,39 @@ def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[
         date_from = None
         date_to = None
     return {"date_from": date_from, "date_to": date_to}
+
+
+DASHBOARD_FILTER_DEFAULTS = {
+    "date_range": (date.today() - timedelta(days=30), date.today()),
+}
+
+
+def _normalize_dashboard_filters(filters: dict | None) -> dict:
+    normalized = dict(DASHBOARD_FILTER_DEFAULTS)
+    if filters:
+        normalized.update(filters)
+    date_range = normalized.get("date_range")
+    if not isinstance(date_range, (list, tuple)) or len(date_range) < 2:
+        normalized["date_range"] = DASHBOARD_FILTER_DEFAULTS["date_range"]
+    return normalized
+
+
+def _sync_dashboard_filter_widgets_from_state(force: bool = False) -> None:
+    active_filters = _normalize_dashboard_filters(st.session_state.get("dashboard_filters"))
+    st.session_state["dashboard_filters"] = active_filters
+    if force or "dashboard_filter_date_range" not in st.session_state:
+        st.session_state["dashboard_filter_date_range"] = active_filters["date_range"]
+
+
+def _read_dashboard_filters_from_widgets() -> dict:
+    return _normalize_dashboard_filters({
+        "date_range": st.session_state.get("dashboard_filter_date_range", DASHBOARD_FILTER_DEFAULTS["date_range"]),
+    })
+
+
+def _reset_dashboard_filters_and_widgets() -> None:
+    st.session_state["dashboard_filters"] = dict(DASHBOARD_FILTER_DEFAULTS)
+    _sync_dashboard_filter_widgets_from_state(force=True)
 
 
 def _format_period_label(filters: dict[str, date | None]) -> str:
@@ -175,28 +208,28 @@ def _render_missing_profile_actions(payload: dict, import_service: ImportService
 
 def _render_top_list(title: str, df: pd.DataFrame, table_key: str, side: str) -> None:
     st.markdown(f"#### {title}")
-    event = render_dashboard_top_table(df, key=table_key)
-    if not event or not event.get("selection") or not event["selection"].get("rows"):
+    view_df = sort_dashboard_top_rows(df)
+    event = render_dashboard_top_table(view_df, key=table_key)
+    selected_idx = get_single_selected_row_index(event, len(view_df))
+    if selected_idx is None:
         return
 
-    selected_idx = int(event["selection"]["rows"][0])
-    if selected_idx < 0 or selected_idx >= len(df):
-        return
-
-    selected_row = df.iloc[selected_idx]
+    selected_row = view_df.iloc[selected_idx]
     symbol = selected_row.get("symbol_at_trade")
     dedupe_key = selected_row.get("dedupe_key")
 
     if selected_row.get("profile_status") != "FETCHED":
         st.caption("Profil fehlt / unvollständig: API2 nicht geladen oder unvollständig.")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Trade öffnen", key=f"open_trade_{side}", use_container_width=True):
-            _navigate_to_trade(dedupe_key)
-    with c2:
-        if st.button("Unternehmen öffnen", key=f"open_company_{side}", use_container_width=True):
-            _navigate_to_company(symbol)
+    with st.container(border=True):
+        st.markdown(f"**Ausgewählt:** {symbol or 'Unbekanntes Symbol'}")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Trade öffnen", key=f"open_trade_{side}", use_container_width=True):
+                _navigate_to_trade(dedupe_key)
+        with c2:
+            if st.button("Unternehmen öffnen", key=f"open_company_{side}", use_container_width=True):
+                _navigate_to_company(symbol)
 
 
 def render_dashboard_page(
@@ -221,22 +254,25 @@ def render_dashboard_page(
         _navigate_to_trades()
 
     if "dashboard_filters" not in st.session_state:
-        st.session_state.dashboard_filters = {
-            "date_range": (date.today() - timedelta(days=30), date.today())
-        }
+        st.session_state["dashboard_filters"] = dict(DASHBOARD_FILTER_DEFAULTS)
+    st.session_state["dashboard_filters"] = _normalize_dashboard_filters(st.session_state["dashboard_filters"])
+    _sync_dashboard_filter_widgets_from_state()
 
     with st.container(border=True):
         c_filter, c_reset = st.columns([0.8, 0.2], vertical_alignment="bottom")
         with c_filter:
-            date_range = st.date_input(
+            st.date_input(
                 "Zeitraum (interaktiv)",
-                value=st.session_state.dashboard_filters["date_range"],
+                key="dashboard_filter_date_range",
                 format="DD.MM.YYYY",
             )
         with c_reset:
             if st.button("Filter zurücksetzen", use_container_width=True, key="dashboard_reset_filters"):
-                date_range = (date.today() - timedelta(days=30), date.today())
-        st.session_state.dashboard_filters["date_range"] = date_range
+                _reset_dashboard_filters_and_widgets()
+                st.rerun()
+
+    st.session_state["dashboard_filters"] = _read_dashboard_filters_from_widgets()
+    date_range = st.session_state["dashboard_filters"]["date_range"]
 
     filters = _build_dashboard_filters(date_range)
     summarize_filters("Aktive Filter", {"Zeitraum": _format_period_label(filters)})

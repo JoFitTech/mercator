@@ -12,6 +12,7 @@ from src.ui.components.page_scaffold import (
     safe_service_call,
     summarize_filters,
 )
+from src.ui.components.tables import get_single_selected_row_index
 
 
 def _is_missing_ui_value(value: object) -> bool:
@@ -77,13 +78,23 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
     render_kpi_row(kpis)
 
     # 3. Filter (Suche)
-    search = st.text_input("Unternehmen suchen (Name oder Symbol)", help="Filtert die untenstehende Tabelle.")
+    search = st.text_input(
+        "Unternehmen suchen (Name oder Symbol)",
+        key="companies_search_term",
+        help="Filtert die untenstehende Tabelle.",
+    )
     summarize_filters("Aktive Filter", {"Suche": search.strip()})
     if search:
         df = df[
             (df["company_name"].str.contains(search, case=False, na=False)) |
             (df["current_symbol"].str.contains(search, case=False, na=False))
         ]
+    if df.empty and search.strip():
+        render_empty_state(f"Keine Unternehmen für den Suchbegriff „{search.strip()}“ gefunden.")
+        if st.button("Suche zurücksetzen", key="companies_reset_search", use_container_width=True):
+            st.session_state["companies_search_term"] = ""
+            st.rerun()
+        return
     unresolved_count = int(df.get("profile_status", pd.Series(dtype="object")).fillna("").astype(str).str.upper().ne("FETCHED").sum()) if "profile_status" in df.columns else 0
     if unresolved_count > 0:
         st.warning(
@@ -93,7 +104,10 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
 
     # 4. Tabelle (Requirement 6.3)
     st.subheader("Unternehmens-Verzeichnis")
-    st.caption("Sortierung: Unternehmen mit den meisten Trades zuerst. Zeilen sind einzeln auswählbar.")
+    st.caption(
+        "Sortierung: standardmäßig nach Trade-Anzahl (absteigend). "
+        "Sie können zusätzlich über Spaltenüberschriften sortieren."
+    )
     
     display_cols = ["current_symbol", "company_name", "sector", "industry", "market_cap", "trade_count", "last_trade_date"]
     
@@ -101,14 +115,18 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
     for col in display_cols:
         if col not in df.columns: df[col] = None
 
-    display_df = df[display_cols].copy()
-    display_df["current_symbol"] = display_df["current_symbol"].apply(lambda v: _ui_text(v, fallback="–"))
-    display_df["company_name"] = display_df.apply(_company_display_name, axis=1)
-    display_df["sector"] = display_df["sector"].apply(lambda v: _ui_text(v, fallback="Nicht verfügbar"))
-    display_df["industry"] = display_df["industry"].apply(lambda v: _ui_text(v, fallback="Nicht verfügbar"))
-    display_df["market_cap"] = display_df["market_cap"].apply(_format_market_cap)
-    display_df["trade_count"] = pd.to_numeric(display_df["trade_count"], errors="coerce").fillna(0).astype(int)
-    display_df["last_trade_date"] = pd.to_datetime(display_df["last_trade_date"], errors="coerce").dt.strftime("%d.%m.%Y").fillna("Nicht verfügbar")
+    work_df = df[display_cols].copy()
+    work_df["__row_id"] = range(len(work_df))
+    work_df["current_symbol"] = work_df["current_symbol"].apply(lambda v: _ui_text(v, fallback="–"))
+    work_df["company_name"] = work_df.apply(_company_display_name, axis=1)
+    work_df["sector"] = work_df["sector"].apply(lambda v: _ui_text(v, fallback="Nicht verfügbar"))
+    work_df["industry"] = work_df["industry"].apply(lambda v: _ui_text(v, fallback="Nicht verfügbar"))
+    work_df["market_cap"] = work_df["market_cap"].apply(_format_market_cap)
+    work_df["trade_count"] = pd.to_numeric(work_df["trade_count"], errors="coerce").fillna(0).astype(int)
+    work_df["last_trade_date"] = pd.to_datetime(work_df["last_trade_date"], errors="coerce").dt.strftime("%d.%m.%Y").fillna("Nicht verfügbar")
+    work_df = work_df.sort_values("trade_count", ascending=False).reset_index(drop=True)
+    source_df = df.reset_index(drop=True).iloc[work_df["__row_id"]].reset_index(drop=True)
+    display_df = work_df.drop(columns=["__row_id"])
 
     event = st.dataframe(
         display_df,
@@ -127,22 +145,24 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
         selection_mode="single-row"
     )
 
-    if event and event.get("selection") and event["selection"].get("rows"):
-        selected_idx = int(event["selection"]["rows"][0])
-        selected_company = df.iloc[selected_idx]
+    selected_idx = get_single_selected_row_index(event, len(display_df))
+    if selected_idx is not None:
+        selected_company = source_df.iloc[selected_idx]
         company_label = _company_display_name(selected_company)
         symbol_value = _ui_text(selected_company.get("current_symbol"), fallback="")
         can_navigate = bool(symbol_value)
 
-        if st.button(
-            f"Unternehmens-Detail öffnen: {company_label}",
-            type="primary",
-            use_container_width=True,
-            disabled=not can_navigate,
-            help="Navigation benötigt ein gültiges Symbol." if not can_navigate else None,
-        ):
-            st.session_state["selected_company_symbol"] = symbol_value
-            st.session_state["nav_target"] = "Unternehmens-Detail"
-            st.rerun()
+        with st.container(border=True):
+            st.markdown(f"**Ausgewählt:** {company_label}")
+            if st.button(
+                f"Unternehmens-Detail öffnen: {company_label}",
+                type="primary",
+                use_container_width=True,
+                disabled=not can_navigate,
+                help="Navigation benötigt ein gültiges Symbol." if not can_navigate else None,
+            ):
+                st.session_state["selected_company_symbol"] = symbol_value
+                st.session_state["nav_target"] = "Unternehmens-Detail"
+                st.rerun()
     else:
-        st.info("Hinweis: Wählen Sie ein Unternehmen aus der Tabelle aus, um das Profil und die Historie anzuzeigen.")
+        st.info("Bitte eine Zeile markieren, damit der Detail-Button aktiv wird.")
