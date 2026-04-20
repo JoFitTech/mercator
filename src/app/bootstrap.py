@@ -62,11 +62,14 @@ def _init_core_services(settings: AppSettings):
     # MySQL Client nur verwenden, wenn die Verbindung durch den Resolver als nutzbar bestätigt wurde
     mysql_client = mysql_res.client if (mysql_res and db_status.mysql.is_connected) else None
         
+    # Mongo nur dann an die Factory geben, wenn die Verbindung als nutzbar bewertet wurde.
+    mongo_for_factory = mongo_wrapper if db_status.mongo.is_connected else None
+
     # Factory
     factory = ServiceFactory(
         settings=settings,
         mysql_client=mysql_client,
-        mongo_wrapper=mongo_wrapper
+        mongo_wrapper=mongo_for_factory
     )
     
     return db_status, mysql_res, factory

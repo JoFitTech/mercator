@@ -92,12 +92,22 @@ class ServiceFactory:
     def create_dashboard_service(self) -> DashboardService | None:
         if not self.mysql_client:
             return None
-        
-        raw_repo = InsiderTradeMongoRepository(self.mongo_wrapper) if self.mongo_wrapper else None
-        company_mongo_repo = CompanyMongoRepository(self.mongo_wrapper) if self.mongo_wrapper else None
+
+        raw_repo = None
+        company_mongo_repo = None
+        if self.mongo_wrapper:
+            try:
+                raw_repo = InsiderTradeMongoRepository(self.mongo_wrapper)
+                company_mongo_repo = CompanyMongoRepository(self.mongo_wrapper)
+            except Exception as exc:
+                LOGGER.warning(
+                    "ServiceFactory: DashboardService startet ohne Mongo-Repositories (degraded mode): %s",
+                    exc,
+                )
+
         trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
         company_repo = CompanyMySqlRepository(self.mysql_client)
-        
+
         return DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo)
 
     def create_analysis_service(self) -> AnalysisService | None:
@@ -132,11 +142,16 @@ class ServiceFactory:
         if not self.mysql_client or not self.mongo_wrapper:
             LOGGER.warning("ServiceFactory: ImportService nicht moeglich (DB fehlt).")
             return None
-            
+
         trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
         company_repo = CompanyMySqlRepository(self.mysql_client)
-        raw_repo = InsiderTradeMongoRepository(self.mongo_wrapper)
-        company_mongo_repo = CompanyMongoRepository(self.mongo_wrapper)
+        try:
+            raw_repo = InsiderTradeMongoRepository(self.mongo_wrapper)
+            company_mongo_repo = CompanyMongoRepository(self.mongo_wrapper)
+        except Exception as exc:
+            ServiceFactory.last_import_issue = f"Mongo nicht erreichbar: {exc}"
+            LOGGER.warning("ServiceFactory: ImportService deaktiviert. %s", ServiceFactory.last_import_issue)
+            return None
         
         runtime_settings = self.create_app_settings_service().load()
         try:

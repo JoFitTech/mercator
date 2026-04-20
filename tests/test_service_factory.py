@@ -115,3 +115,65 @@ def test_build_all_disables_import_service_when_fmp_key_invalid(monkeypatch) -> 
     assert import_service is None
     assert factory_module.ServiceFactory.last_import_issue is not None
     assert "FMP-Konfiguration ungueltig" in factory_module.ServiceFactory.last_import_issue
+
+
+def test_dashboard_service_falls_back_when_mongo_repo_init_fails(monkeypatch) -> None:
+    settings = _build_settings()
+
+    monkeypatch.setattr(
+        factory_module,
+        "InsiderTradeMongoRepository",
+        lambda _client: (_ for _ in ()).throw(RuntimeError("mongo down")),
+    )
+    monkeypatch.setattr(factory_module, "InsiderTradeMySqlRepository", lambda _client: object())
+    monkeypatch.setattr(factory_module, "CompanyMySqlRepository", lambda _client: object())
+
+    captured: dict[str, object | None] = {}
+
+    def _dashboard_service_stub(raw_repo, company_mongo_repo, trade_repo, company_repo):
+        captured["raw_repo"] = raw_repo
+        captured["company_mongo_repo"] = company_mongo_repo
+        captured["trade_repo"] = trade_repo
+        captured["company_repo"] = company_repo
+        return object()
+
+    monkeypatch.setattr(factory_module, "DashboardService", _dashboard_service_stub)
+
+    service_factory = factory_module.ServiceFactory(
+        settings=settings,
+        mysql_client=_MySqlClientStub(),
+        mongo_wrapper=object(),
+    )
+
+    service = service_factory.create_dashboard_service()
+
+    assert service is not None
+    assert captured["raw_repo"] is None
+    assert captured["company_mongo_repo"] is None
+    assert captured["trade_repo"] is not None
+    assert captured["company_repo"] is not None
+
+
+def test_import_service_disabled_when_mongo_repo_init_fails(monkeypatch) -> None:
+    settings = _build_settings()
+
+    monkeypatch.setattr(factory_module, "InsiderTradeMySqlRepository", lambda _client: object())
+    monkeypatch.setattr(factory_module, "CompanyMySqlRepository", lambda _client: object())
+    monkeypatch.setattr(
+        factory_module,
+        "InsiderTradeMongoRepository",
+        lambda _client: (_ for _ in ()).throw(RuntimeError("mongo down")),
+    )
+
+    service_factory = factory_module.ServiceFactory(
+        settings=settings,
+        mysql_client=_MySqlClientStub(),
+        mongo_wrapper=object(),
+    )
+
+    import_service = service_factory.create_import_service()
+
+    assert import_service is None
+    assert factory_module.ServiceFactory.last_import_issue is not None
+    assert "Mongo nicht erreichbar" in factory_module.ServiceFactory.last_import_issue
+
