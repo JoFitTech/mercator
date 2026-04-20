@@ -106,3 +106,26 @@ def test_header_sidebar_header_switch_stays_stable(mercator_page: Page) -> None:
     navigate_to_page(mercator_page, "Einstellungen")
     _page_shows_warning_not_crash(mercator_page)
     expect(mercator_page.get_by_role("heading", name="Einstellungen", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
+
+
+@pytest.mark.navigation
+def test_sidebar_pages_remain_stable_without_header_reset(mercator_page: Page) -> None:
+    for sidebar_page in ["Admin", "Einstellungen", "Methodik"]:
+        navigate_to_page(mercator_page, sidebar_page)
+        _page_shows_warning_not_crash(mercator_page)
+        expect(mercator_page.get_by_role("heading", name=sidebar_page, exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
+
+
+@pytest.mark.navigation
+def test_methodik_dashboard_unternehmen_sequence(mercator_page: Page) -> None:
+    navigate_to_page(mercator_page, "Methodik")
+    _page_shows_warning_not_crash(mercator_page)
+    expect(mercator_page.get_by_role("heading", name="Methodik", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
+
+    navigate_to_page(mercator_page, "Dashboard")
+    _page_shows_warning_not_crash(mercator_page)
+    expect(mercator_page.locator("h1").first).to_be_visible(timeout=ACTION_TIMEOUT)
+
+    navigate_to_page(mercator_page, "Unternehmen")
+    _page_shows_warning_not_crash(mercator_page)
+    expect(mercator_page.get_by_role("heading", name="Unternehmen", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)

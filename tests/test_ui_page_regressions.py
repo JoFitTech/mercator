@@ -21,6 +21,7 @@ from src.ui.pages.trades_page import (
     _build_query_filters,
     _normalize_trades_filters,
 )
+from src.ui.components import page_scaffold
 
 
 def test_build_dashboard_filters_handles_incomplete_range() -> None:
@@ -92,6 +93,51 @@ def test_invalid_nav_target_falls_back_to_dashboard(monkeypatch) -> None:
     current = app_navigation.ensure_valid_nav_target()
     assert current == "Dashboard"
     assert app_navigation.st.session_state["nav_target"] == "Dashboard"
+
+
+def test_sidebar_nav_target_is_not_overwritten_by_header_fallback() -> None:
+    update = app_navigation._determine_header_nav_update(
+        current_target="Admin",
+        selected_header_target="Trades",
+        previous_header_target="Trades",
+    )
+    assert update is None
+
+
+def test_sidebar_nav_target_switches_when_header_selection_changes() -> None:
+    update = app_navigation._determine_header_nav_update(
+        current_target="Einstellungen",
+        selected_header_target="Unternehmen",
+        previous_header_target="Dashboard",
+    )
+    assert update == "Unternehmen"
+
+
+def test_detail_nav_target_maps_to_parent_but_allows_header_switch() -> None:
+    update = app_navigation._determine_header_nav_update(
+        current_target="Trade-Detail",
+        selected_header_target="Unternehmen",
+        previous_header_target="Trades",
+    )
+    assert update == "Unternehmen"
+
+
+def test_sidebar_widget_sync_resets_only_stale_header_value() -> None:
+    assert app_navigation._should_reset_header_widget(
+        current_target="Admin",
+        widget_value="Dashboard",
+        previous_header_target="Trades",
+    ) is True
+    assert app_navigation._should_reset_header_widget(
+        current_target="Admin",
+        widget_value="Trades",
+        previous_header_target="Trades",
+    ) is False
+    assert app_navigation._should_reset_header_widget(
+        current_target="Trades",
+        widget_value="Dashboard",
+        previous_header_target="Trades",
+    ) is False
 
 
 def test_admin_import_summary_helpers_include_new_profile_counters() -> None:
@@ -171,3 +217,55 @@ def test_public_share_sidebar_status_texts_cover_disabled_states() -> None:
     assert public_share_sidebar_status_text(TunnelStatus.STOPPED) == "Gestoppt"
     assert public_share_sidebar_status_text(TunnelStatus.ERROR) == "Fehler"
     assert public_share_sidebar_status_text(TunnelStatus.RUNNING) == "Läuft"
+
+
+def test_safe_service_call_is_logic_only_without_direct_ui_rendering(monkeypatch) -> None:
+    calls = {"error": 0, "expander": 0}
+
+    monkeypatch.setattr(page_scaffold.st, "error", lambda *args, **kwargs: calls.__setitem__("error", calls["error"] + 1))
+    monkeypatch.setattr(page_scaffold.st, "expander", lambda *args, **kwargs: calls.__setitem__("expander", calls["expander"] + 1))
+
+    fallback, error = page_scaffold.safe_service_call(
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+        context_label="Test",
+        fallback={"ok": False},
+    )
+
+    assert fallback == {"ok": False}
+    assert isinstance(error, RuntimeError)
+    assert calls["error"] == 0
+    assert calls["expander"] == 0
+
+
+def test_dashboard_payload_error_hides_kpis(monkeypatch) -> None:
+    class _SessionState(dict):
+        def __getattr__(self, item):
+            return self[item]
+
+        def __setattr__(self, key, value):
+            self[key] = value
+
+    class _DashboardServiceStub:
+        def build_dashboard_payload(self, filters: dict | None = None) -> dict:
+            return {"payload_error_message": "Connection failed with status 530"}
+
+    monkeypatch.setattr(dashboard_page.st, "session_state", _SessionState())
+    monkeypatch.setattr(dashboard_page.st, "date_input", lambda *args, **kwargs: (date(2026, 1, 1), date(2026, 1, 2)))
+    monkeypatch.setattr(dashboard_page.st, "button", lambda *args, **kwargs: False)
+    monkeypatch.setattr(dashboard_page.st, "spinner", lambda *args, **kwargs: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(dashboard_page.st, "container", lambda *args, **kwargs: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(dashboard_page.st, "columns", lambda *args, **kwargs: [__import__("contextlib").nullcontext(), __import__("contextlib").nullcontext()])
+    monkeypatch.setattr(dashboard_page.st, "info", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "caption", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "markdown", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "code", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "expander", lambda *args, **kwargs: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(dashboard_page, "render_page_header", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page, "summarize_filters", lambda *args, **kwargs: None)
+
+    called = {"kpis": 0}
+    monkeypatch.setattr(dashboard_page, "render_kpi_row", lambda *args, **kwargs: called.__setitem__("kpis", called["kpis"] + 1))
+
+    dashboard_page.render_dashboard_page(service=_DashboardServiceStub(), import_service=None, settings=None, runtime_settings_service=None, db_status=None)
+
+    assert called["kpis"] == 0

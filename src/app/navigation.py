@@ -24,6 +24,7 @@ SIDEBAR_NAV_OPTIONS: dict[str, str] = {
 
 DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
 HEADER_PAGES = set(HEADER_NAV_OPTIONS.values())
+SIDEBAR_PAGES = set(SIDEBAR_NAV_OPTIONS.values())
 ALL_NAV_TARGETS: set[str] = HEADER_PAGES | set(SIDEBAR_NAV_OPTIONS.values()) | DETAIL_PAGES
 
 
@@ -88,18 +89,67 @@ def ensure_valid_nav_target(default_target: PageName = "Dashboard") -> PageName:
     return current_target  # type: ignore[return-value]
 
 
+def _resolve_header_active_target(current_target: str, previous_header_target: str) -> str:
+    """Liefert den sichtbaren Header-Active-State ohne Sidebar-Ziele zu überschreiben."""
+    parent_target = _resolve_parent_target(current_target)
+    if parent_target in HEADER_PAGES:
+        return parent_target
+    if previous_header_target in HEADER_PAGES:
+        return previous_header_target
+    return "Dashboard"
+
+
+def _determine_header_nav_update(
+    current_target: str,
+    selected_header_target: str,
+    previous_header_target: str,
+) -> str | None:
+    """Ermittelt, ob die Header-Auswahl das globale Nav-Target ändern darf."""
+    parent_target = _resolve_parent_target(current_target)
+
+    if current_target in HEADER_PAGES or current_target in DETAIL_PAGES:
+        if selected_header_target != parent_target:
+            return selected_header_target
+        return None
+
+    if current_target in SIDEBAR_PAGES:
+        # Sidebar-Seiten bleiben stabil, bis die Header-Auswahl wirklich geändert wurde.
+        if selected_header_target != previous_header_target:
+            return selected_header_target
+        return None
+
+    return "Dashboard"
+
+
+def _should_reset_header_widget(
+    current_target: str,
+    widget_value: str | None,
+    previous_header_target: str,
+) -> bool:
+    """Verhindert stale Widget-Werte, die Sidebar-Ziele fälschlich überschreiben könnten."""
+    if current_target not in SIDEBAR_PAGES:
+        return False
+    if not widget_value:
+        return False
+    return widget_value in HEADER_PAGES and widget_value != previous_header_target
+
+
 def render_navigation_topbar() -> PageName:
     """Rendert die Hauptnavigation als obere Navbar."""
 
     # Bestimme aktuelle Seite aus Session State oder Default.
     ensure_valid_nav_target()
 
-    parent_target = _resolve_parent_target(str(st.session_state["nav_target"]))
+    current_target = str(st.session_state["nav_target"])
+    previous_header_target = str(st.session_state.get("header_nav_target", "Dashboard"))
+    active_header_target = _resolve_header_active_target(current_target, previous_header_target)
     current_label = next(
-        (k for k, v in HEADER_NAV_OPTIONS.items() if v == parent_target),
+        (k for k, v in HEADER_NAV_OPTIONS.items() if v == active_header_target),
         list(HEADER_NAV_OPTIONS.keys())[0],
     )
     options_list = list(HEADER_NAV_OPTIONS.keys())
+    if _should_reset_header_widget(current_target, st.session_state.get("main_navbar"), previous_header_target):
+        st.session_state["main_navbar"] = current_label
 
     with st.container(border=True):
         left, right = st.columns([1.2, 2.8], vertical_alignment="center")
@@ -109,10 +159,11 @@ def render_navigation_topbar() -> PageName:
         with right:
             selected_label = _render_navbar_control(options_list, current_label)
 
-    # Update nav_target nur für Header-Seiten, damit Sidebar-Ziele stabil bleiben.
-    new_target = HEADER_NAV_OPTIONS[selected_label]
-    if st.session_state["nav_target"] != new_target:
-        _set_nav_target(new_target)  # type: ignore[arg-type]
+    selected_header_target = HEADER_NAV_OPTIONS[selected_label]
+    st.session_state["header_nav_target"] = selected_header_target
+    nav_update = _determine_header_nav_update(current_target, selected_header_target, previous_header_target)
+    if nav_update:
+        _set_nav_target(nav_update)  # type: ignore[arg-type]
 
     # Zurück-Button für Detailseiten.
     if st.session_state["nav_target"] in DETAIL_PAGES:
