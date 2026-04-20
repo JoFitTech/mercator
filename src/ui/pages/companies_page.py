@@ -13,6 +13,39 @@ from src.ui.components.page_scaffold import (
     summarize_filters,
 )
 
+
+def _is_missing_ui_value(value: object) -> bool:
+    if value is None:
+        return True
+    if pd.isna(value):
+        return True
+    text = str(value).strip()
+    return text == "" or text.lower() in {"nan", "none", "n/a"}
+
+
+def _ui_text(value: object, fallback: str = "Nicht verfügbar") -> str:
+    return fallback if _is_missing_ui_value(value) else str(value).strip()
+
+
+def _company_display_name(row: pd.Series) -> str:
+    company_name = _ui_text(row.get("company_name"), fallback="")
+    if company_name:
+        return company_name
+    symbol = _ui_text(row.get("current_symbol"), fallback="")
+    if symbol:
+        return symbol
+    return "Unbekanntes Unternehmen"
+
+
+def _format_market_cap(value: object) -> str:
+    if _is_missing_ui_value(value):
+        return "Nicht verfügbar"
+    try:
+        return f"${float(value):,.0f}"
+    except (TypeError, ValueError):
+        return "Nicht verfügbar"
+
+
 def render_companies_page(repository: CompanyMySqlRepository | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Unternehmens-Übersicht."""
     render_page_header("Unternehmen", "Übersicht aller Unternehmen mit registrierten Insider-Aktivitäten.")
@@ -68,16 +101,25 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
     for col in display_cols:
         if col not in df.columns: df[col] = None
 
+    display_df = df[display_cols].copy()
+    display_df["current_symbol"] = display_df["current_symbol"].apply(lambda v: _ui_text(v, fallback="–"))
+    display_df["company_name"] = display_df.apply(_company_display_name, axis=1)
+    display_df["sector"] = display_df["sector"].apply(lambda v: _ui_text(v, fallback="Nicht verfügbar"))
+    display_df["industry"] = display_df["industry"].apply(lambda v: _ui_text(v, fallback="Nicht verfügbar"))
+    display_df["market_cap"] = display_df["market_cap"].apply(_format_market_cap)
+    display_df["trade_count"] = pd.to_numeric(display_df["trade_count"], errors="coerce").fillna(0).astype(int)
+    display_df["last_trade_date"] = pd.to_datetime(display_df["last_trade_date"], errors="coerce").dt.strftime("%d.%m.%Y").fillna("Nicht verfügbar")
+
     event = st.dataframe(
-        df[display_cols],
+        display_df,
         column_config={
             "current_symbol": st.column_config.TextColumn("Symbol"),
             "company_name": st.column_config.TextColumn("Name"),
             "sector": st.column_config.TextColumn("Sektor"),
             "industry": st.column_config.TextColumn("Industrie"),
-            "market_cap": st.column_config.NumberColumn("Marktkapitalisierung", format="$%d"),
+            "market_cap": st.column_config.TextColumn("Marktkapitalisierung"),
             "trade_count": st.column_config.NumberColumn("Trades"),
-            "last_trade_date": st.column_config.DateColumn("Letzter Trade", format="DD.MM.YY")
+            "last_trade_date": st.column_config.TextColumn("Letzter Trade"),
         },
         use_container_width=True,
         hide_index=True,
@@ -86,11 +128,20 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
     )
 
     if event and event.get("selection") and event["selection"].get("rows"):
-        selected_idx = event["selection"]["rows"][0]
+        selected_idx = int(event["selection"]["rows"][0])
         selected_company = df.iloc[selected_idx]
-        
-        if st.button(f"Unternehmens-Detail öffnen: {selected_company.get('company_name')}", type="primary", use_container_width=True):
-            st.session_state["selected_company_symbol"] = selected_company.get("current_symbol")
+        company_label = _company_display_name(selected_company)
+        symbol_value = _ui_text(selected_company.get("current_symbol"), fallback="")
+        can_navigate = bool(symbol_value)
+
+        if st.button(
+            f"Unternehmens-Detail öffnen: {company_label}",
+            type="primary",
+            use_container_width=True,
+            disabled=not can_navigate,
+            help="Navigation benötigt ein gültiges Symbol." if not can_navigate else None,
+        ):
+            st.session_state["selected_company_symbol"] = symbol_value
             st.session_state["nav_target"] = "Unternehmens-Detail"
             st.rerun()
     else:

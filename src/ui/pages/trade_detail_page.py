@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 import streamlit as st
-import pandas as pd
 from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
-from src.ui.components.status_badges import score_class_badge, status_badge
+
+
+def _safe_text(value: object, fallback: str = "Nicht verfügbar") -> str:
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return fallback if text == "" or text.lower() in {"nan", "none", "n/a"} else text
+
+
+def _safe_float(value: object, fallback: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
 
 def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | None = None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Detailseite für einen einzelnen Trade."""
@@ -43,15 +55,15 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
     
     # Header (Requirement 5.2)
     render_page_header(
-        f"{trade.get('symbol_at_trade')} - {trade.get('reporting_name')}",
-        f"{trade.get('acquisition_or_disposition')} am {trade.get('transaction_date')}"
+        f"{_safe_text(trade.get('symbol_at_trade'), fallback='–')} - {_safe_text(trade.get('reporting_name'), fallback='Unbekannter Insider')}",
+        f"{_safe_text(trade.get('acquisition_or_disposition'), fallback='Unbekannt')} am {_safe_text(trade.get('transaction_date'))}"
     )
 
     # 1. KPI-Übersicht (Requirement 5.2)
     kpis = [
-        {"label": "Wert", "value": f"${trade.get('trade_value_estimated', 0):,.0f}"},
-        {"label": "Score", "value": str(trade.get("score", 0))},
-        {"label": "Klasse", "value": str(trade.get("score_class", "E"))},
+        {"label": "Wert", "value": f"${_safe_float(trade.get('trade_value_estimated')):,.0f}"},
+        {"label": "Score", "value": f"{_safe_float(trade.get('score')):.1f}"},
+        {"label": "Klasse", "value": _safe_text(trade.get("score_class"), fallback="Nicht verfügbar")},
     ]
     render_kpi_row(kpis)
 
@@ -61,23 +73,23 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
     with c1:
         with st.container(border=True):
             st.subheader("Trade-Informationen")
-            st.write(f"**Symbol:** {trade.get('symbol_at_trade')}")
-            st.write(f"**Insider:** {trade.get('reporting_name')}")
-            st.write(f"**Rolle:** {trade.get('type_of_owner')}")
-            st.write(f"**Richtung:** {trade.get('acquisition_or_disposition')}")
-            st.write(f"**Menge:** {trade.get('qty', 0):,.0f}")
-            st.write(f"**Preis:** ${trade.get('price', 0):,.2f}")
-            st.write(f"**Datum:** {trade.get('transaction_date')}")
-            st.write(f"**Filing:** {trade.get('filing_date')}")
+            st.write(f"**Symbol:** {_safe_text(trade.get('symbol_at_trade'), fallback='–')}")
+            st.write(f"**Insider:** {_safe_text(trade.get('reporting_name'), fallback='Unbekannter Insider')}")
+            st.write(f"**Rolle:** {_safe_text(trade.get('type_of_owner'))}")
+            st.write(f"**Richtung:** {_safe_text(trade.get('acquisition_or_disposition'), fallback='Unbekannt')}")
+            st.write(f"**Menge:** {_safe_float(trade.get('qty')):,.0f}")
+            st.write(f"**Preis:** ${_safe_float(trade.get('price')):,.2f}")
+            st.write(f"**Datum:** {_safe_text(trade.get('transaction_date'))}")
+            st.write(f"**Filing:** {_safe_text(trade.get('filing_date'))}")
 
     with c2:
         with st.container(border=True):
             st.subheader("Status & Scoring")
-            st.write("**Gate-Status:**", trade.get("gate_status"))
+            st.write("**Gate-Status:**", _safe_text(trade.get("gate_status")))
             st.write("**Gate-Begründung:**", trade.get("gate_reason") or "Nicht vorhanden")
-            st.write("**Validierungsstatus:**", trade.get("validation_status"))
+            st.write("**Validierungsstatus:**", _safe_text(trade.get("validation_status")))
             st.write("**Dashboard-valide:**", "Ja" if trade.get("dashboard_valid") else "Nein")
-            st.write("**Dedupe-Key:**", f"`{trade.get('dedupe_key')}`")
+            st.write("**Dedupe-Key:**", f"`{_safe_text(trade.get('dedupe_key'))}`")
             source_url = str(trade.get("source_url") or "").strip()
             if source_url:
                 st.link_button("Originales SEC-Filing (externer Link)", source_url, help="Öffnet das Filing in einem neuen Browser-Tab.")

@@ -8,6 +8,23 @@ from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
 from src.ui.components.tables import render_trade_table
 
+
+def _safe_text(value: object, fallback: str = "Nicht verfügbar") -> str:
+    if value is None or pd.isna(value):
+        return fallback
+    text = str(value).strip()
+    return fallback if text == "" or text.lower() in {"nan", "none", "n/a"} else text
+
+
+def _format_market_cap(value: object) -> str:
+    if value is None or pd.isna(value):
+        return "Nicht verfügbar"
+    try:
+        return f"${float(value):,.0f}"
+    except (TypeError, ValueError):
+        return "Nicht verfügbar"
+
+
 def render_company_detail_page(service: AnalysisService | None, symbol: str | None = None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Detailseite für ein Unternehmen."""
     if service is None:
@@ -34,23 +51,23 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
     # Header
     profile = result.company_profile or {}
     render_page_header(
-        f"{symbol} - {profile.get('company_name', symbol)}",
-        f"{profile.get('sector', 'N/A')} | {profile.get('industry', 'N/A')} | {profile.get('country', 'N/A')}"
+        f"{symbol} - {_safe_text(profile.get('company_name'), fallback=symbol)}",
+        f"{_safe_text(profile.get('sector'))} | {_safe_text(profile.get('industry'))} | {_safe_text(profile.get('country'))}"
     )
 
     # 1. KPIs (Requirement 7.2)
     metrics = result.metrics or {}
     kpis = [
-        {"label": "Marktkapitalisierung", "value": f"${profile.get('market_cap', 0):,.0f}" if profile.get('market_cap') else "N/A"},
+        {"label": "Marktkapitalisierung", "value": _format_market_cap(profile.get("market_cap"))},
         {"label": "Anzahl Trades", "value": str(metrics.get("trade_count", 0))},
         {"label": "Durchschn. Score", "value": f"{metrics.get('overall_score', 0):.1f}"},
-        {"label": "Gesamtstatus", "value": str(metrics.get("overall_status", "N/A"))},
+        {"label": "Gesamtstatus", "value": _safe_text(metrics.get("overall_status"))},
     ]
     render_kpi_row(kpis)
 
     # 2. Profil-Sektion
     with st.expander("Unternehmensprofil & Beschreibung", expanded=False):
-        st.write(profile.get("description", "Keine Beschreibung verfügbar."))
+        st.write(_safe_text(profile.get("description"), fallback="Kein Profil"))
         if profile.get("website"):
             st.link_button("Website besuchen", profile.get("website"))
 

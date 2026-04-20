@@ -28,6 +28,19 @@ TRADE_FILTER_DEFAULTS = {
 }
 
 
+def _trade_filter_widget_keys() -> dict[str, str]:
+    return {
+        "symbol": "trades_filter_symbol",
+        "reporting_name": "trades_filter_reporting_name",
+        "direction": "trades_filter_direction",
+        "gate_status": "trades_filter_gate_status",
+        "validation_status": "trades_filter_validation_status",
+        "date_range": "trades_filter_date_range",
+        "min_score": "trades_filter_min_score",
+        "min_value": "trades_filter_min_value",
+    }
+
+
 def _normalize_trades_filters(filters: dict | None) -> dict:
     """Harmonisiert Session-Filter robust auf valide UI-Werte."""
     normalized = dict(TRADE_FILTER_DEFAULTS)
@@ -45,6 +58,43 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
     normalized["min_score"] = int(normalized.get("min_score") or 0)
     normalized["min_value"] = int(normalized.get("min_value") or 0)
     return normalized
+
+
+def _sync_trade_filter_widgets_from_state(force: bool = False) -> None:
+    """Synchronisiert Widget-State aus dem kanonischen Filter-State."""
+    active_filters = _normalize_trades_filters(st.session_state.get("trades_filters"))
+    st.session_state["trades_filters"] = active_filters
+    for field, key in _trade_filter_widget_keys().items():
+        if force or key not in st.session_state:
+            st.session_state[key] = active_filters[field]
+
+
+def _read_trade_filters_from_widgets() -> dict:
+    """Liest den vollständigen Filterzustand aus den Widgets."""
+    keys = _trade_filter_widget_keys()
+    return _normalize_trades_filters({
+        "symbol": str(st.session_state.get(keys["symbol"], "")).strip(),
+        "reporting_name": str(st.session_state.get(keys["reporting_name"], "")).strip(),
+        "direction": st.session_state.get(keys["direction"], "Alle"),
+        "gate_status": st.session_state.get(keys["gate_status"], "Alle"),
+        "validation_status": st.session_state.get(keys["validation_status"], "Alle"),
+        "date_range": st.session_state.get(keys["date_range"], TRADE_FILTER_DEFAULTS["date_range"]),
+        "min_score": st.session_state.get(keys["min_score"], 0),
+        "min_value": st.session_state.get(keys["min_value"], 0),
+    })
+
+
+def _reset_trade_filters_and_widgets() -> None:
+    """Setzt kanonischen Filter-State und Widget-State vollständig zurück."""
+    st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
+    _sync_trade_filter_widgets_from_state(force=True)
+
+
+def _trade_action_symbol_label(trade_row: pd.Series) -> str:
+    symbol = str(trade_row.get("symbol_at_trade") or "").strip()
+    if symbol and symbol.lower() != "nan":
+        return symbol
+    return "Unbekanntes Symbol"
 
 
 def _build_query_filters(active_filters: dict) -> dict:
@@ -78,62 +128,56 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
 
     # 1. Filterleiste (Requirement 4.2)
     if "trades_filters" not in st.session_state:
-        st.session_state.trades_filters = dict(TRADE_FILTER_DEFAULTS)
-    st.session_state.trades_filters = _normalize_trades_filters(st.session_state.trades_filters)
-    active_filters = st.session_state.trades_filters
+        st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
+    st.session_state["trades_filters"] = _normalize_trades_filters(st.session_state["trades_filters"])
+    _sync_trade_filter_widgets_from_state()
+    active_filters = st.session_state["trades_filters"]
 
     with st.expander("Filter und Suche", expanded=True):
         f1, f2, f3 = st.columns(3)
-        symbol = f1.text_input("Symbol", value=active_filters["symbol"], key="trades_filter_symbol", help="Ticker-Symbol (z.B. AAPL)")
-        reporting_name = f2.text_input("Insider-Name", value=active_filters["reporting_name"], key="trades_filter_reporting_name", help="Name des Insiders")
-        direction = f3.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="trades_filter_direction", index=["Alle", "BUY", "SELL"].index(active_filters["direction"]))
+        f1.text_input("Symbol", key="trades_filter_symbol", help="Ticker-Symbol (z.B. AAPL)")
+        f2.text_input("Insider-Name", key="trades_filter_reporting_name", help="Name des Insiders")
+        f3.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="trades_filter_direction")
 
         f4, f5, f6 = st.columns(3)
-        gate_status = f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL"], key="trades_filter_gate_status", index=["Alle", "PASS", "PENDING", "FAIL"].index(active_filters["gate_status"]))
-        val_status = f5.selectbox("Validierungsstatus", options=["Alle", "VALID", "INVALID"], key="trades_filter_validation_status", index=["Alle", "VALID", "INVALID"].index(active_filters["validation_status"]))
-        date_range = f6.date_input("Zeitraum (Transaktionsdatum)", value=active_filters["date_range"], key="trades_filter_date_range")
+        f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL"], key="trades_filter_gate_status")
+        f5.selectbox("Validierungsstatus", options=["Alle", "VALID", "INVALID"], key="trades_filter_validation_status")
+        f6.date_input("Zeitraum (Transaktionsdatum)", key="trades_filter_date_range")
 
         f7, f8 = st.columns(2)
-        min_score = f7.slider("Min. Score", 0, 100, int(active_filters["min_score"]), key="trades_filter_min_score")
-        min_value = f8.number_input("Min. Wert ($)", value=int(active_filters["min_value"]), step=10000, key="trades_filter_min_value")
+        f7.slider("Min. Score", 0, 100, key="trades_filter_min_score")
+        f8.number_input("Min. Wert ($)", step=10000, key="trades_filter_min_value")
 
         b1, b2 = st.columns(2)
         if b1.button("Filter anwenden", type="primary", use_container_width=True, key="trades_apply_filters"):
-            st.session_state.trades_filters.update({
-                "symbol": symbol.strip(),
-                "reporting_name": reporting_name.strip(),
-                "direction": direction,
-                "gate_status": gate_status,
-                "validation_status": val_status,
-                "date_range": date_range,
-                "min_score": int(min_score),
-                "min_value": int(min_value),
-            })
+            st.session_state["trades_filters"] = _read_trade_filters_from_widgets()
             st.rerun()
         if b2.button("Filter zurücksetzen", use_container_width=True, key="trades_reset_filters"):
-            st.session_state.trades_filters = dict(TRADE_FILTER_DEFAULTS)
+            _reset_trade_filters_and_widgets()
             st.rerun()
 
     # 2. Daten laden
-    filters = _build_query_filters(st.session_state.trades_filters)
+    active_filters = _normalize_trades_filters(st.session_state["trades_filters"])
+    st.session_state["trades_filters"] = active_filters
+    filters = _build_query_filters(active_filters)
     render_filter_chip_bar(
         active_filters={
             "Symbol": filters.get("symbol") or "Alle",
             "Insider": filters.get("reporting_name") or "Alle",
-            "Richtung": st.session_state.trades_filters["direction"],
-            "Gate": st.session_state.trades_filters["gate_status"],
-            "Validierung": st.session_state.trades_filters["validation_status"],
+            "Richtung": active_filters["direction"],
+            "Gate": active_filters["gate_status"],
+            "Validierung": active_filters["validation_status"],
             "Zeitraum": f"{filters.get('date_from')} bis {filters.get('date_to')}",
-            "Min. Score": st.session_state.trades_filters["min_score"],
-            "Min. Wert": f"${st.session_state.trades_filters['min_value']:,}",
+            "Min. Score": active_filters["min_score"],
+            "Min. Wert": f"${active_filters['min_value']:,}",
         }
     )
     summarize_filters("Aktive Filter", {
         "Symbol": filters.get("symbol"),
         "Insider": filters.get("reporting_name"),
-        "Richtung": st.session_state.trades_filters["direction"],
-        "Gate": st.session_state.trades_filters["gate_status"],
-        "Validierung": st.session_state.trades_filters["validation_status"],
+        "Richtung": active_filters["direction"],
+        "Gate": active_filters["gate_status"],
+        "Validierung": active_filters["validation_status"],
     })
 
     with st.spinner("Lade Trades..."):
@@ -141,7 +185,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             filters=filters,
             limit=1000,
             accumulate=False, # In der Hauptarbeitsfläche zeigen wir Roh-Trades
-            min_value=st.session_state.trades_filters["min_value"],
+            min_value=active_filters["min_value"],
         ), context_label="Trades", fallback=pd.DataFrame())
     if load_error is not None:
         st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
@@ -152,10 +196,12 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
         st.caption("Nächster Schritt: Filter zurücksetzen oder Zeitraum erweitern.")
         c1, c2 = st.columns(2)
         if c1.button("Filter zurücksetzen", key="trades_empty_reset", use_container_width=True):
-            st.session_state.trades_filters = dict(TRADE_FILTER_DEFAULTS)
+            _reset_trade_filters_and_widgets()
             st.rerun()
         if c2.button("Zeitraum auf 90 Tage setzen", key="trades_empty_expand_period", use_container_width=True):
-            st.session_state.trades_filters["date_range"] = TRADE_FILTER_DEFAULTS["date_range"]
+            st.session_state["trades_filters"] = _normalize_trades_filters(st.session_state.get("trades_filters"))
+            st.session_state["trades_filters"]["date_range"] = TRADE_FILTER_DEFAULTS["date_range"]
+            _sync_trade_filter_widgets_from_state(force=True)
             st.rerun()
         return
 
@@ -175,17 +221,18 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     st.caption("Sortierung: Neueste Transaktionsdaten zuerst. Tabelle ist einzeilig auswählbar.")
     
     if event and event.get("selection") and event["selection"].get("rows"):
-        selected_idx = event["selection"]["rows"][0]
+        selected_idx = int(event["selection"]["rows"][0])
         selected_trade = trades_df.iloc[selected_idx]
+        symbol_label = _trade_action_symbol_label(selected_trade)
         
         c1, c2 = st.columns(2)
         with c1:
-            if st.button(f"Detail öffnen: {selected_trade.get('symbol_at_trade')}", type="primary", use_container_width=True):
+            if st.button(f"Trade-Detail öffnen: {symbol_label}", type="primary", use_container_width=True):
                 st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
                 st.session_state["nav_target"] = "Trade-Detail"
                 st.rerun()
         with c2:
-            if st.button(f"Unternehmen: {selected_trade.get('symbol_at_trade')}", use_container_width=True):
+            if st.button(f"Unternehmens-Detail öffnen: {symbol_label}", use_container_width=True):
                 st.session_state["selected_company_symbol"] = selected_trade.get("symbol_at_trade")
                 st.session_state["nav_target"] = "Unternehmens-Detail"
                 st.rerun()

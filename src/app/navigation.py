@@ -211,7 +211,8 @@ def _render_public_share_sidebar_controls() -> None:
     session = manager.get_session()
     status = session.status if session else TunnelStatus.STOPPED
 
-    with st.expander("Öffentliche Freigabe", expanded=False):
+    with st.expander("Öffentliche Freigabe (Tools)", expanded=False):
+        st.caption("Nur Steuerungstools – keine eigenständige Seite.")
         status_text = public_share_sidebar_status_text(status)
         st.caption(f"Status: {status_text}")
 
@@ -243,7 +244,9 @@ def render_sidebar_navigation() -> None:
 
     with st.sidebar:
         st.markdown("### Arbeitsbereiche")
+        st.caption("Sekundärnavigation: Bereich aufklappen und Ziel auswählen.")
         with st.expander("Verwaltung & Hilfe", expanded=False):
+            st.caption("Container mit Unterseiten – kein eigener Navigationspunkt.")
             for label, target in SIDEBAR_NAV_OPTIONS.items():
                 button_type: Literal["primary", "secondary", "tertiary"] = (
                     "primary" if active_target == target else "secondary"

@@ -7,6 +7,19 @@ import pandas as pd
 import streamlit as st
 
 
+def _is_missing_value(value: object) -> bool:
+    if value is None:
+        return True
+    if pd.isna(value):
+        return True
+    text = str(value).strip()
+    return text == "" or text.lower() in {"nan", "none", "n/a"}
+
+
+def _safe_text(value: object, fallback: str) -> str:
+    return fallback if _is_missing_value(value) else str(value).strip()
+
+
 def render_smart_table(
     df: pd.DataFrame,
     column_config: dict | None = None,
@@ -63,20 +76,26 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         if col not in df.columns:
             df[col] = None
 
-    # Sichtbare Spalten drastisch einschränken um horizontales Scrollen zu vermeiden
-    # Wir zeigen nur die absolut kritischen Spalten.
+    # Sichtbare Spalten mit klarer Priorität.
     visible_cols = [
-        "symbol_at_trade", "reporting_name", "direction", "trade_value_estimated",
-        "core_insider_score", "final_score", "final_class", "decision_status",
-        "tr_availability_state", "primary_exchange", "filing_age_days", "earnings_distance_days",
+        "transaction_date", "symbol_at_trade", "reporting_name", "direction",
+        "trade_value_estimated", "score", "gate_status", "validation_status",
     ]
+
+    df["symbol_at_trade"] = df["symbol_at_trade"].apply(lambda value: _safe_text(value, "–"))
+    df["reporting_name"] = df["reporting_name"].apply(lambda value: _safe_text(value, "Unbekannter Insider"))
+    df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce")
+    df["score"] = pd.to_numeric(df["score"], errors="coerce")
+    df["gate_status"] = df["gate_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
+    df["validation_status"] = df["validation_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
+    df["transaction_date"] = pd.to_datetime(df["transaction_date"], errors="coerce")
 
     col_config = {
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small", pinned=True),
         "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
         "direction": st.column_config.TextColumn("Richtung", width="small"),
         "sector": st.column_config.TextColumn("Sektor", width="medium"),
-        "trade_value_estimated": st.column_config.NumberColumn("Wert", format="$%d", width="small"),
+        "trade_value_estimated": st.column_config.NumberColumn("Wert", format="$%.0f", width="small"),
         "core_insider_score": st.column_config.NumberColumn("Core Insider", format="%.1f", width="small"),
         "final_score": st.column_config.NumberColumn("Final Score", format="%.1f", width="small"),
         "final_class": st.column_config.TextColumn("Class", width="small"),
