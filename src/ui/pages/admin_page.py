@@ -85,7 +85,40 @@ def _humanize_import_error(exc: Exception) -> str:
             "Import abgebrochen: Für das Trade-Republic-Matching fehlen Pflichtwerte "
             "(Zuordnungsmethode). Bitte erneut ausführen; der Importpfad setzt Standardwerte."
         )
+    if "530" in raw:
+        return (
+            "Import fehlgeschlagen: Upstream/API aktuell nicht erreichbar (HTTP 530). "
+            "Bitte später erneut versuchen; lokale UI bleibt verfügbar."
+        )
     return f"Import fehlgeschlagen: {raw}"
+
+
+def _push_admin_feedback(kind: str, message: str, details: str | None = None) -> None:
+    st.session_state["admin_feedback"] = {
+        "kind": kind,
+        "message": message,
+        "details": details,
+    }
+
+
+def _render_admin_feedback() -> None:
+    payload = st.session_state.pop("admin_feedback", None)
+    if not payload:
+        return
+    kind = payload.get("kind", "info")
+    message = payload.get("message", "")
+    details = payload.get("details")
+    if kind == "success":
+        st.success(message)
+    elif kind == "warning":
+        st.warning(message)
+    elif kind == "error":
+        st.error(message)
+    else:
+        st.info(message)
+    if details:
+        with st.expander("Technische Details", expanded=False):
+            st.code(details, language="text")
 
 
 def compute_admin_capabilities(
@@ -430,6 +463,7 @@ def render_admin_page(
         )
     if settings_service and not persistence_available:
         st.info("Einstellungen im Admin-Bereich werden derzeit nur für diese Sitzung übernommen.")
+    _render_admin_feedback()
 
     # 0. HEADER MIT SYSTEM-CHECK
     actions = [{"label": "System-Check", "type": "secondary"}]
@@ -515,7 +549,10 @@ def render_admin_page(
                     if st.form_submit_button(submit_label, use_container_width=True):
                         runtime_settings.api2_firing_mode = api2_mode
                         settings_service.save(runtime_settings)
-                        st.success("Konfiguration gespeichert." if persistence_available else "Konfiguration für diese Sitzung übernommen.")
+                        _push_admin_feedback(
+                            "success",
+                            "Konfiguration gespeichert." if persistence_available else "Konfiguration für diese Sitzung übernommen.",
+                        )
                         st.rerun()
 
             with col_scheduler:
@@ -531,7 +568,10 @@ def render_admin_page(
                         runtime_settings.auto_import_interval_minutes = auto_interval
                         runtime_settings.auto_import_on_start = auto_on_start
                         settings_service.save(runtime_settings)
-                        st.success("Scheduler-Einstellungen gespeichert." if persistence_available else "Scheduler-Einstellungen für diese Sitzung übernommen.")
+                        _push_admin_feedback(
+                            "success",
+                            "Scheduler-Einstellungen gespeichert." if persistence_available else "Scheduler-Einstellungen für diese Sitzung übernommen.",
+                        )
                         st.rerun()
                 
                 # Scheduler Status
@@ -598,6 +638,8 @@ def render_admin_page(
                         st.balloons()
                     except Exception as e:
                         st.error(_humanize_import_error(e))
+                        with st.expander("Technische Details", expanded=False):
+                            st.code(str(e), language="text")
 
     # 3. SYNC STATUS TAB
     with tab_sync:
@@ -635,8 +677,11 @@ def render_admin_page(
             ):
                 with st.spinner("Repariere Schema..."):
                     success, msg = admin_service.rebuild_mysql_schema()
-                    if success: st.success(msg)
-                    else: st.error(msg)
+                    if success:
+                        _push_admin_feedback("success", msg)
+                    else:
+                        _push_admin_feedback("error", "Schema-Reparatur fehlgeschlagen.", msg)
+                    st.rerun()
             
             if st.button(
                 "TR-Universum aktualisieren",
@@ -646,8 +691,11 @@ def render_admin_page(
             ):
                 with st.spinner("Aktualisiere TR-Universum..."):
                     success, msg = admin_service.refresh_tr_universe()
-                    if success: st.success(msg)
-                    else: st.warning(msg)
+                    if success:
+                        _push_admin_feedback("success", msg)
+                    else:
+                        _push_admin_feedback("warning", "TR-Universum konnte nicht vollständig aktualisiert werden.", msg)
+                    st.rerun()
         
         with c2:
             st.markdown("#### Gefahrenzone")

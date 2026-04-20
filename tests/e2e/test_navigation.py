@@ -54,7 +54,7 @@ def test_trades_page_accessible(mercator_page: Page) -> None:
 def test_companies_page_accessible(mercator_page: Page) -> None:
     navigate_to_page(mercator_page, "Unternehmen")
     _page_shows_warning_not_crash(mercator_page)
-    expect(mercator_page.locator("h1").first).to_be_visible(timeout=ACTION_TIMEOUT)
+    expect(mercator_page.get_by_role("heading", name="Unternehmen", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
 
 
 @pytest.mark.navigation
@@ -91,3 +91,18 @@ def test_header_and_sidebar_navigation_controls_visible(mercator_page: Page) -> 
 
     sidebar = mercator_page.locator('[data-testid="stSidebar"]')
     expect(sidebar.get_by_text("Verwaltung & Hilfe", exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
+
+
+@pytest.mark.navigation
+def test_header_sidebar_header_switch_stays_stable(mercator_page: Page) -> None:
+    navigate_to_page(mercator_page, "Admin")
+    _page_shows_warning_not_crash(mercator_page)
+    expect(mercator_page.get_by_role("heading", name="Admin", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
+
+    navigate_to_page(mercator_page, "Trades")
+    _page_shows_warning_not_crash(mercator_page)
+    expect(mercator_page.get_by_role("heading", name="Trades", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
+
+    navigate_to_page(mercator_page, "Einstellungen")
+    _page_shows_warning_not_crash(mercator_page)
+    expect(mercator_page.get_by_role("heading", name="Einstellungen", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)

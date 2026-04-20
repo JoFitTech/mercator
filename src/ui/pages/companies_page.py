@@ -5,7 +5,13 @@ import pandas as pd
 import streamlit as st
 from src.db.repositories.company_repository import CompanyMySqlRepository
 from src.services.database_status_service import DatabaseStatus
-from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
+from src.ui.components.page_scaffold import (
+    render_page_header,
+    render_empty_state,
+    render_kpi_row,
+    safe_service_call,
+    summarize_filters,
+)
 
 def render_companies_page(repository: CompanyMySqlRepository | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Unternehmens-Übersicht."""
@@ -16,12 +22,15 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
 
     # 1. Daten laden (nur aktive Firmen laut Requirement 6.1)
     with st.spinner("Lade Unternehmen..."):
-        try:
-            companies = repository.list_active_companies(limit=1000)
-            df = pd.DataFrame(companies)
-        except Exception as e:
-            st.error(f"Fehler beim Laden der Unternehmen: {e}")
+        companies, error = safe_service_call(
+            lambda: repository.list_active_companies(limit=1000),
+            context_label="Unternehmensdaten",
+            fallback=[],
+        )
+        if error is not None:
+            st.warning("Unternehmen konnten nicht geladen werden. Bitte später erneut versuchen.")
             return
+        df = pd.DataFrame(companies)
 
     if df.empty:
         render_empty_state("Keine Unternehmen mit Trades gefunden.")
@@ -36,11 +45,18 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
 
     # 3. Filter (Suche)
     search = st.text_input("Unternehmen suchen (Name oder Symbol)", help="Filtert die untenstehende Tabelle.")
+    summarize_filters("Aktive Filter", {"Suche": search.strip()})
     if search:
         df = df[
             (df["company_name"].str.contains(search, case=False, na=False)) |
             (df["current_symbol"].str.contains(search, case=False, na=False))
         ]
+    unresolved_count = int(df.get("profile_status", pd.Series(dtype="object")).fillna("").astype(str).str.upper().ne("FETCHED").sum()) if "profile_status" in df.columns else 0
+    if unresolved_count > 0:
+        st.warning(
+            f"Unvollständige Profile: {unresolved_count} Unternehmen ohne vollständiges API2-Profil. "
+            "Diese Einträge bleiben sichtbar und können trotzdem analysiert werden."
+        )
 
     # 4. Tabelle (Requirement 6.3)
     st.subheader("Unternehmens-Verzeichnis")
