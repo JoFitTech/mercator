@@ -38,12 +38,12 @@ def render_page_header(title: str, subtitle: str | None = None, actions: list[di
 
 def render_kpi_row(kpis: list[dict]) -> None:
     """Rendert eine Reihe von KPIs in konsistenten Karten.
-    
-    Das Styling erfolgt primär über globales CSS in streamlit_app.py.
+
+    Optional kann pro KPI ein ``subtext`` übergeben werden.
     """
     if not kpis:
         return
-        
+
     n = len(kpis)
     cols = st.columns(n)
     for i, kpi in enumerate(kpis):
@@ -54,6 +54,9 @@ def render_kpi_row(kpis: list[dict]) -> None:
                 delta=kpi.get("delta"),
                 help=kpi.get("help")
             )
+            subtext = kpi.get("subtext")
+            if subtext:
+                st.caption(subtext)
 
 
 def render_loading_state() -> None:

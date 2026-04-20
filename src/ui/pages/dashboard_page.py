@@ -1,19 +1,23 @@
-"""Dashboard-Seite als reine Overview-Seite (Requirement 3)."""
+"""Dashboard-Seite als signalorientierte Overview-Seite."""
 
 from __future__ import annotations
-import pandas as pd
-import streamlit as st
+
 from datetime import date, timedelta
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
 from src.config.settings import AppSettings
 from src.services.app_settings_service import AppSettingsService
-from src.services.database_status_service import DatabaseStatus
 from src.services.dashboard_service import DashboardService
+from src.services.database_status_service import DatabaseStatus
 from src.services.import_service import ImportService
-from src.ui.components.context_bar import render_filter_chip_bar, render_status_bar
 from src.ui.components.page_scaffold import render_kpi_row, render_page_header
+from src.ui.components.tables import render_dashboard_top_table
+
 
 def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[date, ...]) -> dict[str, date | None]:
-    """Normalisiert den Dashboard-Zeitraum robust in ``date_from``/``date_to``."""
     if isinstance(date_range, tuple | list):
         date_from = date_range[0] if len(date_range) > 0 else None
         date_to = date_range[1] if len(date_range) > 1 else date_from
@@ -23,8 +27,10 @@ def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[
     return {"date_from": date_from, "date_to": date_to}
 
 
+
+
 def _format_period_label(filters: dict[str, date | None]) -> str:
-    """Formatiert einen stabilen Zeitraum ohne `None`-Artefakte."""
+    """Formatiert Zeitraum stabil im deutschen Datumsformat."""
     date_from = filters.get("date_from")
     date_to = filters.get("date_to")
     if date_from and date_to:
@@ -37,9 +43,82 @@ def _format_period_label(filters: dict[str, date | None]) -> str:
 
 
 def _navigate_to_trades() -> None:
-    """Setzt deterministisch das Navigationsziel und triggert einen Rerun."""
+    """Legacy-Helfer für bestehende Tests/Navigation."""
     st.session_state["nav_target"] = "Trades"
     st.rerun()
+
+def _fmt_currency(value: float | int | None) -> str:
+    if value is None:
+        return "$0"
+    return f"${float(value):,.0f}"
+
+
+def _navigate_to_trade(dedupe_key: str | None) -> None:
+    if not dedupe_key:
+        st.warning("Trade-Schlüssel fehlt für die Navigation.")
+        return
+    st.session_state["selected_trade_key"] = dedupe_key
+    st.session_state["nav_target"] = "Trade-Detail"
+    st.rerun()
+
+
+def _navigate_to_company(symbol: str | None) -> None:
+    if not symbol:
+        st.warning("Symbol fehlt für die Navigation.")
+        return
+    st.session_state["selected_company_symbol"] = symbol
+    st.session_state["nav_target"] = "Unternehmens-Detail"
+    st.rerun()
+
+
+def _render_missing_profile_actions(payload: dict, import_service: ImportService | None) -> None:
+    missing_summary = payload.get("missing_data_summary", {})
+    reasons_by_symbol = missing_summary.get("reasons_by_symbol", {})
+    if not reasons_by_symbol:
+        return
+
+    st.markdown("#### Fehlende Profilinformationen")
+    for symbol, reasons in reasons_by_symbol.items():
+        col1, col2 = st.columns([0.9, 0.1], vertical_alignment="center")
+        with col1:
+            st.caption(f"**{symbol}:** {', '.join(reasons)}")
+        with col2:
+            if st.button("↻", key=f"refresh_profile_{symbol}", help=f"API2-Profil für {symbol} neu laden", use_container_width=True):
+                if import_service is None:
+                    st.warning("Reload aktuell nicht verfügbar (ImportService fehlt).")
+                    continue
+                result = import_service.refresh_company_profile_for_symbol(symbol)
+                if result.get("ok"):
+                    st.toast(result.get("message", "Profil aktualisiert."), icon="✅")
+                    st.rerun()
+                else:
+                    st.warning(result.get("message", "Profil-Reload fehlgeschlagen."))
+
+
+def _render_top_list(title: str, df: pd.DataFrame, table_key: str, side: str) -> None:
+    st.markdown(f"#### {title}")
+    event = render_dashboard_top_table(df, key=table_key)
+    if not event or not event.get("selection") or not event["selection"].get("rows"):
+        return
+
+    selected_idx = int(event["selection"]["rows"][0])
+    if selected_idx < 0 or selected_idx >= len(df):
+        return
+
+    selected_row = df.iloc[selected_idx]
+    symbol = selected_row.get("symbol_at_trade")
+    dedupe_key = selected_row.get("dedupe_key")
+
+    if selected_row.get("profile_status") != "FETCHED":
+        st.caption("Profil fehlt / unvollständig: API2 nicht geladen oder unvollständig.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Trade öffnen", key=f"open_trade_{side}", use_container_width=True):
+            _navigate_to_trade(dedupe_key)
+    with c2:
+        if st.button("Unternehmen öffnen", key=f"open_company_{side}", use_container_width=True):
+            _navigate_to_company(symbol)
 
 
 def render_dashboard_page(
@@ -49,98 +128,137 @@ def render_dashboard_page(
     runtime_settings_service: AppSettingsService | None = None,
     db_status: DatabaseStatus | None = None,
 ) -> None:
-    """Rendert das Dashboard als reinen Marktüberblick."""
     if service is None:
-        st.warning(
-            "Dashboard derzeit nicht verfügbar, da MySQL nicht erreichbar ist. "
-            "Bitte nutzen Sie Methodik oder Einstellungen im Lesemodus."
-        )
+        st.warning("Dashboard derzeit nicht verfügbar, da MySQL nicht erreichbar ist.")
         return
 
-    # 1. Header (kein Import mehr hier)
-    # Requirement 5.6: render_page_header ist verpflichtend.
-    render_page_header("Markt-Dashboard", "Zusammenfassung der Insider-Aktivitäten.")
-    
-    # 2. Zeitraum / Context (Requirement 2.1: transaction_date)
+    render_page_header("Markt-Dashboard", "Signalorientierter Überblick auf akkumulierter Basis.")
+
     if "dashboard_filters" not in st.session_state:
         st.session_state.dashboard_filters = {
             "date_range": (date.today() - timedelta(days=30), date.today())
         }
-    
+
     with st.container(border=True):
         date_range = st.date_input(
-            "Analyse-Zeitraum (basiert auf Transaktionsdatum)",
+            "Zeitraum",
             value=st.session_state.dashboard_filters["date_range"],
-            help="Filtert alle Metriken nach dem Datum des Insider-Trades."
+            format="DD.MM.YYYY",
         )
         st.session_state.dashboard_filters["date_range"] = date_range
 
     filters = _build_dashboard_filters(date_range)
 
-    # 3. Daten laden
-    with st.spinner("Lade Übersicht..."):
+    with st.spinner("Lade Dashboard..."):
         payload = service.build_dashboard_payload(filters=filters)
 
-    # Requirement 5.7: Spezialisierte Komponenten statt generischer context_bar
-    period_label = _format_period_label(filters)
-    render_filter_chip_bar(active_filters={"Zeitraum": period_label})
-    st.caption(f"Alle Kennzahlen und Diagramme berücksichtigen nur Trades im Zeitraum: {period_label}.")
-    render_status_bar(last_update=payload.get("last_update"))
-
-    # 4. KPI-Bereich
-    st.markdown("#### Kennzahlen (Dashboard-Valide Trades)")
     kpis = [
-        {"label": "Trades im Zeitraum", "value": str(payload.get("scoped_trades_count", 0)), "help": "Alle Trades im aktuell gewählten Zeitraum."},
-        {"label": "Dashboard-valide", "value": str(payload.get("valid_trades_count", 0)), "help": "Trades, die alle Dashboard-Kriterien erfüllen."},
-        {"label": "Gate PASS", "value": str(payload.get("gate_passed_count", 0)), "help": "Anzahl Trades mit Gate-Status PASS."},
-        {"label": "Gesamtvolumen (valide)", "value": f"${payload.get('total_volume', 0):,.0f}", "help": "Summe des Volumens dashboard-valider Trades."},
+        {"label": "Buy/Sell Verhältnis (Anzahl)", "value": payload.get("kpi_buy_sell_ratio_count", "0:0")},
+        {"label": "Buy/Sell Verhältnis (Volumen)", "value": payload.get("kpi_buy_sell_ratio_volume", "0:0")},
+        {
+            "label": "Relevante Trades im Zeitraum",
+            "value": str(payload.get("kpi_relevant_trades_count", 0)),
+            "subtext": f"Gate PASS: {payload.get('gate_passed_count', 0)}",
+        },
+        {
+            "label": "Betroffene Unternehmen",
+            "value": str(payload.get("kpi_affected_companies_count", 0)),
+            "subtext": (
+                f"Profile vorhanden: {payload.get('fetched_profiles_count', 0)} / "
+                f"Fehlend: {payload.get('missing_profiles_count', 0)}"
+            ),
+        },
+        {"label": "Größter Buy", "value": _fmt_currency(payload.get("kpi_largest_buy_value", 0))},
+        {"label": "Größter Sell", "value": _fmt_currency(payload.get("kpi_largest_sell_value", 0))},
     ]
     render_kpi_row(kpis)
 
-    # 5. Diagramm-Bereich
+    buy_sector_df = payload.get("sector_distribution_buy", pd.DataFrame())
+    sell_sector_df = payload.get("sector_distribution_sell", pd.DataFrame())
+
     c1, c2 = st.columns(2)
     with c1:
-        st.subheader("Sektor-Verteilung")
-        st.caption("Top-Sektoren der BUY-Transaktionen im gewählten Zeitraum.")
-        df_buy = payload.get("sector_distribution_buy", pd.DataFrame())
-        if not df_buy.empty:
-            st.markdown("**Top BUY Sektoren**")
-            st.bar_chart(df_buy.set_index("sector")["count"].head(5))
+        st.markdown("#### Buy-Sektoren-Verteilung")
+        if buy_sector_df.empty:
+            st.info("Keine BUY-Daten im Zeitraum.")
+        else:
+            fig_buy = px.pie(
+                buy_sector_df,
+                names="sector",
+                values="count",
+                title=None,
+                hover_data=["volume"],
+            )
+            st.plotly_chart(fig_buy, use_container_width=True)
+        st.caption(f"Gesamt Buy Volumen: {_fmt_currency(payload.get('total_buy_volume', 0))}")
+
     with c2:
-        st.subheader("Marktaktivität")
-        st.caption("Zeitverlauf der BUY/SELL-Anzahl im gewählten Zeitraum.")
-        df_activity = payload.get("timeline_distribution", pd.DataFrame())
-        if not df_activity.empty:
-            pivot = df_activity.pivot(index="event_date", columns="direction", values="count").fillna(0)
-            st.line_chart(pivot)
+        st.markdown("#### Sell-Sektoren-Verteilung")
+        if sell_sector_df.empty:
+            st.info("Keine SELL-Daten im Zeitraum.")
+        else:
+            fig_sell = px.pie(
+                sell_sector_df,
+                names="sector",
+                values="count",
+                title=None,
+                hover_data=["volume"],
+            )
+            st.plotly_chart(fig_sell, use_container_width=True)
+        st.caption(f"Gesamt Sell Volumen: {_fmt_currency(payload.get('total_sell_volume', 0))}")
 
-    # 6. Vorschau (Requirement 3.5)
-    st.markdown("---")
-    st.subheader("Letzte 10 Insider-Aktivitäten (akkumuliert)")
-    preview_df = payload.get("preview_trades", pd.DataFrame())
-    if preview_df.empty:
-        st.info("Keine aktuellen Aktivitäten im Zeitraum.")
+    st.markdown("#### Netto-Sektor-Signal")
+    net_sector_signal = payload.get("net_sector_signal", pd.DataFrame())
+    if net_sector_signal.empty:
+        st.info("Kein Netto-Sektor-Signal verfügbar.")
     else:
-        # Spaltenbereinigung
-        p_df = preview_df.copy()
-        for col in ["symbol_at_trade", "reporting_name", "acquisition_or_disposition", "accumulated_trade_value_estimated", "score", "accumulation_start_date"]:
-            if col not in p_df.columns: p_df[col] = None
-
-        display_cols = ["symbol_at_trade", "reporting_name", "acquisition_or_disposition", "accumulated_trade_value_estimated", "score", "accumulation_start_date"]
-        st.dataframe(
-            p_df[display_cols],
-            column_config={
-                "symbol_at_trade": "Symbol",
-                "reporting_name": "Insider",
-                "acquisition_or_disposition": "Richtung",
-                "accumulated_trade_value_estimated": st.column_config.NumberColumn("Wert", format="$%d"),
-                "score": st.column_config.NumberColumn("Score", format="%.0f"),
-                "accumulation_start_date": st.column_config.DateColumn("Datum", format="DD.MM.YY")
-            },
-            use_container_width=True,
-            hide_index=True
+        chart_df = net_sector_signal.copy()
+        chart_df["signal_label"] = chart_df["delta"].apply(lambda x: f"{x:+.0f}")
+        fig_net = px.bar(
+            chart_df,
+            x="delta",
+            y="sector",
+            orientation="h",
+            color="delta",
+            color_continuous_scale=["#d9534f", "#f0ad4e", "#5cb85c"],
+            hover_data=["buy_count", "sell_count", "buy_volume", "sell_volume"],
         )
+        fig_net.update_traces(text=chart_df["signal_label"], textposition="outside")
+        st.plotly_chart(fig_net, use_container_width=True)
 
-    # 7. CTA
-    if st.button("Zur operativen Trades-Arbeitsfläche", type="primary", use_container_width=True, key="dashboard_to_trades_cta"):
-        _navigate_to_trades()
+    st.markdown("#### Market-Cap-Verteilung")
+    market_cap_df = payload.get("market_cap_distribution", pd.DataFrame())
+    if market_cap_df.empty:
+        st.info("Keine Market-Cap-Daten verfügbar.")
+    else:
+        fig_market_cap = px.bar(
+            market_cap_df,
+            x="companies",
+            y="bucket",
+            orientation="h",
+            text="companies",
+            color="bucket",
+        )
+        fig_market_cap.update_layout(showlegend=False)
+        st.plotly_chart(fig_market_cap, use_container_width=True)
+
+    _render_missing_profile_actions(payload, import_service)
+
+    top_buys = payload.get("top_buys", pd.DataFrame())
+    top_sells = payload.get("top_sells", pd.DataFrame())
+
+    if "trade_date" in top_buys.columns:
+        top_buys = top_buys.copy()
+        top_buys["trade_date"] = pd.to_datetime(top_buys["trade_date"], errors="coerce")
+    if "trade_date" in top_sells.columns:
+        top_sells = top_sells.copy()
+        top_sells["trade_date"] = pd.to_datetime(top_sells["trade_date"], errors="coerce")
+
+    b1, b2 = st.columns(2)
+    with b1:
+        _render_top_list("Top 5 Buys", top_buys, table_key="dashboard_top_buys", side="buy")
+    with b2:
+        _render_top_list("Top 5 Sells", top_sells, table_key="dashboard_top_sells", side="sell")
+
+    if payload.get("last_update"):
+        st.caption(f"Letzte Datenaktualisierung: {payload['last_update']}")

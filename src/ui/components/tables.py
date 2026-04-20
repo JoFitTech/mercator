@@ -8,8 +8,8 @@ import streamlit as st
 
 
 def render_smart_table(
-    df: pd.DataFrame, 
-    column_config: dict | None = None, 
+    df: pd.DataFrame,
+    column_config: dict | None = None,
     height: int = 500,
     selection_mode: str = "single-row",
     on_select: str = "ignore"
@@ -40,7 +40,7 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
 
     # Spaltenpriorität gemäß Spec:
     # 1. Symbol, 2. Insider, 3. Richtung, 4. Value, 5. Score, 6. Date
-    
+
     # Defensive Kopie, damit Seitenzustände nicht durch Nebenwirkungen mutiert werden.
     df = df.copy().reset_index(drop=True)
 
@@ -55,7 +55,7 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         "symbol_at_trade", "reporting_name", "direction", "sector",
         "trade_value_estimated", "score", "gate_status", "validation_status", "transaction_date"
     ]
-    
+
     # Sicherstellen dass Spalten existieren
     for col in all_cols:
         if col not in df.columns:
@@ -76,7 +76,7 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         "validation_status": st.column_config.TextColumn("Validierungsstatus", width="small"),
         "transaction_date": st.column_config.DateColumn("Datum", width="small", format="DD.MM.YY"),
     }
-    
+
     return st.dataframe(
         df[all_cols],
         column_order=visible_cols,
@@ -85,5 +85,41 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         hide_index=True,
         height=height,
         on_select=on_select,
+        selection_mode="single-row",
+    )
+
+
+def render_dashboard_top_table(df: pd.DataFrame, key: str, height: int = 260) -> Any:
+    """Kompakte Top-Tabellen mit Row-Selection für das Dashboard."""
+    if df.empty:
+        st.info("Keine Einträge im gewählten Zeitraum.")
+        return None
+
+    work = df.copy().reset_index(drop=True)
+    if "trade_date" not in work.columns:
+        work["trade_date"] = None
+
+    col_config = {
+        "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small"),
+        "reporting_name": st.column_config.TextColumn("Reporting Name", width="medium"),
+        "accumulated_trade_value_estimated": st.column_config.NumberColumn("Trade Value", format="$%d", width="small"),
+        "trade_date": st.column_config.DateColumn("Datum", format="DD.MM.YYYY", width="small"),
+        "profile_status": st.column_config.TextColumn("Profil", width="small"),
+    }
+
+    visible_cols = ["symbol_at_trade", "reporting_name", "accumulated_trade_value_estimated", "trade_date", "profile_status"]
+    for col in visible_cols:
+        if col not in work.columns:
+            work[col] = None
+
+    return st.dataframe(
+        work,
+        key=key,
+        column_order=visible_cols,
+        column_config=col_config,
+        use_container_width=True,
+        hide_index=True,
+        height=height,
+        on_select="rerun",
         selection_mode="single-row",
     )

@@ -1,6 +1,9 @@
-"""Dashboard-Service für KPIs und Diagrammdaten."""
+"""Dashboard-Service für eine signalorientierte Overview-Seite."""
 
 from __future__ import annotations
+
+from datetime import date
+from typing import Any
 
 import pandas as pd
 
@@ -10,8 +13,11 @@ from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
 from src.services.accumulation_service import AccumulationService
 
 
+UNKNOWN_PROFILE_LABEL = "Unknown / API2 fehlt"
+
+
 class DashboardService:
-    """Erzeugt Dashboard-Kennzahlen aus MongoDB und MySQL."""
+    """Erzeugt Dashboard-Kennzahlen und Chartdaten auf akkumulierter Basis."""
 
     def __init__(
         self,
@@ -25,308 +31,350 @@ class DashboardService:
         self.trade_repo = trade_repo
         self.company_repo = company_repo
 
-    def build_dashboard_payload(self, filters: dict | None = None) -> dict:
-        """Liefert KPIs und vorbereitete DataFrames für Charts basierend auf Filtern."""
-        filters = filters or {}
-        
-        # WICHTIG: Wir erzwingen dashboard_valid = True NICHT mehr auf Query-Ebene,
-        # damit wir auch invalide Trades für die Diagnose im Scope haben.
-        if "dashboard_valid" in filters:
-            del filters["dashboard_valid"]
-            
+    def build_dashboard_payload(self, filters: dict | None = None) -> dict[str, Any]:
+        """Liefert alle Dashboard-Daten in einem stabilen Payload."""
+        filters = dict(filters or {})
+        filters.pop("dashboard_valid", None)
+
         try:
-            # Dashboard braucht Company-Felder (sector, industry, market_cap) für Aggregation.
-            # Daher verwenden wir fetch_trades_enriched_with_company für korrektes Chart-Rendering.
-            trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=10000, filters=filters)
+            trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=20_000, filters=filters)
         except Exception:
             trades_df = pd.DataFrame()
-            
-        # Grundlegende Bereinigung/Transformation des DataFrames
-        trades_df = self._prepare_dataframe(trades_df)
 
-        # Subsets bilden
-        valid_df = pd.DataFrame()
-        invalid_df = pd.DataFrame()
-        
-        if not trades_df.empty:
-            valid_df = trades_df[trades_df["dashboard_valid"] == True].copy()
-            invalid_df = trades_df[trades_df["dashboard_valid"] == False].copy()
+        prepared_df = self._prepare_dataframe(trades_df)
+        core_df = self._build_accumulated_core_df(prepared_df)
 
-        # KPIs berechnen (basierend auf valid_df und all_df)
-        kpis = self._compute_kpis(valid_df, trades_df)
+        kpis = self._compute_dashboard_kpis(core_df, prepared_df)
+        sector_pies = self._build_sector_pies(core_df)
+        net_signal = self._build_net_sector_signal(core_df)
+        market_caps = self._build_market_cap_distribution(core_df)
+        top_tables = self._build_top_tables(core_df)
+        missing_summary = self._build_missing_data_summary(core_df)
 
-        # Diagrammdaten vorbereiten (basierend auf valid_df)
-        charts = self._prepare_charts(valid_df)
-        
-        # Diagnose-Infos
-        diagnostics = self._compute_diagnostics(trades_df, valid_df, invalid_df, filters)
-
-        # NEU: Kleine feste Vorschau der letzten 10 Trades (akkumuliert)
-        preview_trades = self._get_preview_trades(trades_df)
-
-        payload = {
+        payload: dict[str, Any] = {
             **kpis,
-            **charts,
-            **diagnostics,
-            "trades_all_scoped": trades_df,
-            "trades_valid": valid_df,
-            "trades_invalid": invalid_df,
-            "preview_trades": preview_trades,
-            "last_update": self._get_last_update_str(trades_df),
+            **sector_pies,
+            **net_signal,
+            **market_caps,
+            **top_tables,
+            **missing_summary,
+            "last_update": self._get_last_update_str(prepared_df),
         }
-        
         return payload
 
-    def _get_preview_trades(self, df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
-        """Erzeugt eine akkumulierte Vorschau der letzten Trades."""
-        if df.empty:
-            return pd.DataFrame()
-            
-        # Akkumulation nutzen (window_days=1 für "aufeinanderfolgende Tage")
-        # Laut Requirement 3.5: "aufeinanderfolgende Tage ... gleiche Person, gleiches Unternehmen, gleiche Richtung"
-        accumulated = AccumulationService.accumulate_trades(df, window_days=1)
-        
-        if accumulated.empty:
-            return pd.DataFrame()
-            
-        # Sortieren nach neuestem Datum
-        accumulated = accumulated.sort_values("accumulation_start_date", ascending=False)
-        
-        # Auf limit begrenzen
-        return accumulated.head(limit)
-
     def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Bereitet den DataFrame für die Dashboard-Logik vor."""
+        """Defensive Normalisierung für spätere Aggregation."""
         if df.empty:
-            return df
+            return pd.DataFrame()
 
-        # event_date erzeugen (transaction_date bevorzugt, sonst filing_date)
-        if "transaction_date" in df.columns:
-            df["event_date"] = pd.to_datetime(df["transaction_date"], errors="coerce").dt.date
-        elif "filing_date" in df.columns:
-            df["event_date"] = pd.to_datetime(df["filing_date"], errors="coerce").dt.date
-        else:
-            df["event_date"] = pd.NaT
+        working = df.copy()
 
-        # direction normalisieren
-        if "acquisition_or_disposition" in df.columns:
-            df["direction"] = (
-                df["acquisition_or_disposition"]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .str.upper()
-                .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
-                .fillna("UNKNOWN")
+        # Datumsfelder
+        if "transaction_date" not in working.columns:
+            working["transaction_date"] = pd.NaT
+        working["transaction_date"] = pd.to_datetime(working["transaction_date"], errors="coerce")
+
+        if "filing_date" not in working.columns:
+            working["filing_date"] = pd.NaT
+        working["filing_date"] = pd.to_datetime(working["filing_date"], errors="coerce")
+
+        # Symbol, Richtung, numerische Kernfelder
+        if "symbol_at_trade" not in working.columns:
+            working["symbol_at_trade"] = working.get("symbol")
+        working["symbol_at_trade"] = working["symbol_at_trade"].fillna("").astype(str).str.strip().str.upper()
+
+        if "acquisition_or_disposition" not in working.columns:
+            working["acquisition_or_disposition"] = ""
+        existing_direction = working.get("direction", pd.Series(index=working.index, dtype="object"))
+        mapped_direction = (
+            working["acquisition_or_disposition"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
+        )
+        fallback_direction = (
+            existing_direction.fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .map({"A": "BUY", "BUY": "BUY", "D": "SELL", "SELL": "SELL"})
+        )
+        working["direction"] = mapped_direction.fillna(fallback_direction).fillna("UNKNOWN")
+
+        for num_col in ("price", "qty", "trade_value_estimated", "market_cap"):
+            if num_col not in working.columns:
+                working[num_col] = pd.NA
+            working[num_col] = pd.to_numeric(working[num_col], errors="coerce")
+
+        if "score" not in working.columns and "score_value" in working.columns:
+            working["score"] = working["score_value"]
+        if "score" not in working.columns:
+            working["score"] = pd.NA
+        working["score"] = pd.to_numeric(working["score"], errors="coerce")
+
+        if "sector" not in working.columns:
+            working["sector"] = pd.NA
+        working["sector"] = working["sector"].fillna("").astype(str).str.strip()
+
+        if "profile_status" not in working.columns:
+            working["profile_status"] = "NOT_REQUESTED"
+        working["profile_status"] = working["profile_status"].fillna("NOT_REQUESTED").astype(str).str.upper()
+
+        if "gate_status" not in working.columns:
+            working["gate_status"] = "UNKNOWN"
+        working["gate_status"] = working["gate_status"].fillna("UNKNOWN").astype(str).str.upper()
+
+        if "reporting_name" not in working.columns:
+            working["reporting_name"] = ""
+        if "dedupe_key" not in working.columns:
+            working["dedupe_key"] = None
+        if "company_key" not in working.columns:
+            working["company_key"] = None
+
+        return working
+
+    def _build_accumulated_core_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Baut die akkumulierte Kernbasis für alle Dashboard-Sichten."""
+        if df.empty:
+            return pd.DataFrame()
+
+        core_mask = (
+            (df["symbol_at_trade"].astype(str).str.len() > 0)
+            & (df["price"].fillna(0) > 0)
+            & (df["qty"].fillna(0) > 0)
+            & (df["direction"].isin(["BUY", "SELL"]))
+        )
+        core_df = df[core_mask].copy()
+        if core_df.empty:
+            return pd.DataFrame()
+
+        grouped_df = AccumulationService.tag_trades_with_groups(core_df, window_days=1)
+        if grouped_df.empty or "accumulation_group_id" not in grouped_df.columns:
+            return pd.DataFrame()
+
+        grouped_df["sector_normalized"] = grouped_df["sector"].apply(self._normalize_sector)
+        grouped_df["market_cap_bucket"] = grouped_df["market_cap"].apply(self._market_cap_bucket)
+
+        aggregated = (
+            grouped_df.groupby("accumulation_group_id", dropna=False)
+            .agg(
+                symbol_at_trade=("symbol_at_trade", "first"),
+                reporting_name=("reporting_name", "first"),
+                company_key=("company_key", "first"),
+                dedupe_key=("dedupe_key", "first"),
+                direction=("direction", "first"),
+                gate_status=("gate_status", "first"),
+                profile_status=("profile_status", "first"),
+                sector=("sector_normalized", "first"),
+                market_cap_bucket=("market_cap_bucket", "first"),
+                market_cap=("market_cap", "max"),
+                accumulated_trade_count=("accumulation_group_id", "size"),
+                accumulated_trade_value_estimated=("trade_value_estimated", "sum"),
+                accumulated_qty=("qty", "sum"),
+                accumulation_start_date=("transaction_date", "min"),
+                accumulation_end_date=("transaction_date", "max"),
+                avg_score=("score", "mean"),
             )
-        else:
-            df["direction"] = "UNKNOWN"
+            .reset_index()
+        )
 
-        # trade_value_estimated sicherstellen
-        if "trade_value_estimated" not in df.columns:
-            df["trade_value_estimated"] = 0
-        df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce").fillna(0)
+        aggregated["trade_date"] = pd.to_datetime(aggregated["accumulation_start_date"], errors="coerce")
+        aggregated["has_profile"] = (
+            (aggregated["profile_status"] == "FETCHED")
+            | (~aggregated["sector"].eq(UNKNOWN_PROFILE_LABEL))
+            | (aggregated["market_cap"].notna())
+        )
+        return aggregated
 
-        # Score-Alias konsistent halten: Repository liefert je nach Pfad `score` oder `score_value`.
-        if "score_value" not in df.columns and "score" in df.columns:
-            df["score_value"] = df["score"]
-        if "score" not in df.columns and "score_value" in df.columns:
-            df["score"] = df["score_value"]
-        if "score_value" not in df.columns:
-            df["score_value"] = 0
-        df["score_value"] = pd.to_numeric(df["score_value"], errors="coerce")
+    def _compute_dashboard_kpis(self, core_df: pd.DataFrame, all_df: pd.DataFrame) -> dict[str, Any]:
+        gate_passed_count = int((all_df.get("gate_status", pd.Series(dtype="object")).astype(str).str.upper() == "PASS").sum()) if not all_df.empty else 0
 
-        # sector sicherstellen und normalisieren (kann NULL sein wenn LEFT JOIN keine Company findet)
-        if "sector" not in df.columns:
-            df["sector"] = None
-        df["sector"] = df["sector"].fillna("Unknown").astype(str).str.strip()
-        df.loc[df["sector"].isin(["", "None", "UNKNOWN", "N/A", "null"]), "sector"] = "Unknown"
+        all_avg_score = float(all_df["score"].mean()) if "score" in all_df.columns and not all_df["score"].dropna().empty else 0.0
 
-        # Dashboard Validity
-        if "dashboard_valid" not in df.columns:
-            # Fallback-Logik
-            df["dashboard_valid"] = df.apply(
-                lambda x: pd.notna(x.get("symbol")) and 
-                          pd.notna(x.get("price")) and x.get("price", 0) > 0 and
-                          pd.notna(x.get("qty")) and x.get("qty", 0) > 0 and
-                          x.get("direction") != "UNKNOWN" and
-                          pd.notna(x.get("sector")) and str(x.get("sector")).lower() not in ("unknown", "n/a", "", "none"),
-                axis=1
-            )
-        else:
-            # Sicherstellen dass es boolean ist
-            df["dashboard_valid"] = df["dashboard_valid"].astype(bool)
-
-        return df
-
-    def _compute_kpis(self, valid_df: pd.DataFrame, all_df: pd.DataFrame) -> dict:
-        """Berechnet Kennzahlen für das Dashboard-UI."""
-        if all_df.empty:
+        if core_df.empty:
             return {
-                "valid_trades_count": 0,
-                "gate_passed_count": 0,
-                "profile_count": 0,
-                "buy_quote": 0.0,
-                "sell_quote": 0.0,
-                "avg_score": 0.0,
-                "trades_today": 0,
-                "trades_7d": 0,
-                "trades_30d": 0,
-                "total_volume": 0.0,
+                "kpi_buy_sell_ratio_count": "0:0",
+                "kpi_buy_sell_ratio_volume": "0:0",
+                "kpi_relevant_trades_count": 0,
+                "kpi_affected_companies_count": 0,
+                "kpi_largest_buy_value": 0.0,
+                "kpi_largest_sell_value": 0.0,
+                "gate_passed_count": gate_passed_count,
+                "fetched_profiles_count": 0,
+                "missing_profiles_count": 0,
+                "avg_score": all_avg_score,
             }
 
-        gate_passed = all_df[all_df["gate_status"].astype(str).str.upper() == "PASS"].shape[0]
-        profiles = all_df[all_df["profile_status"].astype(str).str.upper() == "FETCHED"]["company_key"].nunique()
-        
-        # BUY / SELL Verteilung (auf validen Daten)
-        buy_trades = valid_df[valid_df["direction"] == "BUY"].shape[0]
-        sell_trades = valid_df[valid_df["direction"] == "SELL"].shape[0]
-        total_valid = valid_df.shape[0]
-        
-        buy_quote = (buy_trades / total_valid) if total_valid > 0 else 0.0
-        sell_quote = (sell_trades / total_valid) if total_valid > 0 else 0.0
-        
-        avg_score = valid_df["score_value"].mean() if not valid_df.empty else 0.0
-        total_volume = valid_df["trade_value_estimated"].sum() if not valid_df.empty else 0.0
+        buy_count = int((core_df["direction"] == "BUY").sum())
+        sell_count = int((core_df["direction"] == "SELL").sum())
 
-        # Zeitliche Aggregation (basierend auf all_df für Marktüberblick)
-        today = pd.Timestamp.now().date()
-        last_7d = today - pd.Timedelta(days=7)
-        last_30d = today - pd.Timedelta(days=30)
-        
-        trades_today = 0
-        trades_7d = 0
-        trades_30d = 0
-        
-        if "event_date" in all_df.columns:
-            # Sicherstellen dass event_date datetime-ähnlich ist für Vergleiche
-            ev_dates = pd.to_datetime(all_df["event_date"]).dt.date
-            trades_today = all_df[ev_dates == today].shape[0]
-            trades_7d = all_df[ev_dates >= last_7d].shape[0]
-            trades_30d = all_df[ev_dates >= last_30d].shape[0]
+        buy_volume = float(core_df.loc[core_df["direction"] == "BUY", "accumulated_trade_value_estimated"].sum())
+        sell_volume = float(core_df.loc[core_df["direction"] == "SELL", "accumulated_trade_value_estimated"].sum())
+
+        companies_df = core_df.drop_duplicates(subset=["symbol_at_trade"])
+        affected_companies_count = int(companies_df.shape[0])
+        fetched_profiles_count = int(companies_df["has_profile"].sum())
+        missing_profiles_count = int(affected_companies_count - fetched_profiles_count)
+
+        largest_buy = core_df.loc[core_df["direction"] == "BUY", "accumulated_trade_value_estimated"]
+        largest_sell = core_df.loc[core_df["direction"] == "SELL", "accumulated_trade_value_estimated"]
 
         return {
-            "valid_trades_count": total_valid,
-            "gate_passed_count": gate_passed,
-            "profile_count": profiles,
-            "buy_quote": buy_quote,
-            "sell_quote": sell_quote,
-            "avg_score": avg_score,
-            "trades_today": trades_today,
-            "trades_7d": trades_7d,
-            "trades_30d": trades_30d,
-            "total_volume": total_volume,
+            "kpi_buy_sell_ratio_count": f"{buy_count}:{sell_count}",
+            "kpi_buy_sell_ratio_volume": f"{buy_volume:,.0f}:{sell_volume:,.0f}",
+            "kpi_relevant_trades_count": int(core_df.shape[0]),
+            "kpi_affected_companies_count": affected_companies_count,
+            "kpi_largest_buy_value": float(largest_buy.max()) if not largest_buy.empty else 0.0,
+            "kpi_largest_sell_value": float(largest_sell.max()) if not largest_sell.empty else 0.0,
+            "gate_passed_count": gate_passed_count,
+            "fetched_profiles_count": fetched_profiles_count,
+            "missing_profiles_count": missing_profiles_count,
+            "avg_score": float(core_df["avg_score"].mean()) if "avg_score" in core_df.columns and not core_df["avg_score"].dropna().empty else all_avg_score,
         }
 
-    def _compute_diagnostics(self, all_df: pd.DataFrame, valid_df: pd.DataFrame, invalid_df: pd.DataFrame, filters: dict) -> dict:
-        """Berechnet Diagnosewerte und Gründe für fehlende Daten."""
-        
-        unresolved_sector_count = 0
-        missing_sector_count = 0
-        missing_price_count = 0
-        missing_qty_count = 0
-        unknown_direction_count = 0
-        
-        if not invalid_df.empty:
-            # Sektor Diagnose
-            if "sector_resolution_status" in invalid_df.columns:
-                unresolved_sector_count = invalid_df[invalid_df["sector_resolution_status"] == "UNRESOLVED"].shape[0]
-            
-            # Fehlende Sektoren (None, Empty, Unknown, N/A)
-            sector_vals = invalid_df["sector"].astype(str).str.lower()
-            missing_sector_count = invalid_df[
-                (invalid_df["sector"].isna()) | 
-                (sector_vals.isin(["", "none", "unknown", "n/a"]))
-            ].shape[0]
-            
-            # Preis/Menge
-            if "price" in invalid_df.columns:
-                missing_price_count = invalid_df[(invalid_df["price"].isna()) | (invalid_df["price"] <= 0)].shape[0]
-            if "qty" in invalid_df.columns:
-                missing_qty_count = invalid_df[(invalid_df["qty"].isna()) | (invalid_df["qty"] <= 0)].shape[0]
-                
-            # Richtung
-            unknown_direction_count = invalid_df[invalid_df["direction"] == "UNKNOWN"].shape[0]
+    def _build_sector_pies(self, core_df: pd.DataFrame) -> dict[str, Any]:
+        result = {
+            "sector_distribution_buy": pd.DataFrame(columns=["sector", "count", "volume"]),
+            "sector_distribution_sell": pd.DataFrame(columns=["sector", "count", "volume"]),
+            "total_buy_volume": 0.0,
+            "total_sell_volume": 0.0,
+        }
+        if core_df.empty:
+            return result
 
-        # Empty/Warning Reasons
-        empty_reason = None
-        warning_reason = None
-        
-        if all_df.empty:
-            date_from = filters.get("date_from")
-            date_to = filters.get("date_to")
-            
-            # Variante B: Zusatzdiagnose Zeitbereich in DB
-            extreme_dates = self.trade_repo.get_extreme_dates()
-            db_min = extreme_dates.get("min_date")
-            db_max = extreme_dates.get("max_date")
-            
-            if date_from and date_to:
-                empty_reason = f"Im Zeitraum {date_from} bis {date_to} wurden keine Trades gefunden."
-                if db_min and db_max:
-                    empty_reason += f" In der Datenbank sind jedoch Trades vom {db_min} bis {db_max} vorhanden."
-            else:
-                empty_reason = "Keine Trades im aktuellen Scope gefunden."
-                if db_min and db_max:
-                    empty_reason += f" Die Datenbank enthält Trades im Zeitraum {db_min} bis {db_max}."
-        elif valid_df.empty:
-            warning_reason = "Im aktuellen Scope sind Trades vorhanden, aber keine für das Dashboard validen Datensätze."
-            if unresolved_sector_count > 0 or missing_sector_count > 0:
-                warning_reason += " Häufigste Ursache: fehlende oder unresolved Sektorauflösung."
-            elif missing_price_count > 0 or missing_qty_count > 0:
-                warning_reason += " Häufigste Ursache: fehlende Preis- oder Mengeninformationen."
+        for direction, key in (("BUY", "sector_distribution_buy"), ("SELL", "sector_distribution_sell")):
+            scoped = core_df[core_df["direction"] == direction]
+            if scoped.empty:
+                continue
+            dist = (
+                scoped.groupby("sector", dropna=False)
+                .agg(count=("accumulation_group_id", "count"), volume=("accumulated_trade_value_estimated", "sum"))
+                .reset_index()
+                .sort_values("count", ascending=False)
+            )
+            result[key] = dist
+
+        result["total_buy_volume"] = float(core_df.loc[core_df["direction"] == "BUY", "accumulated_trade_value_estimated"].sum())
+        result["total_sell_volume"] = float(core_df.loc[core_df["direction"] == "SELL", "accumulated_trade_value_estimated"].sum())
+        return result
+
+    def _build_net_sector_signal(self, core_df: pd.DataFrame) -> dict[str, Any]:
+        empty = pd.DataFrame(columns=["sector", "buy_count", "sell_count", "delta", "buy_volume", "sell_volume"])
+        if core_df.empty:
+            return {"net_sector_signal": empty}
+
+        buy = (
+            core_df[core_df["direction"] == "BUY"]
+            .groupby("sector", dropna=False)
+            .agg(buy_count=("accumulation_group_id", "count"), buy_volume=("accumulated_trade_value_estimated", "sum"))
+        )
+        sell = (
+            core_df[core_df["direction"] == "SELL"]
+            .groupby("sector", dropna=False)
+            .agg(sell_count=("accumulation_group_id", "count"), sell_volume=("accumulated_trade_value_estimated", "sum"))
+        )
+        merged = buy.join(sell, how="outer").fillna(0).reset_index()
+        merged["delta"] = merged["buy_count"] - merged["sell_count"]
+        merged = merged.sort_values(["delta", "buy_count"], ascending=[False, False])
+        return {"net_sector_signal": merged}
+
+    def _build_market_cap_distribution(self, core_df: pd.DataFrame) -> dict[str, Any]:
+        base = pd.DataFrame(
+            {
+                "bucket": ["Small Cap (<2B)", "Mid Cap (2B-10B)", "Large Cap (>=10B)", UNKNOWN_PROFILE_LABEL],
+                "companies": [0, 0, 0, 0],
+            }
+        )
+        if core_df.empty:
+            return {"market_cap_distribution": base}
+
+        companies = core_df.sort_values("trade_date", ascending=False).drop_duplicates(subset=["symbol_at_trade"])
+        dist = companies.groupby("market_cap_bucket", dropna=False).size().reset_index(name="companies")
+        dist = dist.rename(columns={"market_cap_bucket": "bucket"})
+        merged = base.set_index("bucket").join(dist.set_index("bucket"), rsuffix="_new", how="left")
+        merged["companies"] = merged["companies_new"].fillna(merged["companies"]).astype(int)
+        merged = merged.drop(columns=["companies_new"]).reset_index()
+        return {"market_cap_distribution": merged}
+
+    def _build_top_tables(self, core_df: pd.DataFrame) -> dict[str, Any]:
+        if core_df.empty:
+            return {"top_buys": pd.DataFrame(), "top_sells": pd.DataFrame()}
+
+        display_cols = [
+            "dedupe_key",
+            "symbol_at_trade",
+            "reporting_name",
+            "accumulated_trade_value_estimated",
+            "trade_date",
+            "gate_status",
+            "profile_status",
+            "sector",
+            "market_cap_bucket",
+        ]
+
+        buys = core_df[core_df["direction"] == "BUY"].sort_values("accumulated_trade_value_estimated", ascending=False).head(5)
+        sells = core_df[core_df["direction"] == "SELL"].sort_values("accumulated_trade_value_estimated", ascending=False).head(5)
+        return {
+            "top_buys": buys[display_cols].reset_index(drop=True),
+            "top_sells": sells[display_cols].reset_index(drop=True),
+        }
+
+    def _build_missing_data_summary(self, core_df: pd.DataFrame) -> dict[str, Any]:
+        if core_df.empty:
+            return {"missing_data_summary": {"symbols_with_missing_profile": [], "reasons_by_symbol": {}}}
+
+        companies = core_df.sort_values("trade_date", ascending=False).drop_duplicates(subset=["symbol_at_trade"])
+
+        reasons_by_symbol: dict[str, list[str]] = {}
+        for _, row in companies.iterrows():
+            reasons: list[str] = []
+            if row.get("profile_status") not in {"FETCHED"}:
+                reasons.append("API2 nicht geladen")
+            if row.get("sector") == UNKNOWN_PROFILE_LABEL:
+                reasons.append("Sector fehlt")
+            if row.get("market_cap_bucket") == UNKNOWN_PROFILE_LABEL:
+                reasons.append("Market Cap fehlt")
+            if reasons:
+                reasons_by_symbol[str(row.get("symbol_at_trade"))] = reasons
 
         return {
-            "scoped_trades_count": all_df.shape[0],
-            "invalid_trades_count": invalid_df.shape[0],
-            "unresolved_sector_count": unresolved_sector_count,
-            "missing_sector_count": missing_sector_count,
-            "missing_price_count": missing_price_count,
-            "missing_qty_count": missing_qty_count,
-            "unknown_direction_count": unknown_direction_count,
-            "dashboard_empty_reason": empty_reason,
-            "dashboard_warning_reason": warning_reason
+            "missing_data_summary": {
+                "symbols_with_missing_profile": sorted(reasons_by_symbol.keys()),
+                "reasons_by_symbol": reasons_by_symbol,
+            }
         }
 
-    def _prepare_charts(self, valid_df: pd.DataFrame) -> dict:
-        """Bereitet Daten für die Diagramme vor."""
-        charts = {
-            "sector_distribution_buy": pd.DataFrame(),
-            "sector_distribution_sell": pd.DataFrame(),
-            "timeline_distribution": pd.DataFrame(),
-        }
-        
-        if valid_df.empty:
-            return charts
+    @staticmethod
+    def _normalize_sector(value: Any) -> str:
+        normalized = str(value or "").strip()
+        if normalized.lower() in {"", "none", "null", "n/a", "unknown"}:
+            return UNKNOWN_PROFILE_LABEL
+        return normalized
 
-        # 1. Sektor-Verteilung BUY
-        buy_df = valid_df[valid_df["direction"] == "BUY"]
-        if not buy_df.empty:
-            charts["sector_distribution_buy"] = (
-                buy_df.groupby("sector").size().reset_index(name="count")
-            )
-            
-        # 2. Sektor-Verteilung SELL
-        sell_df = valid_df[valid_df["direction"] == "SELL"]
-        if not sell_df.empty:
-            charts["sector_distribution_sell"] = (
-                sell_df.groupby("sector").size().reset_index(name="count")
-            )
+    @staticmethod
+    def _market_cap_bucket(value: Any) -> str:
+        market_cap = pd.to_numeric(value, errors="coerce")
+        if pd.isna(market_cap):
+            return UNKNOWN_PROFILE_LABEL
+        if market_cap < 2_000_000_000:
+            return "Small Cap (<2B)"
+        if market_cap < 10_000_000_000:
+            return "Mid Cap (2B-10B)"
+        return "Large Cap (>=10B)"
 
-        # 3. Zeitverlauf Activity (BUY/SELL getrennt)
-        if "event_date" in valid_df.columns:
-            charts["timeline_distribution"] = (
-                valid_df.groupby(["event_date", "direction"]).size().reset_index(name="count")
-            )
-            
-        return charts
-
-    def _get_last_update_str(self, df: pd.DataFrame) -> str | None:
-        """Ermittelt den letzten Update-Zeitpunkt."""
-        if df.empty or "event_date" not in df.columns:
+    @staticmethod
+    def _get_last_update_str(df: pd.DataFrame) -> str | None:
+        if df.empty:
             return None
-        
-        last_date = df["event_date"].max()
-        if pd.notna(last_date):
-            return last_date.strftime("%d.%m.%Y") if hasattr(last_date, "strftime") else str(last_date)
-        return None
+        if "transaction_date" not in df.columns:
+            return None
+        last_date = pd.to_datetime(df["transaction_date"], errors="coerce").max()
+        if pd.isna(last_date):
+            return None
+        if isinstance(last_date, pd.Timestamp):
+            last_date = last_date.date()
+        if isinstance(last_date, date):
+            return last_date.strftime("%d.%m.%Y")
+        return str(last_date)
