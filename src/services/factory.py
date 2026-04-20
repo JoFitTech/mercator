@@ -37,6 +37,8 @@ LOGGER = get_logger(__name__)
 class ServiceFactory:
     """Zentraler Ort zum Erstellen von Services als Instanzen (Dependency Injection Container)."""
 
+    last_import_issue: str | None = None
+
     def __init__(self, settings: AppSettings, mysql_client: MySqlClient | None, mongo_wrapper: MongoClientWrapper | None):
         self.settings = settings
         self.mysql_client = mysql_client
@@ -82,7 +84,6 @@ class ServiceFactory:
                     allowed_acquisition_or_disposition=tuple(policy.gate_allowed_acquisition_or_disposition),
                     excluded_transaction_types=tuple(policy.gate_excluded_transaction_types),
                     required_form_type=policy.gate_form_type_required,
-                    required_security_name=policy.gate_security_name_required,
                     required_validation_status=policy.gate_validation_status_required,
                 )
             )
@@ -138,14 +139,19 @@ class ServiceFactory:
         company_mongo_repo = CompanyMongoRepository(self.mongo_wrapper)
         
         runtime_settings = self.create_app_settings_service().load()
-        fmp_client = FmpClient(
-            replace(
-                self.settings.fmp,
-                profile_ttl_days=runtime_settings.profile_ttl_days,
-                lookup_mode=runtime_settings.lookup_mode,
-            ),
-            api_usage_service=self.create_api_usage_service()
-        )
+        try:
+            fmp_client = FmpClient(
+                replace(
+                    self.settings.fmp,
+                    profile_ttl_days=runtime_settings.profile_ttl_days,
+                    lookup_mode=runtime_settings.lookup_mode,
+                ),
+                api_usage_service=self.create_api_usage_service()
+            )
+        except Exception as exc:
+            ServiceFactory.last_import_issue = f"FMP-Konfiguration ungueltig: {exc}"
+            LOGGER.warning("ServiceFactory: ImportService deaktiviert. %s", ServiceFactory.last_import_issue)
+            return None
         
         # Optionale Enrichment-Provider (Alpha Vantage, Polygon) – nur wenn API-Key gesetzt.
         # Diese Provider sind KEIN MVP-Kern. FMP ist der primäre Datenprovider.
@@ -154,6 +160,7 @@ class ServiceFactory:
         av_client = AlphaVantageClient(av_key) if av_key else None
         poly_client = PolygonClient(poly_key) if poly_key else None
         enrichment_service = CompanyEnrichmentService(fmp_client, av_client, poly_client)
+        ServiceFactory.last_import_issue = None
 
         return ImportService(
             fmp_client=fmp_client,

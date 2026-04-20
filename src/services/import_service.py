@@ -22,6 +22,7 @@ from src.preprocessing.gate_evaluator import (
 )
 from src.services.scoring_service import ScoringService
 from src.preprocessing.cleaning import normalize_insider_trade
+from src.preprocessing.sector_normalizer import normalize_sector
 from src.services.trade_republic_universe_service import (
     TradeRepublicUniverseIngestionService,
     TradeRepublicUniverseMatchingService,
@@ -194,10 +195,25 @@ class ImportService:
                     ttl_days=self.fmp_client.config.profile_ttl_days,
                 )
                 if cached:
+                    cached_company = self._prepare_cached_company_profile(
+                        cached_profile=cached,
+                        symbol=symbol,
+                        company_key=company_key_str,
+                        fetched_at=fetched_at,
+                    )
                     profile_cache_hits += 1
+                    self.company_mongo_repo.upsert_profile(cached_company)
+                    if self.company_mysql_repo is not None:
+                        self.company_mysql_repo.upsert_company(cached_company)
                     for t in matching_trades:
-                        t["profile_status"] = "FETCHED"
+                        t["profile_status"] = cached_company.get("profile_status", "FETCHED")
                         t["profile_reason"] = "cache_hit"
+                        if cached_company.get("sector"):
+                            t["sector"] = cached_company.get("sector")
+                        if cached_company.get("sector_resolution_status"):
+                            t["sector_resolution_status"] = cached_company.get("sector_resolution_status")
+                        if cached_company.get("market_cap") is not None:
+                            t["market_cap"] = cached_company.get("market_cap")
                     continue
 
             try:
@@ -353,11 +369,69 @@ class ImportService:
             return {"ok": False, "message": f"Profil-Refresh für {normalized_symbol} fehlgeschlagen: {exc}", "symbol": normalized_symbol}
 
     @staticmethod
+    def _extract_market_cap(profile: dict[str, Any]) -> int | None:
+        """Liest Market Cap robust aus unterschiedlichen Provider-Feldnamen."""
+
+        for key in ("market_cap", "marketCap", "mktCap"):
+            raw_value = profile.get(key)
+            if raw_value in (None, ""):
+                continue
+            try:
+                return int(float(str(raw_value)))
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _prepare_cached_company_profile(
+        self,
+        cached_profile: dict[str, Any],
+        symbol: str,
+        company_key: str,
+        fetched_at: datetime,
+    ) -> dict[str, Any]:
+        """Normalisiert ein Mongo-Cache-Profil für MySQL-Sync und Re-Use im Import."""
+
+        company = dict(cached_profile)
+        company["company_key"] = company_key
+        company.setdefault("current_symbol", symbol)
+        company.setdefault("source_system", "fmp")
+        company.setdefault("sync_version", 1)
+        company.setdefault("created_at", fetched_at)
+        company["updated_at"] = fetched_at
+        company["last_seen_at"] = fetched_at
+        company.setdefault("profile_updated_at", fetched_at)
+
+        normalized_sector, method = normalize_sector(
+            company.get("sector") or company.get("sector_normalized") or company.get("sector_raw")
+        )
+        if normalized_sector:
+            company["sector"] = normalized_sector
+            company.setdefault("sector_raw", company.get("sector") or company.get("sector_normalized") or normalized_sector)
+            company["sector_normalized"] = normalized_sector
+            company["sector_resolution_status"] = "RESOLVED"
+            company.setdefault("sector_resolution_method", f"CACHE_{method}")
+            company.setdefault("sector_source", company.get("sector_source") or "CACHE")
+            company["profile_status"] = "FETCHED"
+            company.setdefault("profile_reason", "cache_hit")
+        else:
+            company["sector_resolution_status"] = str(company.get("sector_resolution_status") or "UNRESOLVED").upper()
+            company.setdefault("profile_status", "FAILED")
+            company.setdefault("profile_reason", "cache_hit_unresolved")
+
+        market_cap = self._extract_market_cap(company)
+        if market_cap is not None:
+            company["market_cap"] = market_cap
+
+        return company
+
+    @staticmethod
     def _normalize_company_profile(profile: dict, trade: dict[str, Any], fetched_at: datetime) -> dict:
         """Überführt FMP-Profilfelder in das Projektschema."""
 
         # Defensive Typ-Konvertierung für MySQL-Zielsäulen
         mkt_cap = profile.get("mktCap")
+        if mkt_cap is None:
+            mkt_cap = profile.get("marketCap")
         try:
             market_cap = int(float(str(mkt_cap))) if mkt_cap is not None else None
         except (ValueError, TypeError):

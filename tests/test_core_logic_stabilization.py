@@ -2,6 +2,8 @@ import pytest
 import pandas as pd
 from datetime import datetime, timezone
 from src.preprocessing.cleaning import normalize_insider_trade
+from src.models.company import Company
+from src.services.company_enrichment_service import CompanyEnrichmentService
 from src.services.import_service import ImportService
 from src.services.dashboard_service import DashboardService
 # P0.4: format_mcap ist jetzt in dataframe_utils (ticker_detail_page existiert nicht mehr)
@@ -44,6 +46,36 @@ def test_import_service_profile_mapping():
     assert isinstance(normalized["market_cap"], int)
     assert normalized["is_etf"] is True
     assert normalized["full_time_employees"] == "100000"
+
+
+def test_import_service_profile_mapping_accepts_market_cap_alias():
+    fetched_at = datetime.now(timezone.utc)
+    normalized = ImportService._normalize_company_profile(
+        {"symbol": "AAPL", "marketCap": 2500000000000},
+        trade={"company_key": "CIK:1", "company_cik": "1", "symbol": "AAPL", "first_seen_at": fetched_at},
+        fetched_at=fetched_at,
+    )
+
+    assert normalized["market_cap"] == 2500000000000
+
+
+def test_company_enrichment_uses_market_cap_alias_from_fmp():
+    service = CompanyEnrichmentService(fmp_client=None)  # type: ignore[arg-type]
+    company = Company(symbol="AAPL")
+
+    service._apply_fmp_data(
+        company,
+        {
+            "companyName": "Apple Inc.",
+            "sector": "Technology",
+            "industry": "Consumer Electronics",
+            "marketCap": 3200000000000,
+        },
+    )
+
+    assert company.market_cap == 3200000000000
+    assert company.sector == "Technology"
+    assert company.sector_resolution_status == "RESOLVED"
 
 def test_dashboard_gate_pass_kpi():
     # Mock repo with some trades (Dashboard nutzt fetch_trades_enriched_with_company)
@@ -151,3 +183,49 @@ def test_dashboard_accepts_score_alias_from_repository():
     )
     payload = service.build_dashboard_payload()
     assert payload["avg_score"] == 80.0
+
+
+def test_dashboard_uses_mongo_profile_when_mysql_join_is_missing():
+    class MockRepo:
+        def fetch_trades_enriched_with_company(self, limit=2000, filters=None):
+            return pd.DataFrame([
+                {
+                    "gate_status": "PASS",
+                    "symbol": "AAPL",
+                    "transaction_date": "2024-01-01",
+                    "profile_status": "NOT_REQUESTED",
+                    "company_key": "CIK:1",
+                    "price": 10.0,
+                    "qty": 10,
+                    "trade_value_estimated": 100.0,
+                    "acquisition_or_disposition": "A",
+                    "market_cap": None,
+                    "sector": None,
+                }
+            ])
+
+    class MockCompanyMongoRepo:
+        def get_profile(self, company_key: str):
+            if company_key == "CIK:1":
+                return {
+                    "company_key": "CIK:1",
+                    "profile_status": "FETCHED",
+                    "sector": "Technology",
+                    "marketCap": 1500000000,
+                }
+            return None
+
+    service = DashboardService(
+        raw_repo=None,
+        company_mongo_repo=MockCompanyMongoRepo(),
+        trade_repo=MockRepo(),
+        company_repo=MockRepo(),
+    )
+
+    payload = service.build_dashboard_payload()
+
+    assert not payload["sector_distribution_buy"].empty
+    assert payload["sector_distribution_buy"].iloc[0]["sector"] == "Technology"
+    assert payload["market_cap_distribution"].set_index("bucket").loc["Small Cap (<2B)", "companies"] == 1
+
+

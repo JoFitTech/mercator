@@ -219,17 +219,73 @@ def _test_failed(request: pytest.FixtureRequest) -> bool:
     return bool((rep_setup and rep_setup.failed) or (rep_call and rep_call.failed))
 
 
+_PAGE_ALIASES = {
+    "Overview": "Dashboard",
+    "Explorer": "Trades",
+    "Detailansicht": "Trade-Detail",
+}
+
+_HEADER_PAGES = {"Dashboard", "Trades", "Unternehmen"}
+_SIDEBAR_PAGES = {"Methodik", "Einstellungen", "Admin"}
+
+
+def _resolve_page_alias(page_title: str) -> str:
+    return _PAGE_ALIASES.get(page_title, page_title)
+
+
+def _click_first_visible(locators: list) -> bool:
+    for locator in locators:
+        try:
+            if locator.is_visible(timeout=1500):
+                locator.click()
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _expand_sidebar_management(page: Page) -> None:
+    sidebar = page.locator('[data-testid="stSidebar"]')
+    expander = sidebar.get_by_text("Verwaltung & Hilfe", exact=False).first
+    expander.wait_for(state="visible", timeout=ACTION_TIMEOUT)
+    expander.click()
+    page.wait_for_timeout(150)
+
+
 def navigate_to_page(page: Page, page_title: str) -> None:
     """
     Navigiert zu einer benannten Seite über die Streamlit-Navigation.
 
-    Sucht nach dem Nav-Link mit dem angegebenen Titel und klickt ihn.
+    Unterstützt die aktuelle Header-Button-Navigation sowie die Sidebar-Verwaltung.
     Wartet anschließend auf das Laden der Seite.
     """
-    nav_link = page.get_by_role("link", name=page_title)
-    nav_link.wait_for(state="visible", timeout=ACTION_TIMEOUT)
-    nav_link.click()
-    _wait_for_streamlit_ready(page)
+    resolved_title = _resolve_page_alias(page_title)
+
+    if resolved_title in _HEADER_PAGES:
+        clicked = _click_first_visible([
+            page.locator('[data-testid="stSegmentedControl"]').get_by_text(resolved_title, exact=False).first,
+            page.get_by_role("radio", name=resolved_title, exact=False).first,
+            page.get_by_role("button", name=resolved_title, exact=False).first,
+            page.get_by_text(resolved_title, exact=False).first,
+        ])
+        if not clicked:
+            raise AssertionError(f"Header-Navigation für '{resolved_title}' nicht gefunden.")
+        _wait_for_streamlit_ready(page)
+        return
+
+    if resolved_title in _SIDEBAR_PAGES:
+        _expand_sidebar_management(page)
+        sidebar = page.locator('[data-testid="stSidebar"]')
+        clicked = _click_first_visible([
+            sidebar.get_by_role("button", name=resolved_title, exact=False).first,
+            sidebar.get_by_text(resolved_title, exact=False).first,
+        ])
+        if not clicked:
+            raise AssertionError(f"Sidebar-Navigation für '{resolved_title}' nicht gefunden.")
+        _wait_for_streamlit_ready(page)
+        return
+
+    raise AssertionError(f"Navigation zu '{page_title}' wird von navigate_to_page nicht unterstützt.")
 
 
 def wait_for_no_streamlit_error(page: Page) -> None:

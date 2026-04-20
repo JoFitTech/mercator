@@ -5,13 +5,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pandas as pd
-<<<<<<< Updated upstream
-=======
-try:
-    import plotly.express as px
-except ModuleNotFoundError:
-    px = None
->>>>>>> Stashed changes
 import streamlit as st
 
 from src.config.settings import AppSettings
@@ -33,8 +26,6 @@ def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[
     return {"date_from": date_from, "date_to": date_to}
 
 
-
-
 def _format_period_label(filters: dict[str, date | None]) -> str:
     """Formatiert Zeitraum stabil im deutschen Datumsformat."""
     date_from = filters.get("date_from")
@@ -52,6 +43,7 @@ def _navigate_to_trades() -> None:
     """Legacy-Helfer für bestehende Tests/Navigation."""
     st.session_state["nav_target"] = "Trades"
     st.rerun()
+
 
 def _fmt_currency(value: float | int | None) -> str:
     if value is None:
@@ -198,20 +190,6 @@ def _render_top_list(title: str, df: pd.DataFrame, table_key: str, side: str) ->
             _navigate_to_company(symbol)
 
 
-def _show_plotly_fallback_notice() -> None:
-    """Zeigt einmalig einen Hinweis, wenn Plotly im Runtime-Environment fehlt."""
-
-    if px is not None:
-        return
-    if st.session_state.get("_plotly_fallback_notice_shown", False):
-        return
-    st.warning(
-        "`plotly` ist in dieser Laufzeitumgebung nicht installiert. "
-        "Charts werden als einfache Fallback-Darstellungen angezeigt."
-    )
-    st.session_state["_plotly_fallback_notice_shown"] = True
-
-
 def render_dashboard_page(
     service: DashboardService | None,
     import_service: ImportService | None = None,
@@ -222,8 +200,6 @@ def render_dashboard_page(
     if service is None:
         st.warning("Dashboard derzeit nicht verfügbar, da MySQL nicht erreichbar ist.")
         return
-
-    _show_plotly_fallback_notice()
 
     render_page_header("Markt-Dashboard", "Signalorientierter Überblick auf akkumulierter Basis.")
 
@@ -264,25 +240,7 @@ def render_dashboard_page(
         if buy_sector_df.empty:
             st.info("Keine BUY-Daten im Zeitraum.")
         else:
-<<<<<<< Updated upstream
             _render_sector_pie_chart(buy_sector_df)
-=======
-            if px is not None:
-                fig_buy = px.pie(
-                    buy_sector_df,
-                    names="sector",
-                    values="count",
-                    title=None,
-                    hover_data=["volume"],
-                )
-                st.plotly_chart(fig_buy, use_container_width=True)
-            else:
-                fallback_buy = buy_sector_df.copy()
-                if "sector" in fallback_buy.columns and "count" in fallback_buy.columns:
-                    st.bar_chart(fallback_buy.set_index("sector")["count"])
-                else:
-                    st.dataframe(fallback_buy, use_container_width=True)
->>>>>>> Stashed changes
         st.caption(f"Gesamt Buy Volumen: {_fmt_currency(payload.get('total_buy_volume', 0))}")
 
     with c2:
@@ -290,25 +248,7 @@ def render_dashboard_page(
         if sell_sector_df.empty:
             st.info("Keine SELL-Daten im Zeitraum.")
         else:
-<<<<<<< Updated upstream
             _render_sector_pie_chart(sell_sector_df)
-=======
-            if px is not None:
-                fig_sell = px.pie(
-                    sell_sector_df,
-                    names="sector",
-                    values="count",
-                    title=None,
-                    hover_data=["volume"],
-                )
-                st.plotly_chart(fig_sell, use_container_width=True)
-            else:
-                fallback_sell = sell_sector_df.copy()
-                if "sector" in fallback_sell.columns and "count" in fallback_sell.columns:
-                    st.bar_chart(fallback_sell.set_index("sector")["count"])
-                else:
-                    st.dataframe(fallback_sell, use_container_width=True)
->>>>>>> Stashed changes
         st.caption(f"Gesamt Sell Volumen: {_fmt_currency(payload.get('total_sell_volume', 0))}")
 
     st.markdown("#### Netto-Sektor-Signal")
@@ -316,51 +256,14 @@ def render_dashboard_page(
     if net_sector_signal.empty:
         st.info("Kein Netto-Sektor-Signal verfügbar.")
     else:
-<<<<<<< Updated upstream
         _render_net_sector_signal_chart(net_sector_signal)
-=======
-        chart_df = net_sector_signal.copy()
-        chart_df["signal_label"] = chart_df["delta"].apply(lambda x: f"{x:+.0f}")
-        if px is not None:
-            fig_net = px.bar(
-                chart_df,
-                x="delta",
-                y="sector",
-                orientation="h",
-                color="delta",
-                color_continuous_scale=["#d9534f", "#f0ad4e", "#5cb85c"],
-                hover_data=["buy_count", "sell_count", "buy_volume", "sell_volume"],
-            )
-            fig_net.update_traces(text=chart_df["signal_label"], textposition="outside")
-            st.plotly_chart(fig_net, use_container_width=True)
-        else:
-            if "sector" in chart_df.columns and "delta" in chart_df.columns:
-                st.bar_chart(chart_df.set_index("sector")["delta"])
-            st.dataframe(chart_df, use_container_width=True)
->>>>>>> Stashed changes
 
     st.markdown("#### Market-Cap-Verteilung")
     market_cap_df = payload.get("market_cap_distribution", pd.DataFrame())
     if market_cap_df.empty:
         st.info("Keine Market-Cap-Daten verfügbar.")
     else:
-<<<<<<< Updated upstream
         _render_market_cap_distribution_chart(market_cap_df)
-=======
-        if px is not None:
-            fig_market_cap = px.bar(
-                market_cap_df,
-                x="companies",
-                y="bucket",
-                orientation="h",
-                text="companies",
-                color="bucket",
-            )
-            fig_market_cap.update_layout(showlegend=False)
-            st.plotly_chart(fig_market_cap, use_container_width=True)
-        else:
-            st.dataframe(market_cap_df, use_container_width=True)
->>>>>>> Stashed changes
 
     _render_missing_profile_actions(payload, import_service)
 

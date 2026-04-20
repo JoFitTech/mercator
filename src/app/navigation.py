@@ -1,19 +1,23 @@
 """Navigations-Logik für Mercator (Requirement 5.1)."""
 
 from __future__ import annotations
-import streamlit as st
 from typing import Literal
+
+import streamlit as st
 
 # Typer-Definition für Seiten
 PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Methodik", "Trade-Detail", "Unternehmens-Detail"]
 
-NAV_OPTIONS: dict[str, str] = {
-    "Dashboard": "Dashboard",
-    "Trades": "Trades",
-    "Unternehmen": "Unternehmen",
-    "Einstellungen": "Einstellungen",
-    "Methodik": "Methodik",
-    "Admin": "Admin",
+HEADER_NAV_OPTIONS: dict[str, str] = {
+    "📊 Dashboard": "Dashboard",
+    "🧾 Trades": "Trades",
+    "🏢 Unternehmen": "Unternehmen",
+}
+
+SIDEBAR_NAV_OPTIONS: dict[str, str] = {
+    "📘 Methodik": "Methodik",
+    "⚙️ Einstellungen": "Einstellungen",
+    "🛠️ Admin": "Admin",
 }
 
 DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
@@ -52,6 +56,13 @@ def _render_navbar_control(options_list: list[str], current_label: str) -> str:
         label_visibility="collapsed",
     )
 
+
+def _set_nav_target(target: PageName) -> None:
+    if st.session_state.get("nav_target") == target:
+        return
+    st.session_state["nav_target"] = target
+    st.rerun()
+
 def render_navigation_topbar() -> PageName:
     """Rendert die Hauptnavigation als obere Navbar."""
 
@@ -61,16 +72,22 @@ def render_navigation_topbar() -> PageName:
 
     parent_target = _resolve_parent_target(str(st.session_state["nav_target"]))
     current_label = next(
-        (k for k, v in NAV_OPTIONS.items() if v == parent_target),
-        "Dashboard",
+        (k for k, v in HEADER_NAV_OPTIONS.items() if v == parent_target),
+        list(HEADER_NAV_OPTIONS.keys())[0],
     )
-    options_list = list(NAV_OPTIONS.keys())
+    options_list = list(HEADER_NAV_OPTIONS.keys())
 
-    selected_label = _render_navbar_control(options_list, current_label)
+    with st.container(border=True):
+        left, right = st.columns([1.2, 2.8], vertical_alignment="center")
+        with left:
+            st.markdown("<div class='mercator-topbar-eyebrow'>Operative Arbeitsbereiche</div>", unsafe_allow_html=True)
+            st.markdown("<div class='mercator-topbar-title'>Mercator Control Center</div>", unsafe_allow_html=True)
+        with right:
+            selected_label = _render_navbar_control(options_list, current_label)
 
     # Update nav_target nur außerhalb von Detailseiten, damit Deep-Link-Details stabil bleiben.
-    new_target = NAV_OPTIONS[selected_label]
-    if st.session_state["nav_target"] not in DETAIL_PAGES:
+    new_target = HEADER_NAV_OPTIONS[selected_label]
+    if st.session_state["nav_target"] not in DETAIL_PAGES and st.session_state["nav_target"] != new_target:
         st.session_state["nav_target"] = new_target
 
     # Zurück-Button für Detailseiten.
@@ -84,28 +101,39 @@ def render_navigation_topbar() -> PageName:
 
     return st.session_state["nav_target"]
 
-def render_system_status_sidebar(db_status, mysql_res, advanced_mode=False):
-    """Rendert den System-Status in der Sidebar."""
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("System-Status")
-    
-    # MySQL Status
-    mysql_color = "green" if db_status.mysql.is_connected else "red"
-    mysql_label = "MySQL: Online" if db_status.mysql.is_connected else "MySQL: Offline"
-    st.sidebar.markdown(f":{mysql_color}[{mysql_label}]")
-    if mysql_res and mysql_res.active_target:
-        st.sidebar.caption(f"Target: {mysql_res.active_target}")
-        
-    # MongoDB Status
-    mongo_color = "green" if db_status.mongo.is_connected else "red"
-    mongo_label = "MongoDB: Online" if db_status.mongo.is_connected else "MongoDB: Offline"
-    st.sidebar.markdown(f":{mongo_color}[{mongo_label}]")
 
-    mode_label = "Betriebsmodus: Schreiben aktiv" if db_status.is_write_mode_available else "Betriebsmodus: Lesemodus"
-    st.sidebar.caption(mode_label)
-    if not db_status.is_settings_persistence_available:
-        st.sidebar.caption("Einstellungen: nur Sitzung")
-    
-    # Advanced Mode Toggle
-    if advanced_mode:
-        st.sidebar.info("Expertenmodus aktiv")
+def render_sidebar_navigation() -> None:
+    """Rendert sekundäre Seiten in der linken Sidebar als ausklappbare Navigation."""
+
+    active_target = _resolve_parent_target(str(st.session_state.get("nav_target", "Dashboard")))
+
+    with st.sidebar:
+        st.markdown("### Arbeitsbereiche")
+        with st.expander("Verwaltung & Hilfe", expanded=False):
+            for label, target in SIDEBAR_NAV_OPTIONS.items():
+                button_type: Literal["primary", "secondary", "tertiary"] = (
+                    "primary" if active_target == target else "secondary"
+                )
+                if st.button(label, key=f"sidebar_nav_{target}", use_container_width=True, type=button_type):
+                    _set_nav_target(target)  # type: ignore[arg-type]
+
+
+def render_system_status_sidebar(db_status, mysql_res):
+    """Rendert den System-Status in der Sidebar."""
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("System-Status", expanded=True):
+            mysql_color = "green" if db_status.mysql.is_connected else "red"
+            mysql_label = "MySQL: Online" if db_status.mysql.is_connected else "MySQL: Offline"
+            st.markdown(f":{mysql_color}[{mysql_label}]")
+            if mysql_res and mysql_res.active_target:
+                st.caption(f"Target: {mysql_res.active_target}")
+
+            mongo_color = "green" if db_status.mongo.is_connected else "red"
+            mongo_label = "MongoDB: Online" if db_status.mongo.is_connected else "MongoDB: Offline"
+            st.markdown(f":{mongo_color}[{mongo_label}]")
+
+            mode_label = "Betriebsmodus: Schreiben aktiv" if db_status.is_write_mode_available else "Betriebsmodus: Lesemodus"
+            st.caption(mode_label)
+            if not db_status.is_settings_persistence_available:
+                st.caption("Einstellungen: nur Sitzung")

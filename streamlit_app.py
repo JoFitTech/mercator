@@ -5,7 +5,7 @@ import streamlit as st
 
 from src.app.bootstrap import bootstrap_app
 from src.app.infrastructure_mode import build_infrastructure_mode, render_infrastructure_banner
-from src.app.navigation import render_navigation_topbar, render_system_status_sidebar
+from src.app.navigation import render_navigation_topbar, render_sidebar_navigation, render_system_status_sidebar
 from src.app.auto_import import handle_auto_import, render_import_status_toast
 
 from src.ui.pages.dashboard_page import render_dashboard_page
@@ -28,14 +28,9 @@ def main():
     
     # 2. Top-Navigation & Sidebar-Status
     # Requirement 5.1: Navigation & Systemstatus in eigene Module ausgelagert.
-    # P1.2: advanced_mode zentral in session_state schreiben, damit alle Seiten konsistent lesen können
-    if "advanced_mode" not in st.session_state:
-        st.session_state["advanced_mode"] = False
-    advanced_mode = st.sidebar.toggle("Expertenmodus", value=st.session_state["advanced_mode"])
-    st.session_state["advanced_mode"] = advanced_mode
-
     nav_target = render_navigation_topbar()
-    render_system_status_sidebar(db_status, mysql_res, advanced_mode=advanced_mode)
+    render_sidebar_navigation()
+    render_system_status_sidebar(db_status, mysql_res)
     render_infrastructure_banner(infra_mode)
 
     # 3. Background Tasks (Auto-Import)

@@ -57,6 +57,47 @@ def apply_ui_theme():
             background-color: #f8f9fa;
             border-right: 1px solid #e9ecef;
         }
+
+        [data-testid="stSidebar"] [data-testid="stExpander"] {
+            background: #ffffff;
+            border: 1px solid #e9ecef;
+            border-radius: 0.75rem;
+            margin-bottom: 0.75rem;
+            overflow: hidden;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stButton"] button {
+            border-radius: 0.7rem;
+            border: 1px solid #dee2e6;
+            font-weight: 600;
+        }
+
+        .mercator-topbar-eyebrow {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #6c757d;
+            margin-bottom: 0.2rem;
+        }
+
+        .mercator-topbar-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #1a1b1e;
+            line-height: 1.2;
+        }
+
+        [data-testid="stSegmentedControl"] {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 0.9rem;
+            padding: 0.3rem;
+        }
+
+        [data-testid="stSegmentedControl"] [role="radiogroup"] {
+            gap: 0.35rem;
+        }
         
         /* Tabellen Styling */
         .stDataFrame {

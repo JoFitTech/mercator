@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from src.config.settings import AppSettings, FmpConfig, GateConfig, MongoConfig, MySqlTargetSettings, Settings
+from src.config.settings import AppSettings, EnrichmentConfig, FmpConfig, GateConfig, MongoConfig, MySqlTargetSettings, Settings
 from src.ui.pages.admin_page import AdminDashboardService
 
 
@@ -93,6 +93,7 @@ def _build_settings(review_mode: bool = False, disable_admin_delete: bool = Fals
         mysql=mysql_settings,
         mongo=MongoConfig(active_target="local", uri="mongodb://localhost:27017/", database="mercator"),
         fmp=FmpConfig(base_url="https://example.test", api_key="abc", api_key_source="env"),
+        enrichment=EnrichmentConfig(),
         gate=GateConfig(),
         review_mode=review_mode,
         disable_import=False,

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from src.config.settings import (
     AppSettings,
+    EnrichmentConfig,
     FmpConfig,
     GateConfig,
     MongoConfig,
@@ -64,6 +65,7 @@ def _build_settings() -> AppSettings:
         mysql=mysql_settings,
         mongo=MongoConfig(active_target="local", uri="mongodb://localhost:27017/", database="mercator"),
         fmp=FmpConfig(base_url="https://example.test", api_key="placeholder", api_key_source="env"),
+        enrichment=EnrichmentConfig(),
         gate=GateConfig(),
         review_mode=False,
         disable_import=False,
@@ -77,7 +79,6 @@ def _build_settings() -> AppSettings:
 def test_build_all_disables_import_service_when_fmp_key_invalid(monkeypatch) -> None:
     settings = _build_settings()
 
-    monkeypatch.setattr(factory_module, "MongoClientWrapper", lambda _cfg: object())
     monkeypatch.setattr(factory_module, "InsiderTradeMongoRepository", lambda _client: object())
     monkeypatch.setattr(factory_module, "CompanyMongoRepository", lambda _client: object())
     monkeypatch.setattr(factory_module, "InsiderTradeMySqlRepository", lambda _client: object())
@@ -104,11 +105,12 @@ def test_build_all_disables_import_service_when_fmp_key_invalid(monkeypatch) -> 
 
     monkeypatch.setattr(factory_module, "AppSettingsService", _RuntimeSettingsServiceStub)
 
-    _dashboard, _analysis, import_service, _runtime = factory_module.ServiceFactory.build_all(
+    service_factory = factory_module.ServiceFactory(
         settings=settings,
         mysql_client=_MySqlClientStub(),
-        mongo_available=True,
+        mongo_wrapper=object(),
     )
+    import_service = service_factory.create_import_service()
 
     assert import_service is None
     assert factory_module.ServiceFactory.last_import_issue is not None

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import pandas as pd
 import streamlit as st
 from datetime import datetime, timezone, timedelta
 
 from src.config.settings import AppSettings
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_client import MySqlClient
-from src.domain_rules import ScoreGatePolicy
 from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
 from src.services.database_status_service import DatabaseStatus
@@ -641,24 +639,24 @@ def render_admin_page(
                         else:
                             st.error(msg)
 
-            if st.session_state.get("advanced_mode", False):
-                with st.popover("MongoDB-Rohdaten löschen", use_container_width=True):
-                    if not mongo_online:
-                        st.info("Löschfunktionen für MongoDB sind nur bei aktiver MongoDB-Verbindung verfügbar.")
-                    st.error("### KRITISCHE AKTION: Rohdatenverlust")
-                    st.write("Dies löscht alle importierten Rohdaten in MongoDB.")
-                    
-                    confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete_final_v2")
-                    if st.button(
-                        "JETZT MongoDB LÖSCHEN",
-                        type="primary",
-                        use_container_width=True,
-                        disabled=(not confirm_mongo) or (not mongo_online),
-                    ):
-                        with st.spinner("Lösche MongoDB Daten..."):
-                            success, msg = admin_service.clear_mongo_all()
-                            if success:
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
+            with st.popover("MongoDB-Rohdaten löschen", use_container_width=True):
+                if not mongo_online:
+                    st.info("Löschfunktionen für MongoDB sind nur bei aktiver MongoDB-Verbindung verfügbar.")
+                st.error("### KRITISCHE AKTION: Rohdatenverlust")
+                st.write("Dies löscht alle importierten Rohdaten in MongoDB.")
+                st.caption("Diese Aktion ist bewusst nur im Adminbereich und mit expliziter Bestätigung erreichbar.")
+
+                confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete_final_v2")
+                if st.button(
+                    "JETZT MongoDB LÖSCHEN",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=(not confirm_mongo) or (not mongo_online),
+                ):
+                    with st.spinner("Lösche MongoDB Daten..."):
+                        success, msg = admin_service.clear_mongo_all()
+                        if success:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)

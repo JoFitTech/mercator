@@ -23,13 +23,16 @@ class _RawRepoStub:
 
 
 class _CompanyMongoRepoStub:
-    def __init__(self, cached_company_keys: set[str] | None = None) -> None:
+    def __init__(self, cached_company_keys: set[str] | None = None, cached_profiles: dict[str, dict] | None = None) -> None:
         self.cached_company_keys = cached_company_keys or set()
+        self.cached_profiles = cached_profiles or {}
         self.cache_checks: list[str] = []
         self.upserted_profiles: list[dict] = []
 
     def get_recent_profile(self, company_key: str, ttl_days: int):
         self.cache_checks.append(f"{company_key}:{ttl_days}")
+        if company_key in self.cached_profiles:
+            return dict(self.cached_profiles[company_key])
         if company_key in self.cached_company_keys:
             return {"company_key": company_key}
         return None
@@ -59,6 +62,20 @@ class _EnrichmentServiceStub:
 class _ScoringServiceStub:
     def compute_trade_score(self, _trade: dict) -> dict[str, int | str]:
         return {"score": 1, "score_class": "LOW"}
+
+
+class _CompanyMySqlRepoStub:
+    def __init__(self) -> None:
+        self.upserted_companies: list[dict] = []
+
+    def upsert_company(self, company: dict) -> None:
+        self.upserted_companies.append(company)
+
+    def get_company_by_symbol(self, company_key: str) -> dict | None:
+        for company in reversed(self.upserted_companies):
+            if company.get("company_key") == company_key:
+                return company
+        return None
 
 
 def _build_service(
@@ -166,3 +183,55 @@ def test_default_behavior_keeps_respecting_cache(monkeypatch) -> None:
     assert summary.profile_fetch_attempts == 0
     assert enrichment.calls == []
     assert len(repo.cache_checks) == 2
+
+
+def test_cache_hit_syncs_cached_company_profile_to_mysql_and_trade(monkeypatch) -> None:
+    monkeypatch.setattr("src.services.import_service.normalize_insider_trade", lambda item, fetched_at: item)
+
+    fmp_client = SimpleNamespace(
+        config=SimpleNamespace(profile_ttl_days=30),
+        fetch_latest_insider_trades=lambda page, limit: [
+            {"symbol": "AAPL", "company_key": "AAPL", "price": 10, "qty": 5, "acquisition_or_disposition": "A"},
+        ],
+    )
+    company_mongo_repo = _CompanyMongoRepoStub(
+        cached_profiles={
+            "AAPL": {
+                "company_key": "AAPL",
+                "current_symbol": "AAPL",
+                "profile_status": "FETCHED",
+                "sector": "Technology",
+                "sector_normalized": "Technology",
+                "sector_resolution_status": "UNRESOLVED",
+                "marketCap": 123456789,
+            }
+        }
+    )
+    company_mysql_repo = _CompanyMySqlRepoStub()
+
+    service = ImportService(
+        fmp_client=fmp_client,
+        gate_evaluator=_GateEvaluatorStub(),
+        raw_repo=_RawRepoStub(),
+        company_mongo_repo=company_mongo_repo,
+        trade_mysql_repo=None,
+        company_mysql_repo=company_mysql_repo,
+        api2_firing_mode="ALL TRADED COMPANIES",
+        tr_ingestion_service=None,
+        tr_matching_service=None,
+        enrichment_service=_EnrichmentServiceStub(),
+        scoring_service=_ScoringServiceStub(),
+    )
+
+    summary = service.run_hourly_import()
+
+    assert summary.profile_cache_hits == 1
+    assert summary.profile_fetch_attempts == 0
+    assert len(company_mysql_repo.upserted_companies) >= 2
+    synced = company_mysql_repo.upserted_companies[-1]
+    assert synced["profile_status"] == "FETCHED"
+    assert synced["sector"] == "Technology"
+    assert synced["sector_resolution_status"] == "RESOLVED"
+    assert synced["market_cap"] == 123456789
+
+

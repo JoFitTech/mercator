@@ -66,19 +66,18 @@ def test_overview_page_heading_visible(mercator_page: Page) -> None:
 
 
 @pytest.mark.smoke
-def test_advanced_mode_toggle_exists(mercator_page: Page) -> None:
-    """Der 'Erweiterte Ansicht'-Toggle ist in der Sidebar sichtbar."""
+def test_sidebar_management_expander_exists(mercator_page: Page) -> None:
+    """Die ausklappbare Sidebar-Sektion für Verwaltung/Hilfe ist sichtbar."""
     sidebar = mercator_page.locator('[data-testid="stSidebar"]')
-    # Streamlit-Toggle ist ein input[type=checkbox] mit passendem Label
-    toggle = sidebar.get_by_text("Erweiterte Ansicht", exact=False).first
-    expect(toggle).to_be_visible()
+    expander = sidebar.get_by_text("Verwaltung & Hilfe", exact=False).first
+    expect(expander).to_be_visible()
 
 
 @pytest.mark.smoke
 def test_database_status_expander_exists(mercator_page: Page) -> None:
-    """Der 'Datenbank-Status'-Expander ist in der Sidebar vorhanden."""
+    """Der 'System-Status'-Expander ist in der Sidebar vorhanden."""
     sidebar = mercator_page.locator('[data-testid="stSidebar"]')
-    db_status = sidebar.get_by_text("Datenbank-Status", exact=False).first
+    db_status = sidebar.get_by_text("System-Status", exact=False).first
     expect(db_status).to_be_visible()
 
 

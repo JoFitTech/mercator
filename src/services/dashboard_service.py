@@ -41,6 +41,8 @@ class DashboardService:
         except Exception:
             trades_df = pd.DataFrame()
 
+        trades_df = self._hydrate_company_fields_from_mongo(trades_df)
+
         prepared_df = self._prepare_dataframe(trades_df)
         core_df = self._build_accumulated_core_df(prepared_df)
 
@@ -61,6 +63,71 @@ class DashboardService:
             "last_update": self._get_last_update_str(prepared_df),
         }
         return payload
+
+    def _hydrate_company_fields_from_mongo(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Füllt fehlende Company-Felder aus Mongo-Profilen nach, falls MySQL-Stubs vorliegen."""
+
+        if df.empty or self.company_mongo_repo is None or "company_key" not in df.columns:
+            return df
+
+        working = df.copy()
+        if "sector" not in working.columns:
+            working["sector"] = pd.NA
+        if "market_cap" not in working.columns:
+            working["market_cap"] = pd.NA
+        if "profile_status" not in working.columns:
+            working["profile_status"] = pd.NA
+
+        sector_missing = working["sector"].isna() | working["sector"].fillna("").astype(str).str.strip().eq("")
+        market_cap_missing = pd.to_numeric(working["market_cap"], errors="coerce").isna()
+        profile_status_missing = working["profile_status"].fillna("").astype(str).str.strip().str.upper().isin({"", "NOT_REQUESTED", "UNKNOWN"})
+        candidate_mask = (
+            working["company_key"].notna()
+            & working["company_key"].astype(str).str.strip().ne("")
+            & (sector_missing | market_cap_missing | profile_status_missing)
+        )
+        if not candidate_mask.any():
+            return working
+
+        cached_profiles: dict[str, dict[str, Any]] = {}
+        for company_key in working.loc[candidate_mask, "company_key"].astype(str).str.strip().unique():
+            try:
+                profile = self.company_mongo_repo.get_profile(company_key)
+            except Exception:
+                profile = None
+            if profile:
+                cached_profiles[company_key] = profile
+
+        if not cached_profiles:
+            return working
+
+        for idx in working.index[candidate_mask]:
+            company_key = str(working.at[idx, "company_key"]).strip()
+            profile = cached_profiles.get(company_key)
+            if not profile:
+                continue
+
+            current_sector = str(working.at[idx, "sector"] or "").strip()
+            cached_sector = str(profile.get("sector") or profile.get("sector_normalized") or "").strip()
+            if not current_sector and cached_sector:
+                working.at[idx, "sector"] = cached_sector
+
+            current_market_cap = pd.to_numeric(working.at[idx, "market_cap"], errors="coerce")
+            if pd.isna(current_market_cap):
+                cached_market_cap = profile.get("market_cap")
+                if cached_market_cap is None:
+                    cached_market_cap = profile.get("marketCap")
+                if cached_market_cap is None:
+                    cached_market_cap = profile.get("mktCap")
+                if cached_market_cap is not None:
+                    working.at[idx, "market_cap"] = cached_market_cap
+
+            current_profile_status = str(working.at[idx, "profile_status"] or "").strip().upper()
+            cached_profile_status = str(profile.get("profile_status") or "").strip().upper()
+            if current_profile_status in {"", "NOT_REQUESTED", "UNKNOWN"} and cached_profile_status:
+                working.at[idx, "profile_status"] = cached_profile_status
+
+        return working
 
     def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Defensive Normalisierung für spätere Aggregation."""

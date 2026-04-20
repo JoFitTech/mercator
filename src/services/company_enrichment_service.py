@@ -65,8 +65,8 @@ class CompanyEnrichmentService:
         company.company_name = company.company_name or data.get("companyName")
         company.sector_raw = data.get("sector")
         company.industry = company.industry or data.get("industry")
-        company.market_cap = company.market_cap or data.get("mktCap")
-        
+        company.market_cap = company.market_cap or data.get("mktCap") or data.get("marketCap")
+
         normalized, method = normalize_sector(company.sector_raw)
         if normalized:
             company.sector_normalized = normalized

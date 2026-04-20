@@ -195,6 +195,14 @@ class CompanyMongoRepository:
             {"company_key": normalized_key, "profile_updated_at": {"$gte": threshold}}
         )
 
+    def get_profile(self, company_key: str) -> dict[str, Any] | None:
+        """Lädt ein Profil unabhängig von TTL anhand des company_key."""
+
+        normalized_key = self._normalize_company_key(company_key)
+        if not normalized_key:
+            return None
+        return self.collection.find_one({"company_key": normalized_key})
+
     def upsert_profile(self, company: dict[str, Any]) -> None:
         """Speichert oder aktualisiert ein Profil nach `company_key`."""
         normalized_key = self._normalize_company_key(company.get("company_key"))
