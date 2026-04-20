@@ -12,7 +12,13 @@ from src.services.app_settings_service import AppSettingsService
 from src.services.dashboard_service import DashboardService
 from src.services.database_status_service import DatabaseStatus
 from src.services.import_service import ImportService
-from src.ui.components.page_scaffold import render_kpi_row, render_page_header
+from src.ui.components.page_scaffold import (
+    render_kpi_row,
+    render_page_header,
+    render_empty_state,
+    safe_service_call,
+    summarize_filters,
+)
 from src.ui.components.tables import render_dashboard_top_table
 
 
@@ -209,17 +215,36 @@ def render_dashboard_page(
         }
 
     with st.container(border=True):
-        date_range = st.date_input(
-            "Zeitraum",
-            value=st.session_state.dashboard_filters["date_range"],
-            format="DD.MM.YYYY",
-        )
+        c_filter, c_reset = st.columns([0.8, 0.2], vertical_alignment="bottom")
+        with c_filter:
+            date_range = st.date_input(
+                "Zeitraum (interaktiv)",
+                value=st.session_state.dashboard_filters["date_range"],
+                format="DD.MM.YYYY",
+            )
+        with c_reset:
+            if st.button("Filter zurücksetzen", use_container_width=True, key="dashboard_reset_filters"):
+                date_range = (date.today() - timedelta(days=30), date.today())
         st.session_state.dashboard_filters["date_range"] = date_range
 
     filters = _build_dashboard_filters(date_range)
+    summarize_filters("Aktive Filter", {"Zeitraum": _format_period_label(filters)})
 
     with st.spinner("Lade Dashboard..."):
-        payload = service.build_dashboard_payload(filters=filters)
+        payload, load_error = safe_service_call(
+            lambda: service.build_dashboard_payload(filters=filters),
+            context_label="Dashboard-Daten",
+            fallback={},
+        )
+    if load_error is not None:
+        st.warning("Dashboard ist aktuell nur eingeschränkt verfügbar.")
+        return
+
+    payload_error = str(payload.get("payload_error_message") or "").strip()
+    if payload_error:
+        st.error("Datenquelle aktuell nicht erreichbar. Es werden ggf. nur Teilinformationen angezeigt.")
+        with st.expander("Technische Details", expanded=False):
+            st.code(payload_error, language="text")
 
     kpis = [
         {"label": "Actionable Buys", "value": str(payload.get("kpi_actionable_buys", 0))},
@@ -230,6 +255,11 @@ def render_dashboard_page(
         {"label": "Exchange Issues", "value": str(payload.get("kpi_exchange_resolution_issues", 0))},
     ]
     render_kpi_row(kpis)
+    if payload.get("kpi_relevant_trades_count", 0) == 0:
+        render_empty_state(
+            "Für den ausgewählten Zeitraum liegen keine auswertbaren Trades vor. "
+            "Bitte Zeitraum erweitern oder Filter zurücksetzen."
+        )
 
     buy_sector_df = payload.get("sector_distribution_buy", pd.DataFrame())
     sell_sector_df = payload.get("sector_distribution_sell", pd.DataFrame())

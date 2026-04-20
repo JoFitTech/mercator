@@ -66,6 +66,8 @@ class FmpClient:
                 if response.status_code == 429 and attempt < retries:
                     time.sleep(min(2 ** attempt, 8))
                     continue
+                if response.status_code == 530:
+                    raise FmpApiError("Upstream-Verbindung fehlgeschlagen (HTTP 530).")
                 if response.status_code >= 500 and attempt < retries:
                     time.sleep(min(2 ** attempt, 8))
                     continue

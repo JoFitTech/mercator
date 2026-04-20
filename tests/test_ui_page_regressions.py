@@ -14,6 +14,7 @@ from src.ui.pages.admin_page import (
     _public_share_status_message,
 )
 from src.app.navigation import public_share_sidebar_status_text
+from src.app import navigation as app_navigation
 from src.services.public_share_service import TunnelStatus
 from src.ui.pages.trades_page import (
     TRADE_FILTER_DEFAULTS,
@@ -78,6 +79,19 @@ def test_humanize_import_error_masks_raw_sql_column_name() -> None:
     message = _humanize_import_error(Exception("1048 (23000): Column 'trade_republic_match_method' cannot be null"))
     assert "trade_republic_match_method" not in message
     assert "Import abgebrochen" in message
+
+
+def test_humanize_import_error_maps_upstream_530_to_user_message() -> None:
+    message = _humanize_import_error(Exception("Connection failed with status 530"))
+    assert "HTTP 530" in message
+    assert "UI bleibt verfügbar" in message
+
+
+def test_invalid_nav_target_falls_back_to_dashboard(monkeypatch) -> None:
+    monkeypatch.setattr(app_navigation.st, "session_state", {"nav_target": "invalid"})
+    current = app_navigation.ensure_valid_nav_target()
+    assert current == "Dashboard"
+    assert app_navigation.st.session_state["nav_target"] == "Dashboard"
 
 
 def test_admin_import_summary_helpers_include_new_profile_counters() -> None:

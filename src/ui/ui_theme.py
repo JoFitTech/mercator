@@ -98,6 +98,19 @@ def apply_ui_theme():
         [data-testid="stSegmentedControl"] [role="radiogroup"] {
             gap: 0.35rem;
         }
+
+        /* Accessibility Smoke Fix: sichtbarer Fokus */
+        button:focus-visible,
+        [role="button"]:focus-visible,
+        [role="radio"]:focus-visible,
+        a:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        textarea:focus-visible {
+            outline: 3px solid #1d4ed8 !important;
+            outline-offset: 2px !important;
+            box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.25) !important;
+        }
         
         /* Tabellen Styling */
         .stDataFrame {

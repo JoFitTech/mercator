@@ -7,7 +7,13 @@ from datetime import date, timedelta
 from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatus
 from src.ui.components.context_bar import render_filter_chip_bar
-from src.ui.components.page_scaffold import render_kpi_row, render_page_header, render_empty_state
+from src.ui.components.page_scaffold import (
+    render_kpi_row,
+    render_page_header,
+    render_empty_state,
+    safe_service_call,
+    summarize_filters,
+)
 from src.ui.components.tables import render_trade_table
 
 TRADE_FILTER_DEFAULTS = {
@@ -122,14 +128,24 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             "Min. Wert": f"${st.session_state.trades_filters['min_value']:,}",
         }
     )
+    summarize_filters("Aktive Filter", {
+        "Symbol": filters.get("symbol"),
+        "Insider": filters.get("reporting_name"),
+        "Richtung": st.session_state.trades_filters["direction"],
+        "Gate": st.session_state.trades_filters["gate_status"],
+        "Validierung": st.session_state.trades_filters["validation_status"],
+    })
 
     with st.spinner("Lade Trades..."):
-        trades_df = service.get_filtered_trades(
+        trades_df, load_error = safe_service_call(lambda: service.get_filtered_trades(
             filters=filters,
             limit=1000,
             accumulate=False, # In der Hauptarbeitsfläche zeigen wir Roh-Trades
             min_value=st.session_state.trades_filters["min_value"],
-        )
+        ), context_label="Trades", fallback=pd.DataFrame())
+    if load_error is not None:
+        st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
+        return
 
     if trades_df.empty:
         render_empty_state("Keine Trades für die aktuellen Filter gefunden.")

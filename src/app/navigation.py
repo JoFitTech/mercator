@@ -24,6 +24,7 @@ SIDEBAR_NAV_OPTIONS: dict[str, str] = {
 
 DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
 HEADER_PAGES = set(HEADER_NAV_OPTIONS.values())
+ALL_NAV_TARGETS: set[str] = HEADER_PAGES | set(SIDEBAR_NAV_OPTIONS.values()) | DETAIL_PAGES
 
 
 def public_share_sidebar_status_text(status: TunnelStatus) -> str:
@@ -78,12 +79,20 @@ def _set_nav_target(target: PageName) -> None:
     st.rerun()
 
 
+def ensure_valid_nav_target(default_target: PageName = "Dashboard") -> PageName:
+    """Sichert den Navigationszustand gegen ungültige oder veraltete Werte ab."""
+    current_target = str(st.session_state.get("nav_target") or default_target)
+    if current_target not in ALL_NAV_TARGETS:
+        st.session_state["nav_target"] = default_target
+        return default_target
+    return current_target  # type: ignore[return-value]
+
+
 def render_navigation_topbar() -> PageName:
     """Rendert die Hauptnavigation als obere Navbar."""
 
     # Bestimme aktuelle Seite aus Session State oder Default.
-    if "nav_target" not in st.session_state:
-        st.session_state["nav_target"] = "Dashboard"
+    ensure_valid_nav_target()
 
     parent_target = _resolve_parent_target(str(st.session_state["nav_target"]))
     current_label = next(
@@ -102,8 +111,8 @@ def render_navigation_topbar() -> PageName:
 
     # Update nav_target nur für Header-Seiten, damit Sidebar-Ziele stabil bleiben.
     new_target = HEADER_NAV_OPTIONS[selected_label]
-    if st.session_state["nav_target"] in HEADER_PAGES and st.session_state["nav_target"] != new_target:
-        st.session_state["nav_target"] = new_target
+    if st.session_state["nav_target"] != new_target:
+        _set_nav_target(new_target)  # type: ignore[arg-type]
 
     # Zurück-Button für Detailseiten.
     if st.session_state["nav_target"] in DETAIL_PAGES:

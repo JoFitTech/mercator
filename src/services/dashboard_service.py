@@ -36,10 +36,12 @@ class DashboardService:
         filters = dict(filters or {})
         filters.pop("dashboard_valid", None)
 
+        payload_error_message: str | None = None
         try:
             trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=20_000, filters=filters)
-        except Exception:
+        except Exception as exc:
             trades_df = pd.DataFrame()
+            payload_error_message = str(exc)
 
         trades_df = self._hydrate_company_fields_from_mongo(trades_df)
 
@@ -61,6 +63,7 @@ class DashboardService:
             **top_tables,
             **missing_summary,
             "last_update": self._get_last_update_str(prepared_df),
+            "payload_error_message": payload_error_message,
         }
         return payload
 

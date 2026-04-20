@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import streamlit as st
+from typing import Callable, TypeVar
+
+T = TypeVar("T")
 
 
 def render_page_header(title: str, subtitle: str | None = None, actions: list[dict] | None = None) -> None:
@@ -82,3 +85,32 @@ def render_warning_state(message: str) -> None:
 
 def render_error_state(message: str) -> None:
     st.error(message)
+
+
+def render_status_badge(label: str, value: str) -> None:
+    """Rendert Status immer farb- und textbasiert."""
+    st.caption(f"{label}: {value}")
+
+
+def summarize_filters(title: str, filters: dict[str, object]) -> None:
+    visible = [f"**{k}:** {v}" for k, v in filters.items() if v not in (None, "", "Alle")]
+    if not visible:
+        st.caption(f"{title}: Keine aktiven Filter.")
+        return
+    st.caption(f"{title}: " + " · ".join(visible))
+
+
+def safe_service_call(
+    call: Callable[[], T],
+    *,
+    context_label: str,
+    fallback: T,
+) -> tuple[T, Exception | None]:
+    """Führt Serviceaufrufe robust aus und liefert kontrollierten Fallback."""
+    try:
+        return call(), None
+    except Exception as exc:  # noqa: BLE001 - zentrale UI-Fehlerbehandlung
+        render_error_state(f"{context_label} konnte nicht geladen werden.")
+        with st.expander("Technische Details", expanded=False):
+            st.code(str(exc), language="text")
+        return fallback, exc
