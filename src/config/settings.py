@@ -25,6 +25,7 @@ PROFILE_ENDPOINT = "/profile"
 PROFILE_CIK_ENDPOINT = "/profile-cik"
 SEARCH_CIK_ENDPOINT = "/search-cik"
 SEARCH_INSIDER_TRADES_ENDPOINT = "/insider-trading/search"
+EXCHANGE_VARIANTS_ENDPOINT = "/search-exchange-variants"
 INSIDER_STATISTICS_ENDPOINT = "/insider-trading/statistics"
 COMPANY_SCREENER_ENDPOINT = "/company-screener"
 DEFAULT_FEED_PAGE = 0
@@ -464,7 +465,7 @@ class GateConfig:
 
     min_trade_value: int = DEFAULT_GATE_MIN_TRADE_VALUE
     require_purchase_event: bool = True
-    require_common_stock: bool = True
+    require_common_stock: bool = False
     allowed_acquisition_or_disposition: tuple[str, ...] = ("A",)
     allowed_transaction_types: tuple[str, ...] = ()
 

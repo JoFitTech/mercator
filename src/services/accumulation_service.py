@@ -48,7 +48,7 @@ class AccumulationService:
         if working_df.empty:
             return working_df
 
-        # Fachliche Gruppierung strikt nach Symbol/Person/Richtung/Security/TransactionType.
+        # Fachliche Gruppierung strikt nach Symbol/Person/Richtung.
         working_df["_group_symbol"] = (
             working_df.get("symbol_at_trade", working_df.get("symbol", pd.Series(index=working_df.index)))
             .fillna("")
@@ -57,8 +57,6 @@ class AccumulationService:
         )
         working_df["_group_reporting"] = working_df.get("reporting_name", pd.Series(index=working_df.index)).fillna("Unknown").astype(str)
         working_df["_group_aod"] = working_df.get("acquisition_or_disposition", pd.Series(index=working_df.index)).fillna("").astype(str)
-        working_df["_group_security"] = working_df.get("security_name", pd.Series(index=working_df.index)).fillna("").astype(str)
-        working_df["_group_tx_type"] = working_df.get("transaction_type", pd.Series(index=working_df.index)).fillna("").astype(str)
 
         if "transaction_date" not in working_df.columns:
             return working_df
@@ -70,11 +68,11 @@ class AccumulationService:
             return working_df
 
         # Sortieren für die Lückenerkennung
-        sort_cols = ["_group_symbol", "_group_reporting", "_group_aod", "_group_security", "_group_tx_type", "transaction_date"]
+        sort_cols = ["_group_symbol", "_group_reporting", "_group_aod", "transaction_date"]
         working_df = working_df.sort_values(sort_cols)
 
         # Fachliche Gruppe (ohne Zeit)
-        tech_group_cols = ["_group_symbol", "_group_reporting", "_group_aod", "_group_security", "_group_tx_type"]
+        tech_group_cols = ["_group_symbol", "_group_reporting", "_group_aod"]
 
         # Markiere Zeilen, die eine neue fachliche Gruppe beginnen
         # Da NaN != NaN in Pandas True ist, fillna() nutzen für stabilen Vergleich
@@ -225,6 +223,27 @@ class AccumulationService:
         if "acquisition_or_disposition" not in grouped.columns:
             grouped["acquisition_or_disposition"] = ""
         grouped["direction"] = grouped["acquisition_or_disposition"].apply(_normalize_direction)
+
+        # Multi-Insider-Signalstärke auf 3-Tage-Basis (gleiches Symbol + Richtung).
+        multi = (
+            working_df.groupby(["_group_symbol", "_group_aod"], dropna=False)
+            .agg(
+                symbol_cluster_count_same_direction_3d=("accumulation_group_id", "nunique"),
+                distinct_reporting_names_same_symbol_same_direction_3d=("reporting_name", "nunique"),
+            )
+            .reset_index()
+        )
+        group_meta = working_df[["accumulation_group_id", "_group_symbol", "_group_aod"]].drop_duplicates()
+        group_meta = group_meta.merge(multi, on=["_group_symbol", "_group_aod"], how="left")
+        grouped = grouped.merge(
+            group_meta[[
+                "accumulation_group_id",
+                "symbol_cluster_count_same_direction_3d",
+                "distinct_reporting_names_same_symbol_same_direction_3d",
+            ]],
+            on="accumulation_group_id",
+            how="left",
+        )
 
         sort_col = "accumulation_start_date" if "accumulation_start_date" in grouped.columns else "transaction_date"
         grouped = grouped.sort_values(sort_col, ascending=False)

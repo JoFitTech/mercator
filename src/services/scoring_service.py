@@ -3,7 +3,8 @@
 from __future__ import annotations
 from typing import Any
 import pandas as pd
-from src.domain_rules import compute_discrete_score, classify_score, ScoreGatePolicy
+from src.domain_rules import classify_score, ScoreGatePolicy
+from src.services.buy_engine import score_trade
 
 class ScoringService:
     """Zentrale Instanz für alle Score-Berechnungen und Klassifizierungen."""
@@ -16,7 +17,9 @@ class ScoringService:
         # Konvertierung von pd.Series falls nötig
         trade_dict = trade.to_dict() if isinstance(trade, pd.Series) else trade
         
-        score, score_class = compute_discrete_score(trade_dict)
+        result = score_trade(trade_dict)
+        score = result.final_score
+        score_class = result.final_class
         
         # Zusätzlich das Label (PASS/HOLD/FAIL) und die Farbe basierend auf der Policy
         status_label, status_color = classify_score(score, self.policy)
@@ -25,7 +28,15 @@ class ScoringService:
             "score": score,
             "score_class": score_class,
             "status_label": status_label,
-            "status_color": status_color
+            "status_color": status_color,
+            "core_insider_score": result.core_insider_score,
+            "investability_score": result.investability_score,
+            "execution_score": result.execution_score,
+            "trade_republic_score": result.trade_republic_score,
+            "final_score": result.final_score,
+            "final_class": result.final_class,
+            "decision_status": result.decision_status,
+            "filing_age_days": result.filing_age_days,
         }
 
     def compute_insider_quality(self, reporting_name: str, trades_df: pd.DataFrame) -> dict[str, Any]:

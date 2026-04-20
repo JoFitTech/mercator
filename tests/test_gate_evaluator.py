@@ -20,6 +20,7 @@ def _valid_trade() -> dict:
         "acquisition_or_disposition": "A",
         "form_type": "4",
         "validation_status": "VALID",
+        "is_actively_trading": True,
     }
 
 
@@ -52,3 +53,17 @@ def test_gate_evaluator_returns_pass_for_valid_trade() -> None:
     decision = GateEvaluator().evaluate(_valid_trade())
     assert decision.status == GATE_PASS
 
+
+def test_gate_evaluator_allows_etf_security_name() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "security_name": "ETF Shares"})
+    assert decision.status == GATE_PASS
+
+
+def test_gate_evaluator_rejects_inactive_instrument() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "is_actively_trading": False})
+    assert decision.status == GATE_FAIL
+
+
+def test_gate_evaluator_rejects_old_filing() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "filing_age_days": 46})
+    assert decision.status == GATE_FAIL

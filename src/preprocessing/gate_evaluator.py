@@ -25,8 +25,8 @@ class GateRules:
     allowed_acquisition_or_disposition: tuple[str, ...] = ("A", "D")
     excluded_transaction_types: tuple[str, ...] = ("A-Award", "M-Exempt")
     required_form_type: str = "4"
-    required_security_name: str = "Common Stock"
     required_validation_status: str = "VALID"
+    max_filing_age_days: int = 45
 
 
 class GateEvaluator:
@@ -59,9 +59,10 @@ class GateEvaluator:
             trade_value = None
         validation_status = str(trade.get("validation_status") or "VALID").upper()
         transaction_type = str(trade.get("transaction_type", "")).strip()
-        security_name = str(trade.get("security_name", "")).strip()
         acquisition = str(trade.get("acquisition_or_disposition", "")).upper()
         form_type = str(trade.get("form_type", "")).strip()
+        is_actively_trading = trade.get("is_actively_trading")
+        filing_age_days = trade.get("filing_age_days")
 
         if not symbol:
             return GateDecision(status=GATE_FAIL, reason="Fehlendes Symbol")
@@ -83,14 +84,19 @@ class GateEvaluator:
         if form_type != self.rules.required_form_type:
             return GateDecision(status=GATE_FAIL, reason="Form Type nicht zulässig")
 
-        if security_name.casefold() != self.rules.required_security_name.casefold():
-            return GateDecision(status=GATE_FAIL, reason="Security Name nicht zulässig")
-
         excluded_transaction_types = {value.casefold() for value in self.rules.excluded_transaction_types}
         if transaction_type.casefold() in excluded_transaction_types:
             return GateDecision(status=GATE_FAIL, reason="Transaktionstyp ausgeschlossen")
 
         if trade_value is None or trade_value < self.rules.min_trade_value:
             return GateDecision(status=GATE_FAIL, reason="Transaktionswert unter Mindestschwelle")
+        if is_actively_trading is False:
+            return GateDecision(status=GATE_FAIL, reason="Instrument nicht aktiv handelbar")
+        if filing_age_days is not None:
+            try:
+                if int(filing_age_days) > self.rules.max_filing_age_days:
+                    return GateDecision(status=GATE_FAIL, reason="Filing zu alt")
+            except (TypeError, ValueError):
+                return GateDecision(status=GATE_FAIL, reason="Filing-Alter ungültig")
 
         return GateDecision(status=GATE_PASS, reason="Basisregeln erfüllt")
