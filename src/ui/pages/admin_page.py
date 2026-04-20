@@ -19,6 +19,31 @@ from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
 
+
+def _build_import_success_message(summary: ImportSummary, force_profile_refresh: bool) -> str:
+    base = (
+        "Import erfolgreich abgeschlossen. "
+        f"Profile frisch geladen: {summary.fetched_profiles}, "
+        f"Cache-Hits: {summary.profile_cache_hits}, "
+        f"Profilfehler: {summary.profile_failures}."
+    )
+    if force_profile_refresh:
+        return f"{base} Cache wurde für diesen Lauf ignoriert."
+    return base
+
+
+def _build_import_metrics(summary: ImportSummary) -> list[tuple[str, int]]:
+    return [
+        ("Feed Records", summary.fetched_feed_records),
+        ("Neue Raw Records", summary.inserted_raw_records),
+        ("Upserted Clean", summary.upserted_clean_records),
+        ("Enrichment-Kandidaten", summary.symbols_considered_for_enrichment),
+        ("API2-Versuche", summary.profile_fetch_attempts),
+        ("Profile frisch geladen", summary.fetched_profiles),
+        ("Profile aus Cache", summary.profile_cache_hits),
+        ("Profilfehler", summary.profile_failures),
+    ]
+
 def _humanize_import_error(exc: Exception) -> str:
     """Übersetzt technische Importfehler in UI-taugliche deutsche Meldungen."""
     raw = str(exc)
@@ -441,7 +466,13 @@ def render_admin_page(
                         "API2-Firing Mode",
                         options=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"],
                         index=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"].index(runtime_settings.api2_firing_mode) if runtime_settings.api2_firing_mode in ["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"] else 1,
-                        help="ONLY PASS: Nur für PASS. PASS + PENDING: Für beide. ALL TRADED COMPANIES: Für jedes Unternehmen im Import. DISABLED: Kein Enrichment."
+                        help=(
+                            "ONLY PASS: Enrichment nur für PASS-Trades. "
+                            "PASS + PENDING: Für PASS und PENDING. "
+                            "ALL TRADED COMPANIES: Alle gehandelten Unternehmen werden als Kandidaten geprüft. "
+                            "Cache/TTL gelten weiterhin, sofern kein manueller Force-Refresh aktiviert ist. "
+                            "DISABLED: Kein Enrichment."
+                        ),
                     )
                     
                     import_page = st.number_input("Feed-Seite (Standard 0)", min_value=0, value=0, help="Free-Tier Zugang kann auf Seite 0 beschränkt sein.")
@@ -489,6 +520,15 @@ def render_admin_page(
 
         st.markdown("---")
         st.markdown("#### Manueller Import")
+        force_profile_refresh = st.checkbox(
+            "Profil-Refresh erzwingen",
+            value=False,
+            help=(
+                "Ignoriert den Profil-Cache für diesen manuellen Import und ruft API2 erneut auf. "
+                "Vorsicht: erhöht API-Verbrauch."
+            ),
+            disabled=not write_available,
+        )
         if st.button(
             "Manuellen Import jetzt starten",
             type="primary",
@@ -504,16 +544,24 @@ def render_admin_page(
                         # Hier nutzen wir die aktuell im Formular (bzw. state) stehenden Werte falls nötig, 
                         # oder einfach die gespeicherten Defaults. 
                         # Da das Formular oben 'save' erzwingt, nehmen wir einfach die aus runtime_settings.
-                        summary = import_service.run_hourly_import(page=int(import_page if 'import_page' in locals() else 0), limit=int(import_limit if 'import_limit' in locals() else 100))
-                        st.success("Import erfolgreich abgeschlossen!")
+                        summary = import_service.run_hourly_import(
+                            page=int(import_page if 'import_page' in locals() else 0),
+                            limit=int(import_limit if 'import_limit' in locals() else 100),
+                            force_profile_refresh=force_profile_refresh,
+                        )
+                        st.success(_build_import_success_message(summary, force_profile_refresh=force_profile_refresh))
+                        if summary.profile_failures > 0:
+                            st.warning(
+                                "Einzelne Profilabrufe sind fehlgeschlagen. "
+                                "Der Import wurde fortgesetzt; Details siehe Kennzahlen unten."
+                            )
                         
                         # Import Summary Sektion
                         st.markdown("##### Import Zusammenfassung")
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Feed Records", summary.fetched_feed_records)
-                        c2.metric("Neue Raw Records", summary.inserted_raw_records)
-                        c3.metric("Upserted Clean", summary.upserted_clean_records)
-                        c4.metric("Profile Fetched", summary.fetched_profiles)
+                        metrics = _build_import_metrics(summary)
+                        columns = st.columns(4)
+                        for idx, (label, value) in enumerate(metrics):
+                            columns[idx % 4].metric(label, value)
                         st.balloons()
                     except Exception as e:
                         st.error(_humanize_import_error(e))
