@@ -76,6 +76,36 @@ class CompanyMongoRepository:
             return f"SYM:{symbol.upper()}"
         return None
 
+    @staticmethod
+    def _is_symbol_legacy_index(definition: dict[str, Any]) -> bool:
+        keys = definition.get("key")
+        if not isinstance(keys, list):
+            return False
+        return any(isinstance(key, tuple) and key and key[0] == "symbol" for key in keys)
+
+    def _drop_legacy_symbol_indexes(self) -> int:
+        removed = 0
+        index_info = self.collection.index_information()
+        for index_name, definition in index_info.items():
+            if index_name == "_id_":
+                continue
+            if not self._is_symbol_legacy_index(definition):
+                continue
+            try:
+                self.collection.drop_index(index_name)
+                removed += 1
+                LOGGER.warning(
+                    "Mongo companies cleanup removed legacy symbol index '%s' (unique=%s).",
+                    index_name,
+                    bool(definition.get("unique")),
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Mongo companies cleanup could not remove legacy symbol index '%s'.",
+                    index_name,
+                )
+        return removed
+
     def _repair_company_documents(self) -> tuple[int, int, int]:
         """Bereinigt Bestandsdaten fuer konsistente company_key-Werte.
 
@@ -99,24 +129,23 @@ class CompanyMongoRepository:
         derived_keys = 0
         invalid_ids: list[Any] = []
         groups: dict[str, list[dict[str, Any]]] = {}
+        target_keys_by_id: dict[Any, str] = {}
+        source_keys_by_id: dict[Any, str | None] = {}
 
         for doc in docs:
             normalized_key = self._normalize_company_key(doc.get("company_key"))
+            original_key = doc.get("company_key")
+            source_keys_by_id[doc["_id"]] = self._normalize_company_key(original_key)
             if not normalized_key:
                 normalized_key = self._derive_company_key(doc)
-                if normalized_key:
-                    self.collection.update_one(
-                        {"_id": doc["_id"]},
-                        {"$set": {"company_key": normalized_key}},
-                    )
-                    doc["company_key"] = normalized_key
-                    derived_keys += 1
 
             if not normalized_key:
                 invalid_ids.append(doc["_id"])
                 continue
 
-            doc["company_key"] = normalized_key
+            target_keys_by_id[doc["_id"]] = normalized_key
+            if self._normalize_company_key(original_key) != normalized_key:
+                derived_keys += 1
             groups.setdefault(normalized_key, []).append(doc)
 
         removed_invalid = 0
@@ -124,8 +153,10 @@ class CompanyMongoRepository:
             removed_invalid = self.collection.delete_many({"_id": {"$in": invalid_ids}}).deleted_count
 
         removed_duplicates = 0
+        survivor_ids: set[Any] = set()
         for company_key, same_key_docs in groups.items():
             if len(same_key_docs) <= 1:
+                survivor_ids.add(same_key_docs[0]["_id"])
                 continue
 
             same_key_docs.sort(
@@ -136,19 +167,50 @@ class CompanyMongoRepository:
                 ),
                 reverse=True,
             )
+            survivor_ids.add(same_key_docs[0]["_id"])
             duplicate_ids = [doc["_id"] for doc in same_key_docs[1:]]
             if duplicate_ids:
                 removed_duplicates += self.collection.delete_many({"_id": {"$in": duplicate_ids}}).deleted_count
                 LOGGER.warning(
                     "Mongo companies cleanup removed %s duplicate docs for company_key=%s.",
-                    len(duplicate_ids),
+                    len(same_key_docs) - 1,
                     company_key,
                 )
+
+        update_conflicts = 0
+        for doc in docs:
+            doc_id = doc.get("_id")
+            if doc_id not in survivor_ids:
+                continue
+            target_key = target_keys_by_id.get(doc_id)
+            if not target_key:
+                continue
+            current_key = source_keys_by_id.get(doc_id)
+            if current_key == target_key:
+                continue
+            try:
+                self.collection.update_one(
+                    {"_id": doc_id},
+                    {"$set": {"company_key": target_key}},
+                )
+            except DuplicateKeyError:
+                update_conflicts += self.collection.delete_many({"_id": {"$in": [doc_id]}}).deleted_count
+                LOGGER.warning(
+                    "Mongo companies cleanup removed conflicting doc with _id=%s while setting company_key=%s.",
+                    doc_id,
+                    target_key,
+                )
+
+        if update_conflicts:
+            removed_duplicates += update_conflicts
 
         return derived_keys, removed_invalid, removed_duplicates
 
     def _ensure_company_key_unique_index(self) -> None:
+        removed_legacy_indexes = self._drop_legacy_symbol_indexes()
+
         index_info = self.collection.index_information()
+        has_strict_unique_company_key_index = False
         for index_name, definition in index_info.items():
             keys = definition.get("key")
             is_company_key_index = isinstance(keys, list) and keys == [("company_key", ASCENDING)]
@@ -161,30 +223,37 @@ class CompanyMongoRepository:
                 and not definition.get("partialFilterExpression")
             )
             if is_strict_unique:
-                return
+                has_strict_unique_company_key_index = True
+                continue
 
             self.collection.drop_index(index_name)
+            LOGGER.warning(
+                "Mongo companies cleanup dropped non-strict company_key index '%s' before rebuild.",
+                index_name,
+            )
 
         derived, removed_invalid, removed_duplicates = self._repair_company_documents()
-        if derived or removed_invalid or removed_duplicates:
+        if removed_legacy_indexes or derived or removed_invalid or removed_duplicates:
             LOGGER.warning(
-                "Mongo companies cleanup applied: derived_keys=%s removed_invalid=%s removed_duplicates=%s",
+                "Mongo companies cleanup applied: removed_legacy_indexes=%s derived_keys=%s removed_invalid=%s removed_duplicates=%s",
+                removed_legacy_indexes,
                 derived,
                 removed_invalid,
                 removed_duplicates,
             )
 
-        try:
-            self.collection.create_index(
-                [("company_key", ASCENDING)],
-                name=self.COMPANY_KEY_INDEX_NAME,
-                unique=True,
-            )
-        except DuplicateKeyError as exc:
-            raise RuntimeError(
-                "Mongo companies index build failed after cleanup. "
-                "Please inspect collection 'companies' for duplicate/invalid company_key values."
-            ) from exc
+        if not has_strict_unique_company_key_index:
+            try:
+                self.collection.create_index(
+                    [("company_key", ASCENDING)],
+                    name=self.COMPANY_KEY_INDEX_NAME,
+                    unique=True,
+                )
+            except DuplicateKeyError as exc:
+                raise RuntimeError(
+                    "Mongo companies index build failed after cleanup. "
+                    "Please inspect collection 'companies' for duplicate/invalid company_key values."
+                ) from exc
 
     def get_recent_profile(self, company_key: str, ttl_days: int) -> dict[str, Any] | None:
         """Lädt ein Profil, sofern es jünger als TTL-Tage ist."""

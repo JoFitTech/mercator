@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from pymongo import UpdateOne
 from pymongo.errors import DuplicateKeyError
 
 from src.db.mongo_repository import CompanyMongoRepository
@@ -23,22 +24,42 @@ class _UpdateResult:
 class _FakeCollection:
     def __init__(self, docs: list[dict[str, Any]] | None = None) -> None:
         self.docs = [dict(doc) for doc in (docs or [])]
+        self.dropped_indexes: list[str] = []
+        self._next_generated_id = 1000
         self.indexes: dict[str, dict[str, Any]] = {
             "_id_": {"key": [("_id", 1)], "unique": True}
         }
+
+    @staticmethod
+    def _extract_index_key(doc: dict[str, Any], fields: list[tuple[str, int]]) -> tuple[Any, ...]:
+        return tuple(doc.get(field_name) for field_name, _ in fields)
+
+    def _ensure_unique_constraints(self, candidate: dict[str, Any], *, skip_doc: dict[str, Any] | None = None) -> None:
+        for definition in self.indexes.values():
+            if not definition.get("unique"):
+                continue
+            keys = definition.get("key")
+            if not isinstance(keys, list):
+                continue
+            candidate_key = self._extract_index_key(candidate, keys)
+            for existing in self.docs:
+                if skip_doc is not None and existing is skip_doc:
+                    continue
+                if self._extract_index_key(existing, keys) == candidate_key:
+                    raise DuplicateKeyError("duplicate key")
 
     def index_information(self) -> dict[str, dict[str, Any]]:
         return dict(self.indexes)
 
     def drop_index(self, name: str) -> None:
+        self.dropped_indexes.append(name)
         self.indexes.pop(name, None)
 
     def create_index(self, keys: list[tuple[str, int]], name: str, unique: bool = False) -> str:
         if unique:
-            seen: set[Any] = set()
-            field_name = keys[0][0]
+            seen: set[tuple[Any, ...]] = set()
             for doc in self.docs:
-                key_value = doc.get(field_name)
+                key_value = self._extract_index_key(doc, keys)
                 if key_value in seen:
                     raise DuplicateKeyError("duplicate key")
                 seen.add(key_value)
@@ -80,12 +101,19 @@ class _FakeCollection:
     def update_one(self, query: dict[str, Any], update: dict[str, Any], upsert: bool = False) -> _UpdateResult:
         for doc in self.docs:
             if all(doc.get(k) == v for k, v in query.items()):
-                doc.update(update.get("$set", {}))
+                candidate = dict(doc)
+                candidate.update(update.get("$set", {}))
+                self._ensure_unique_constraints(candidate, skip_doc=doc)
+                doc.update(candidate)
                 return _UpdateResult()
 
         if upsert:
             new_doc = dict(query)
             new_doc.update(update.get("$set", {}))
+            if new_doc.get("_id") is None:
+                new_doc["_id"] = self._next_generated_id
+                self._next_generated_id += 1
+            self._ensure_unique_constraints(new_doc)
             self.docs.append(new_doc)
             return _UpdateResult(upserted_id=new_doc.get("_id", True))
 
@@ -99,6 +127,13 @@ class _FakeCollection:
 
     def count_documents(self, _query: dict[str, Any]) -> int:
         return len(self.docs)
+
+    def bulk_write(self, operations: list[UpdateOne], ordered: bool = False) -> None:
+        for op in operations:
+            query = getattr(op, "_filter")
+            update = getattr(op, "_doc")
+            upsert = bool(getattr(op, "_upsert"))
+            self.update_one(query, update, upsert=upsert)
 
 
 class _FakeMongoClientWrapper:
@@ -142,6 +177,80 @@ def test_company_repository_repairs_documents_before_unique_index() -> None:
     index_definition = collection.index_information()["company_key_unique"]
     assert index_definition["unique"] is True
     assert index_definition["key"] == [("company_key", 1)]
+
+
+def test_company_repository_keeps_valid_company_key_index_without_unneeded_drops() -> None:
+    collection = _FakeCollection([])
+    collection.indexes["company_key_unique"] = {
+        "key": [("company_key", 1)],
+        "unique": True,
+    }
+
+    CompanyMongoRepository(_FakeMongoClientWrapper(collection))
+
+    assert collection.index_information()["company_key_unique"]["unique"] is True
+    assert collection.dropped_indexes == []
+
+
+def test_company_repository_removes_legacy_symbol_index_and_rebuilds_company_key_index() -> None:
+    docs = [
+        {"_id": 1, "company_key": "SYM:AAA", "symbol": None},
+        {"_id": 2, "company_key": "SYM:BBB", "symbol": None},
+    ]
+    collection = _FakeCollection(docs)
+    collection.indexes["symbol_1"] = {
+        "key": [("symbol", 1)],
+        "unique": True,
+    }
+
+    CompanyMongoRepository(_FakeMongoClientWrapper(collection))
+
+    assert "symbol_1" not in collection.index_information()
+    assert "symbol_1" in collection.dropped_indexes
+    assert collection.index_information()["company_key_unique"]["unique"] is True
+
+
+def test_company_repository_derives_company_key_from_current_symbol() -> None:
+    docs = [{"_id": 1, "company_key": None, "current_symbol": " msft "}]
+    collection = _FakeCollection(docs)
+
+    CompanyMongoRepository(_FakeMongoClientWrapper(collection))
+
+    assert collection.docs[0]["company_key"] == "SYM:MSFT"
+
+
+def test_company_repository_removes_docs_without_derivable_company_key() -> None:
+    docs = [
+        {"_id": 1, "company_key": None, "company_name": "No key"},
+        {"_id": 2, "company_key": "SYM:OK", "current_symbol": "OK"},
+    ]
+    collection = _FakeCollection(docs)
+
+    CompanyMongoRepository(_FakeMongoClientWrapper(collection))
+
+    remaining_ids = {doc["_id"] for doc in collection.docs}
+    assert remaining_ids == {2}
+
+
+def test_upsert_profiles_with_current_symbol_only_payload_is_not_blocked_by_legacy_symbol_index() -> None:
+    docs = [{"_id": 1, "company_key": "SYM:LEGACY", "symbol": None}]
+    collection = _FakeCollection(docs)
+    collection.indexes["symbol_1"] = {
+        "key": [("symbol", 1)],
+        "unique": True,
+    }
+
+    repo = CompanyMongoRepository(_FakeMongoClientWrapper(collection))
+    written = repo.upsert_profiles(
+        [
+            {"company_key": "SYM:AAPL", "current_symbol": "AAPL"},
+            {"company_key": "SYM:MSFT", "current_symbol": "MSFT"},
+        ]
+    )
+
+    assert written == 2
+    assert "symbol_1" not in collection.index_information()
+    assert {doc["company_key"] for doc in collection.docs} >= {"SYM:AAPL", "SYM:MSFT"}
 
 
 def test_upsert_profile_does_not_downgrade_fetched_status_with_stub() -> None:
