@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from mysql.connector import Error, errorcode
+
 from src.db.mysql_client import MySqlClient
 
 
@@ -33,6 +35,10 @@ class SyncStateRepository:
 
     def __init__(self, client: MySqlClient) -> None:
         self._client = client
+
+    @staticmethod
+    def _is_missing_table_error(exc: Exception) -> bool:
+        return isinstance(exc, Error) and getattr(exc, "errno", None) == errorcode.ER_NO_SUCH_TABLE
 
     @staticmethod
     def _as_bool(value: object) -> bool:
@@ -73,10 +79,19 @@ class SyncStateRepository:
 
     def load(self) -> StartupSyncState:
         query = "SELECT * FROM app_sync_state WHERE state_key = %s LIMIT 1"
-        with self._client.connection(include_database=True) as conn:
-            with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(query, (self.STATE_KEY,))
-                row = cursor.fetchone()
+        try:
+            with self._client.connection(include_database=True) as conn:
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute(query, (self.STATE_KEY,))
+                    row = cursor.fetchone()
+        except Exception as exc:
+            if not self._is_missing_table_error(exc):
+                raise
+            self._client.initialize_schema()
+            with self._client.connection(include_database=True) as conn:
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute(query, (self.STATE_KEY,))
+                    row = cursor.fetchone()
         if row is None:
             return self.create_default_if_missing()
         return self._row_to_state(row)
