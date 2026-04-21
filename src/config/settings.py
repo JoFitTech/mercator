@@ -44,6 +44,7 @@ ALLOWED_GATE_FILTER_STATUSES = {
     "PRE_GATE_FAIL",
 }
 ALLOWED_MYSQL_TARGETS = {"local", "uni"}
+ALLOWED_MONGO_TARGETS = {"local", "uni"}
 FMP_API_KEY_PLACEHOLDERS = {
     "change_me",
     "changeme",
@@ -123,20 +124,21 @@ def _validate_mongo_target_config(
     raw_uri: str,
     database_env_name: str,
     raw_database: str,
+    require_database: bool = True,
 ) -> tuple[str, str]:
     """Validiert URI und Ziel-Datenbank für ein Mongo-Target."""
 
     uri = _normalize_mongo_uri(raw_uri, uri_env_name)
     database = raw_database.strip()
 
-    if target_name == "uni" and not database:
+    if target_name == "uni" and require_database and not database:
         raise SettingsError(
             f"Environment variable '{database_env_name}' is required when MONGO_ACTIVE_TARGET=uni. "
             "Do not rely on URI path or defaults for the target database. "
             f"{_mongo_uni_configuration_hint()}"
         )
 
-    if not database:
+    if require_database and not database:
         raise SettingsError(
             f"Environment variable '{database_env_name}' must not be empty for Mongo target '{target_name}'."
         )
@@ -549,51 +551,125 @@ class MongoConfig:
 
     @classmethod
     def from_env(cls) -> MongoConfig:
+        """Kompatibilitäts-Factory: liefert das aktuell aktive Mongo-Target."""
+
+        return MongoSettings.from_env().get_active_mongo_target()
+
+
+@dataclass(frozen=True)
+class MongoTargetSettings:
+    """Mongo-Konfiguration für genau ein Zielsystem."""
+
+    name: str
+    uri: str
+    database: str
+    direct_connection: bool | None = None
+    tls_allow_invalid_certificates: bool = False
+
+
+@dataclass(frozen=True)
+class MongoSettings:
+    """Zentrale Mongo-Einstellungen inklusive Target-Auswahl."""
+
+    mongo_active_target: str
+    mongo_auto_fallback_to_local: bool
+    local_mongo: MongoTargetSettings
+    uni_mongo: MongoTargetSettings
+
+    @classmethod
+    def from_env(cls) -> MongoSettings:
         """Erstellt die MongoDB-Konfiguration aus der Umgebung.
 
         Wählt basierend auf MONGO_ACTIVE_TARGET (local/uni) die passenden Daten aus.
         """
 
         active_target = _read_string_env("MONGO_ACTIVE_TARGET", default="local").lower()
-        if active_target not in {"local", "uni"}:
+        if active_target not in ALLOWED_MONGO_TARGETS:
             raise SettingsError(
                 f"Environment variable 'MONGO_ACTIVE_TARGET' must be one of: local, uni (got '{active_target}')."
             )
-
-        if active_target == "uni":
-            raw_uri = _read_string_env(
-                "UNI_MONGO_URI", default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/")
-            )
-            raw_database = _read_string_env(
-                "UNI_MONGO_DATABASE", default=""
-            )
-        else:
-            raw_uri = _read_string_env(
-                "LOCAL_MONGO_URI", default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/")
-            )
-            raw_database = _read_string_env(
-                "LOCAL_MONGO_DATABASE", default=_read_string_env("MONGO_DATABASE", default="mercator")
-            )
-        uri, database = _validate_mongo_target_config(
-            target_name=active_target,
-            uri_env_name="UNI_MONGO_URI" if active_target == "uni" else "LOCAL_MONGO_URI",
-            raw_uri=raw_uri,
-            database_env_name="UNI_MONGO_DATABASE" if active_target == "uni" else "LOCAL_MONGO_DATABASE",
-            raw_database=raw_database,
-        )
 
         direct_connection_raw = _read_string_env("MONGO_DIRECT_CONNECTION", default="")
         direct_connection: bool | None = None
         if direct_connection_raw.strip():
             direct_connection = _read_bool_env("MONGO_DIRECT_CONNECTION", default=False)
+        tls_allow_invalid_certificates = _read_bool_env(
+            "MONGO_TLS_ALLOW_INVALID_CERTIFICATES", default=False
+        )
+
+        local_uri, local_database = _validate_mongo_target_config(
+            target_name="local",
+            uri_env_name="LOCAL_MONGO_URI",
+            raw_uri=_read_string_env(
+                "LOCAL_MONGO_URI",
+                default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/"),
+            ),
+            database_env_name="LOCAL_MONGO_DATABASE",
+            raw_database=_read_string_env(
+                "LOCAL_MONGO_DATABASE",
+                default=_read_string_env("MONGO_DATABASE", default="mercator"),
+            ),
+            require_database=True,
+        )
+        uni_uri, uni_database = _validate_mongo_target_config(
+            target_name="uni",
+            uri_env_name="UNI_MONGO_URI",
+            raw_uri=_read_string_env(
+                "UNI_MONGO_URI",
+                default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/"),
+            ),
+            database_env_name="UNI_MONGO_DATABASE",
+            raw_database=_read_string_env("UNI_MONGO_DATABASE", default=""),
+            require_database=active_target == "uni",
+        )
 
         return cls(
-            active_target=active_target,
-            uri=uri,
-            database=database,
-            direct_connection=direct_connection,
-            tls_allow_invalid_certificates=_read_bool_env("MONGO_TLS_ALLOW_INVALID_CERTIFICATES", default=False),
+            mongo_active_target=active_target,
+            mongo_auto_fallback_to_local=_read_bool_env(
+                "MONGO_AUTO_FALLBACK_TO_LOCAL", default=True
+            ),
+            local_mongo=MongoTargetSettings(
+                name="local",
+                uri=local_uri,
+                database=local_database,
+                direct_connection=direct_connection,
+                tls_allow_invalid_certificates=tls_allow_invalid_certificates,
+            ),
+            uni_mongo=MongoTargetSettings(
+                name="uni",
+                uri=uni_uri,
+                database=uni_database,
+                direct_connection=direct_connection,
+                tls_allow_invalid_certificates=tls_allow_invalid_certificates,
+            ),
         )
+
+    def get_mongo_target(self, name: str) -> MongoTargetSettings:
+        normalized = name.lower().strip()
+        if normalized == "local":
+            return self.local_mongo
+        if normalized == "uni":
+            return self.uni_mongo
+        raise SettingsError(
+            f"Unsupported Mongo target '{name}'. Allowed values: local, uni."
+        )
+
+    def get_active_mongo_target(self) -> MongoConfig:
+        target = self.get_mongo_target(self.mongo_active_target)
+        return MongoConfig(
+            active_target=target.name,
+            uri=target.uri,
+            database=target.database,
+            direct_connection=target.direct_connection,
+            tls_allow_invalid_certificates=target.tls_allow_invalid_certificates,
+        )
+
+    def get_fallback_mongo_target(self) -> MongoTargetSettings | None:
+        if not self.mongo_auto_fallback_to_local:
+            return None
+        if self.mongo_active_target == "uni":
+            return self.local_mongo
+        return None
 
 
 @dataclass(frozen=True)
@@ -660,6 +736,7 @@ class AppSettings:
     trade_republic_universe_url: str
     trade_republic_refresh_ttl_hours: int
     public_share: PublicShareConfig = PublicShareConfig()
+    mongo_targets: MongoSettings | None = None
 
 
 def load_settings() -> AppSettings:
@@ -676,13 +753,14 @@ def load_settings() -> AppSettings:
     av_api_key, _ = _read_secret_first_env_fallback("ALPHA_VANTAGE_API_KEY", default="")
     poly_api_key, _ = _read_secret_first_env_fallback("POLYGON_API_KEY", default="")
 
+    mongo_targets = MongoSettings.from_env()
     app_settings = AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
         app_title=os.getenv("APP_TITLE", "Mercator"),
         dataset_path=os.getenv("DATASET_PATH", "data/raw/"),
         project_root=project_root,
         mysql=Settings.from_env(),
-        mongo=MongoConfig.from_env(),
+        mongo=mongo_targets.get_active_mongo_target(),
         fmp=FmpConfig(
             base_url=FMP_BASE_URL,
             api_key=fmp_api_key,
@@ -728,6 +806,7 @@ def load_settings() -> AppSettings:
             startup_timeout_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS", default=20),
             healthcheck_timeout_seconds=_read_float_env("PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS", default=2.0),
         ),
+        mongo_targets=mongo_targets,
     )
 
     if not _SETTINGS_DEBUG_LOGGED:

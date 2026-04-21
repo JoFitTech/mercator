@@ -7,6 +7,7 @@ import pytest
 from src.config import settings as settings_module
 from src.config.settings import (
     MongoConfig,
+    MongoSettings,
     Settings,
     SettingsError,
     load_settings,
@@ -224,6 +225,33 @@ def test_mongo_config_requires_uni_database_for_uni_target(monkeypatch) -> None:
 
     with pytest.raises(SettingsError, match="UNI_MONGO_DATABASE"):
         MongoConfig.from_env()
+
+
+def test_mongo_settings_reads_auto_fallback_flag(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv("MONGO_AUTO_FALLBACK_TO_LOCAL", "false")
+    monkeypatch.setenv("UNI_MONGO_URI", "mongodb://user:pw@mongo.uni.example:27017/?authSource=admin")
+    monkeypatch.setenv("UNI_MONGO_DATABASE", "uni")
+    monkeypatch.setenv("LOCAL_MONGO_URI", "mongodb://localhost:27017/")
+    monkeypatch.setenv("LOCAL_MONGO_DATABASE", "mercator")
+
+    mongo_settings = MongoSettings.from_env()
+
+    assert mongo_settings.mongo_auto_fallback_to_local is False
+
+
+def test_mongo_settings_loads_both_targets(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv("MONGO_AUTO_FALLBACK_TO_LOCAL", "true")
+    monkeypatch.setenv("LOCAL_MONGO_URI", "mongodb://localhost:27017/")
+    monkeypatch.setenv("LOCAL_MONGO_DATABASE", "mercator")
+    monkeypatch.setenv("UNI_MONGO_URI", "mongodb://user:pw@mongo.uni.example:27017/?authSource=admin")
+    monkeypatch.setenv("UNI_MONGO_DATABASE", "uni")
+
+    mongo_settings = MongoSettings.from_env()
+
+    assert mongo_settings.local_mongo.database == "mercator"
+    assert mongo_settings.uni_mongo.database == "uni"
 
 
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

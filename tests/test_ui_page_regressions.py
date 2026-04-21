@@ -236,7 +236,7 @@ def test_system_status_sidebar_shows_mongo_reason_when_offline(monkeypatch) -> N
 
     status = DatabaseStatus(
         mysql=MySqlStatus("local", "local", True, False, []),
-        mongo=MongoStatus(is_connected=False, message="Mongo URI ungültig"),
+        mongo=MongoStatus("uni", None, False, False, ["Mongo URI ungültig"]),
     )
 
     app_navigation.render_system_status_sidebar(db_status=status, mysql_res=None)
