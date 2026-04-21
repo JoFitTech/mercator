@@ -52,16 +52,18 @@ def _resolve_parent_target(nav_target: str) -> str:
     return nav_target
 
 
-def _render_navbar_control(options_list: list[str], current_label: str) -> str:
+def _render_navbar_control(options_list: list[str], current_label: str) -> tuple[str, str | None]:
     """Rendert die Header-Navigation als explizite Buttons."""
 
     selected_label = current_label if current_label in options_list else options_list[0]
+    clicked_label: str | None = None
     cols = st.columns(len(options_list))
     for option, col in zip(options_list, cols):
         button_type: Literal["primary", "secondary", "tertiary"] = "primary" if option == selected_label else "secondary"
         if col.button(option, key=f"main_navbar_{option}", use_container_width=True, type=button_type):
             selected_label = option
-    return selected_label
+            clicked_label = option
+    return selected_label, clicked_label
 
 
 def _set_nav_target(target: PageName) -> None:
@@ -99,6 +101,7 @@ def _determine_header_nav_update(
     current_target: str,
     selected_header_target: str,
     previous_header_target: str,
+    clicked_header_target: str | None = None,
 ) -> str | None:
     """Ermittelt, ob die Header-Auswahl das globale Nav-Target ändern darf."""
     parent_target = _resolve_parent_target(current_target)
@@ -110,6 +113,8 @@ def _determine_header_nav_update(
 
     if current_target in SIDEBAR_PAGES:
         # Sidebar-Seiten bleiben stabil, bis die Header-Auswahl wirklich geändert wurde.
+        if clicked_header_target in HEADER_PAGES:
+            return clicked_header_target
         if selected_header_target != previous_header_target:
             return selected_header_target
         return None
@@ -150,11 +155,17 @@ def render_navigation_topbar() -> PageName:
         with left:
             _render_topbar_brand()
         with right:
-            selected_label = _render_navbar_control(options_list, current_label)
+            selected_label, clicked_label = _render_navbar_control(options_list, current_label)
 
     selected_header_target = HEADER_NAV_OPTIONS[selected_label]
     st.session_state["header_nav_target"] = selected_header_target
-    nav_update = _determine_header_nav_update(current_target, selected_header_target, previous_header_target)
+    clicked_header_target = HEADER_NAV_OPTIONS.get(clicked_label) if clicked_label else None
+    nav_update = _determine_header_nav_update(
+        current_target,
+        selected_header_target,
+        previous_header_target,
+        clicked_header_target=clicked_header_target,
+    )
     if nav_update:
         _set_nav_target(nav_update)  # type: ignore[arg-type]
 

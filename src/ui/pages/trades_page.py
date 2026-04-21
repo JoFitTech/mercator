@@ -96,6 +96,8 @@ def _reset_trade_filters_and_widgets() -> None:
     """Setzt kanonischen Filter-State und Widget-State vollständig zurück."""
     st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
     _sync_trade_filter_widgets_from_state(force=True)
+    st.session_state["trades_current_page"] = 1
+    st.session_state["trades_feedback"] = ("success", "Alle Trades-Filter wurden zurückgesetzt.")
 
 
 def _trade_action_symbol_label(trade_row: pd.Series) -> str:
@@ -164,7 +166,12 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             apply_pressed = st.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
         _, b2 = st.columns(2)
         if apply_pressed:
-            st.session_state["trades_filters"] = _read_trade_filters_from_widgets()
+            new_filters = _read_trade_filters_from_widgets()
+            previous_filters = _normalize_trades_filters(st.session_state.get("trades_filters"))
+            st.session_state["trades_filters"] = new_filters
+            if new_filters != previous_filters:
+                st.session_state["trades_current_page"] = 1
+            st.session_state["trades_feedback"] = ("success", "Filter wurden angewendet.")
             st.rerun()
         if b2.button("Filter zurücksetzen", use_container_width=True, key="trades_reset_filters"):
             _reset_trade_filters_and_widgets()
@@ -174,6 +181,15 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     # 2. Daten laden
     active_filters = _normalize_trades_filters(st.session_state["trades_filters"])
     st.session_state["trades_filters"] = active_filters
+    feedback = st.session_state.pop("trades_feedback", None)
+    if feedback:
+        level, message = feedback
+        if level == "success":
+            st.success(message)
+        elif level == "warning":
+            st.warning(message)
+        else:
+            st.info(message)
     filters = _build_query_filters(active_filters)
     render_filter_chip_bar(
         active_filters={

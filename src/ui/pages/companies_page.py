@@ -67,6 +67,9 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
         help="Filtert die untenstehende Tabelle.",
     )
     search_term = search.strip()
+    feedback = st.session_state.pop("companies_feedback", None)
+    if feedback:
+        st.success(str(feedback))
     p1, p2 = st.columns([1, 1])
     page_size = p1.selectbox("Seitengröße", options=PAGE_SIZES, index=1, key="companies_page_size")
     current_page = max(1, int(p2.number_input("Seite", min_value=1, value=1, step=1, key="companies_current_page")))
@@ -120,6 +123,8 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
         render_empty_state(f"Keine Unternehmen für den Suchbegriff „{search_term}“ gefunden.")
         if st.button("Suche zurücksetzen", key="companies_reset_search", use_container_width=True):
             st.session_state["companies_search_term"] = ""
+            st.session_state["companies_current_page"] = 1
+            st.session_state["companies_feedback"] = "Suche wurde zurückgesetzt."
             st.rerun()
         return
     if df.empty:
