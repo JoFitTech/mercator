@@ -13,6 +13,7 @@ from src.ui.components.page_scaffold import (
     summarize_filters,
 )
 from src.ui.components.tables import get_single_selected_row_index
+PAGE_SIZES = [50, 100, 200]
 
 
 def _is_missing_ui_value(value: object) -> bool:
@@ -54,48 +55,73 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
         st.warning("Unternehmensdaten sind derzeit nicht verfügbar, da MySQL nicht erreichbar ist.")
         return
 
-    # 1. Daten laden (nur aktive Firmen laut Requirement 6.1)
-    with st.spinner("Lade Unternehmen..."):
-        companies, error = safe_service_call(
-            lambda: repository.list_active_companies(limit=1000),
-            context_label="Unternehmensdaten",
-            fallback=[],
-        )
-        if error is not None:
-            st.warning("Unternehmen konnten nicht geladen werden. Bitte später erneut versuchen.")
-            return
-        df = pd.DataFrame(companies)
-
-    if df.empty:
-        render_empty_state("Keine Unternehmen mit Trades gefunden.")
-        return
-
-    # 2. KPIs
-    kpis = [
-        {"label": "Aktive Unternehmen", "value": str(len(df))},
-        {"label": "Ø Trades pro Firma", "value": f"{df['trade_count'].mean():.1f}" if "trade_count" in df.columns else "-"},
-    ]
-    render_kpi_row(kpis)
-
-    # 3. Filter (Suche)
+    # 1. Filter (Suche)
     search = st.text_input(
         "Unternehmen suchen (Name oder Symbol)",
         key="companies_search_term",
         help="Filtert die untenstehende Tabelle.",
     )
     search_term = search.strip()
+    p1, p2 = st.columns([1, 1])
+    page_size = p1.selectbox("Seitengröße", options=PAGE_SIZES, index=1, key="companies_page_size")
+    current_page = max(1, int(p2.number_input("Seite", min_value=1, value=1, step=1, key="companies_current_page")))
+    offset = (current_page - 1) * int(page_size)
     summarize_filters("Aktive Filter", {"Suche": search_term})
-    if search_term:
-        df = df[
-            (df["company_name"].str.contains(search_term, case=False, na=False)) |
-            (df["current_symbol"].str.contains(search_term, case=False, na=False))
-        ]
+
+    # 2. Serverseitig paginierte Daten laden
+    with st.spinner("Lade Unternehmen..."):
+        if hasattr(repository, "count_active_companies") and hasattr(repository, "list_active_companies_page"):
+            total_companies, count_error = safe_service_call(
+                lambda: repository.count_active_companies(search_term=search_term or None),
+                context_label="Unternehmensdaten",
+                fallback=0,
+            )
+            companies, error = safe_service_call(
+                lambda: repository.list_active_companies_page(limit=int(page_size), offset=offset, search_term=search_term or None),
+                context_label="Unternehmensdaten",
+                fallback=[],
+            )
+        else:
+            # Rückwärtskompatibler Fallback für ältere Repos und bestehende UI-Tests.
+            companies_all, error = safe_service_call(
+                lambda: repository.list_active_companies(limit=1000),
+                context_label="Unternehmensdaten",
+                fallback=[],
+            )
+            count_error = None
+            if search_term:
+                companies_all = [
+                    row for row in companies_all
+                    if search_term.lower() in str(row.get("company_name") or "").lower()
+                    or search_term.lower() in str(row.get("current_symbol") or "").lower()
+                ]
+            total_companies = len(companies_all)
+            companies = companies_all[offset: offset + int(page_size)]
+        if error is not None or count_error is not None:
+            st.warning("Unternehmen konnten nicht geladen werden. Bitte später erneut versuchen.")
+            return
+        df = pd.DataFrame(companies)
+
     if df.empty and search_term:
         render_empty_state(f"Keine Unternehmen für den Suchbegriff „{search_term}“ gefunden.")
         if st.button("Suche zurücksetzen", key="companies_reset_search", use_container_width=True):
             st.session_state["companies_search_term"] = ""
             st.rerun()
         return
+    if df.empty:
+        render_empty_state("Keine Unternehmen mit Trades gefunden.")
+        return
+
+    total_pages = max(1, (int(total_companies) + int(page_size) - 1) // int(page_size))
+    st.caption(f"Seite {current_page} von {total_pages} · Gesamt {total_companies} Unternehmen")
+
+    # 3. KPIs
+    kpis = [
+        {"label": "Aktive Unternehmen", "value": str(total_companies)},
+        {"label": "Ø Trades pro Firma", "value": f"{df['trade_count'].mean():.1f}" if "trade_count" in df.columns else "-"},
+    ]
+    render_kpi_row(kpis)
+
     unresolved_count = int(df.get("profile_status", pd.Series(dtype="object")).fillna("").astype(str).str.upper().ne("FETCHED").sum()) if "profile_status" in df.columns else 0
     if unresolved_count > 0:
         st.warning(

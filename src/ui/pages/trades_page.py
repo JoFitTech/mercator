@@ -26,6 +26,7 @@ TRADE_FILTER_DEFAULTS = {
     "min_score": 0,
     "min_value": 0,
 }
+TRADE_PAGE_SIZES = [50, 100, 200]
 
 
 def _trade_filter_widget_keys() -> dict[str, str]:
@@ -189,13 +190,18 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
         "Validierung": active_filters["validation_status"],
     })
 
+    p1, p2 = st.columns([1, 1])
+    page_size = p1.selectbox("Seitengröße", options=TRADE_PAGE_SIZES, index=1, key="trades_page_size")
+    current_page = max(1, int(p2.number_input("Seite", min_value=1, value=1, step=1, key="trades_current_page")))
+    offset = (current_page - 1) * int(page_size)
+
     with st.spinner("Lade Trades..."):
-        trades_df, load_error = safe_service_call(lambda: service.get_filtered_trades(
+        (trades_df, total_rows), load_error = safe_service_call(lambda: service.get_filtered_trades_page(
             filters=filters,
-            limit=1000,
-            accumulate=False, # In der Hauptarbeitsfläche zeigen wir Roh-Trades
+            limit=int(page_size),
+            offset=offset,
             min_value=active_filters["min_value"],
-        ), context_label="Trades", fallback=pd.DataFrame())
+        ), context_label="Trades", fallback=(pd.DataFrame(), 0))
     if load_error is not None:
         st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
         return
@@ -213,6 +219,9 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             _sync_trade_filter_widgets_from_state(force=True)
             st.rerun()
         return
+
+    total_pages = max(1, (int(total_rows) + int(page_size) - 1) // int(page_size))
+    st.caption(f"Seite {current_page} von {total_pages} · Gesamt {total_rows} Treffer")
 
     # 3. KPIs
     kpis = [

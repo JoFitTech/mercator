@@ -147,9 +147,17 @@ class ImportService:
                 unique_company_stubs[company_key] = item
 
         # 2. Schritt: Einmaliges Upsert pro Firma
+        company_batch: list[dict[str, Any]] = []
+        company_lookup_by_key: dict[str, dict[str, Any]] = {}
         for company_key, item in unique_company_stubs.items():
             self._apply_trade_republic_match(item)
-            self._upsert_company_stub(item, fetched_at)
+            company_stub = self._build_company_stub(item, fetched_at)
+            if company_stub:
+                company_batch.append(company_stub)
+                company_lookup_by_key[company_key] = company_stub
+
+        if company_batch:
+            self._persist_company_batch(company_batch)
 
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
 
@@ -202,9 +210,8 @@ class ImportService:
                         fetched_at=fetched_at,
                     )
                     profile_cache_hits += 1
-                    self.company_mongo_repo.upsert_profile(cached_company)
-                    if self.company_mysql_repo is not None:
-                        self.company_mysql_repo.upsert_company(cached_company)
+                    self._persist_company_batch([cached_company])
+                    company_lookup_by_key[company_key_str] = cached_company
                     for t in matching_trades:
                         t["profile_status"] = cached_company.get("profile_status", "FETCHED")
                         t["profile_reason"] = "cache_hit"
@@ -239,9 +246,8 @@ class ImportService:
                 profile = company
                 
                 self._apply_trade_republic_match(company)
-                self.company_mongo_repo.upsert_profile(company)
-                if self.company_mysql_repo is not None:
-                    self.company_mysql_repo.upsert_company(company)
+                self._persist_company_batch([company])
+                company_lookup_by_key[company_key_str] = company
                 
                 for t in matching_trades:
                     t["profile_status"] = company["profile_status"]
@@ -258,15 +264,25 @@ class ImportService:
                 continue
 
         # Score und Dashboard-Validität nach Profilanreicherung neu berechnen
+        if self.company_mysql_repo is not None and hasattr(self.company_mysql_repo, "get_companies_by_keys"):
+            missing_company_keys = [
+                str(item.get("company_key"))
+                for item in normalized
+                if item.get("company_key") and str(item.get("company_key")) not in company_lookup_by_key
+            ]
+            if missing_company_keys:
+                company_lookup_by_key.update(
+                    self.company_mysql_repo.get_companies_by_keys(sorted(set(missing_company_keys)))
+                )
+
         for item in normalized:
             self._apply_trade_republic_match(item)
             
             # Sektor-Prüfung für Dashboard-Validität
             # Wenn das Profil geladen wurde, haben wir ggf. jetzt erst einen Sektor.
             company_key = item.get("company_key")
-            if company_key and self.company_mysql_repo:
-                # Da wir gerade ge-upserted haben, können wir den Sektor-Status kurz prüfen
-                comp = self.company_mysql_repo.get_company_by_symbol(company_key)
+            if company_key:
+                comp = company_lookup_by_key.get(str(company_key))
                 if comp:
                     item["sector"] = comp.get("sector")
                     item["sector_resolution_status"] = comp.get("sector_resolution_status")
@@ -493,11 +509,11 @@ class ImportService:
 
         return "" if value is None else str(value)
 
-    def _upsert_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> None:
+    def _build_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> dict[str, Any] | None:
         company_key = trade.get("company_key")
         if not company_key:
-            return
-        company_stub = {
+            return None
+        return {
             "company_key": company_key,
             "company_cik": trade.get("company_cik"),
             "current_symbol": trade.get("symbol"),
@@ -513,9 +529,16 @@ class ImportService:
             "created_at": trade.get("first_seen_at") or fetched_at,
             "updated_at": fetched_at,
         }
-        self.company_mongo_repo.upsert_profile(company_stub)
+
+    def _persist_company_batch(self, companies: list[dict[str, Any]]) -> None:
+        for company in companies:
+            self.company_mongo_repo.upsert_profile(company)
         if self.company_mysql_repo is not None:
-            self.company_mysql_repo.upsert_company(company_stub)
+            if hasattr(self.company_mysql_repo, "upsert_companies"):
+                self.company_mysql_repo.upsert_companies(companies)
+            else:
+                for company in companies:
+                    self.company_mysql_repo.upsert_company(company)
 
     def _apply_trade_republic_match(self, record: dict[str, Any]) -> None:
         if self.tr_matching_service is None:

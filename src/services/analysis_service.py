@@ -278,6 +278,25 @@ class AnalysisService:
 
         return df
 
+    def get_filtered_trades_page(
+        self,
+        filters: dict | None,
+        limit: int,
+        offset: int,
+        min_value: float = 0,
+    ) -> tuple[pd.DataFrame, int]:
+        total_count = self.trade_repo.count_trades(filters=filters)
+        df = self.trade_repo.fetch_trades_page(filters=filters, limit=limit, offset=offset)
+        df = self._ensure_trade_columns(df)
+        if df.empty:
+            return df, total_count
+        if min_value > 0:
+            df = df[df["trade_value_estimated"] >= min_value]
+        tr_filter = str((filters or {}).get("trade_republic_universe_status") or "").strip().upper()
+        if tr_filter and tr_filter != "ALL":
+            df = df[df["trade_republic_universe_status"] == tr_filter]
+        return df, total_count
+
     def get_ticker_detail(self, symbol: str, accumulate: bool = True) -> AnalysisResult:
         """Liefert Profil, letzte Trades und Basiskennzahlen für ein Symbol."""
         normalized_symbol = normalize_symbol(symbol)

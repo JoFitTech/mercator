@@ -63,24 +63,15 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     if "direction" not in df.columns:
         df["direction"] = "UNKNOWN"
 
-    # Alle potenziellen Spalten für die Datenbasis
-    all_cols = [
-        "symbol_at_trade", "reporting_name", "direction", "trade_value_estimated",
-        "core_insider_score", "final_score", "final_class", "decision_status",
-        "tr_availability_state", "primary_exchange", "filing_age_days", "earnings_distance_days",
-        "score", "gate_status", "validation_status", "transaction_date"
-    ]
-
-    # Sicherstellen dass Spalten existieren
-    for col in all_cols:
-        if col not in df.columns:
-            df[col] = None
-
-    # Sichtbare Spalten mit klarer Priorität.
     visible_cols = [
         "transaction_date", "symbol_at_trade", "reporting_name", "direction",
         "trade_value_estimated", "score", "gate_status", "validation_status",
     ]
+
+    # Sicherstellen dass sichtbare Spalten existieren
+    for col in visible_cols:
+        if col not in df.columns:
+            df[col] = None
 
     df["symbol_at_trade"] = df["symbol_at_trade"].apply(lambda value: _safe_text(value, "–"))
     df["reporting_name"] = df["reporting_name"].apply(lambda value: _safe_text(value, "Unbekannter Insider"))
@@ -111,7 +102,7 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     }
 
     return st.dataframe(
-        df[all_cols],
+        df[visible_cols],
         column_order=visible_cols,
         column_config=col_config,
         use_container_width=True,
