@@ -158,6 +158,26 @@ function Get-CloudflaredExtraArgs {
     return @($raw -split "\s+" | Where-Object { $_ -and $_.Trim() })
 }
 
+function Get-CloudflaredPublicUrl {
+    param([Parameter(Mandatory=$true)][hashtable]$Paths)
+
+    $chunks = @()
+    foreach ($path in @($Paths.LogPath, $Paths.ErrorLogPath)) {
+        if (Test-Path $path) {
+            $raw = Get-Content -Path $path -Raw -ErrorAction SilentlyContinue
+            if ($raw) { $chunks += $raw }
+        }
+    }
+    if (-not $chunks -or $chunks.Count -eq 0) { return $null }
+
+    $combined = ($chunks -join "`n")
+    $matches = [regex]::Matches($combined, "https://[a-zA-Z0-9.-]+\.trycloudflare\.com")
+    if ($matches.Count -gt 0) {
+        return $matches[$matches.Count - 1].Value
+    }
+    return $null
+}
+
 function Get-MongoHostPortFromUri {
     param([string]$Uri)
     if (-not $Uri) { return @{ Host = $null; Port = $null } }
@@ -374,10 +394,9 @@ function Invoke-ShareStart {
     $proc = Start-Process -FilePath $bin -ArgumentList $arguments -RedirectStandardOutput $paths.LogPath -RedirectStandardError $paths.ErrorLogPath -PassThru -WindowStyle Hidden
     Start-Sleep -Milliseconds 900
     $publicUrl = $null
-    if (Test-Path $paths.LogPath) {
-        $logRaw = Get-Content -Path $paths.LogPath -Raw -ErrorAction SilentlyContinue
-        $match = [regex]::Match(($logRaw | Out-String), "https://[a-zA-Z0-9.-]+\.trycloudflare\.com")
-        if ($match.Success) { $publicUrl = $match.Value }
+    for ($i = 0; $i -lt 10 -and -not $publicUrl; $i++) {
+        $publicUrl = Get-CloudflaredPublicUrl -Paths $paths
+        if (-not $publicUrl) { Start-Sleep -Milliseconds 400 }
     }
 
     $status = if ($proc.HasExited) { "ERROR" } elseif ($publicUrl) { "RUNNING" } else { "STARTING" }
@@ -403,15 +422,15 @@ function Invoke-ShareStart {
 
 function Invoke-ShareStop {
     $paths = Ensure-PublicSharePaths
-    $pid = Get-PublicSharePid -PidPath $paths.PidPath
+    $sharePid = Get-PublicSharePid -PidPath $paths.PidPath
     $lastExitCode = $null
-    if ($pid) {
-        $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    if ($sharePid) {
+        $process = Get-Process -Id $sharePid -ErrorAction SilentlyContinue
         if ($process) {
-            Stop-Process -Id $pid -ErrorAction SilentlyContinue
+            Stop-Process -Id $sharePid -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 350
-            $alive = Get-Process -Id $pid -ErrorAction SilentlyContinue
-            if ($alive) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+            $alive = Get-Process -Id $sharePid -ErrorAction SilentlyContinue
+            if ($alive) { Stop-Process -Id $sharePid -Force -ErrorAction SilentlyContinue }
         }
     }
     Remove-Item $paths.PidPath -ErrorAction SilentlyContinue
@@ -438,10 +457,29 @@ function Invoke-ShareStatus {
         return
     }
     $status = Get-Content -Path $paths.StatusPath -Raw | ConvertFrom-Json
-    $pid = Get-PublicSharePid -PidPath $paths.PidPath
+    $sharePid = Get-PublicSharePid -PidPath $paths.PidPath
     $alive = $false
-    if ($pid) { $alive = [bool](Get-Process -Id $pid -ErrorAction SilentlyContinue) }
-    if ($pid -and -not $alive) {
+    if ($sharePid) { $alive = [bool](Get-Process -Id $sharePid -ErrorAction SilentlyContinue) }
+    if ($alive -and (-not $status.public_url -or -not "$($status.public_url)".Trim())) {
+        $detectedUrl = Get-CloudflaredPublicUrl -Paths $paths
+        if ($detectedUrl) {
+            $status.public_url = $detectedUrl
+            if ($status.status -eq "STARTING") { $status.status = "RUNNING" }
+            Write-PublicShareStatus -Paths $paths -Status @{
+                execution_mode = $status.execution_mode
+                provider = $status.provider
+                local_url = $status.local_url
+                public_url = $status.public_url
+                pid = $sharePid
+                started_at = $status.started_at
+                status = $status.status
+                last_error = $status.last_error
+                last_exit_code = $status.last_exit_code
+                extra_args = $status.extra_args
+            }
+        }
+    }
+    if ($sharePid -and -not $alive) {
         $status.status = "STALE"
         $status.last_error = "PID-Datei verweist auf keinen laufenden Prozess."
         $status.pid = $null
@@ -462,8 +500,8 @@ function Invoke-ShareStatus {
     Write-Host "Execution Mode: $($status.execution_mode)"
     Write-Host "Status: $($status.status)"
     Write-Host "Local URL: $($status.local_url)"
-    Write-Host "Public URL: $($status.public_url)"
-    Write-Host "PID: $(if($pid){$pid}else{'-'})"
+    Write-Host "Public URL: $(if($status.public_url){$status.public_url}else{'-'})"
+    Write-Host "PID: $(if($sharePid){$sharePid}else{'-'})"
     if ($status.last_error) { Write-Host "Fehler: $($status.last_error)" -ForegroundColor Red }
 }
 
