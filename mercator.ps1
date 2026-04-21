@@ -563,12 +563,12 @@ switch ($Action) {
     "logs" {
         Invoke-Compose logs -f $Service
     }
-    "init-db" {
-        # Stellt sicher, dass App und lokale Datenbanken laufen, bevor das Schema initialisiert wird.
-        Invoke-ComposeQuiet up -d --wait app mysql mongo
-        # Fuehrt die MySQL-Schema-Init fuer ALLE Ziele innerhalb des App-Containers aus.
-        Invoke-Compose exec app python -m src.scripts.init_mysql_schema
-    }
+     "init-db" {
+         # Stellt sicher, dass App und lokale Datenbanken laufen, bevor das Schema initialisiert wird.
+         Invoke-ComposeQuiet up -d --wait app mysql mongo
+         # Fuehrt die MySQL-Schema-Init fuer ALLE Ziele (local + uni) innerhalb des App-Containers aus.
+         Invoke-Compose exec app python -c "from src.scripts.init_mysql_schema import initialize_all_targets; results = initialize_all_targets(); [print(f'{k}: {v}') for k,v in results.items()]"
+     }
     "doctor" {
         # Stellt sicher, dass App läuft
         Invoke-ComposeQuiet up -d --wait app
