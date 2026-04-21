@@ -24,13 +24,21 @@ from src.ui.components.tables import get_single_selected_row_index, render_dashb
 from src.ui.ui_theme import CHART_PALETTE
 
 
-def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[date, ...]) -> dict[str, date | None]:
-    if isinstance(date_range, tuple | list):
-        date_from = date_range[0] if len(date_range) > 0 else None
-        date_to = date_range[1] if len(date_range) > 1 else date_from
-    else:
-        date_from = None
-        date_to = None
+def _coerce_dashboard_date_range(value: object) -> tuple[date, date]:
+    if isinstance(value, date):
+        return value, value
+    if isinstance(value, (tuple, list)) and value:
+        date_from = value[0] if isinstance(value[0], date) else DASHBOARD_FILTER_DEFAULTS["date_range"][0]
+        second = value[1] if len(value) > 1 else date_from
+        date_to = second if isinstance(second, date) else date_from
+        if date_to < date_from:
+            return date_to, date_from
+        return date_from, date_to
+    return DASHBOARD_FILTER_DEFAULTS["date_range"]
+
+
+def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[date, ...] | date) -> dict[str, date | None]:
+    date_from, date_to = _coerce_dashboard_date_range(date_range)
     return {"date_from": date_from, "date_to": date_to}
 
 
@@ -43,9 +51,7 @@ def _normalize_dashboard_filters(filters: dict | None) -> dict:
     normalized = dict(DASHBOARD_FILTER_DEFAULTS)
     if filters:
         normalized.update(filters)
-    date_range = normalized.get("date_range")
-    if not isinstance(date_range, (list, tuple)) or len(date_range) < 2:
-        normalized["date_range"] = DASHBOARD_FILTER_DEFAULTS["date_range"]
+    normalized["date_range"] = _coerce_dashboard_date_range(normalized.get("date_range"))
     return normalized
 
 
@@ -57,9 +63,7 @@ def _sync_dashboard_filter_widgets_from_state(force: bool = False) -> None:
 
 
 def _read_dashboard_filters_from_widgets() -> dict:
-    return _normalize_dashboard_filters({
-        "date_range": st.session_state.get("dashboard_filter_date_range", DASHBOARD_FILTER_DEFAULTS["date_range"]),
-    })
+    return _normalize_dashboard_filters({"date_range": st.session_state.get("dashboard_filter_date_range", DASHBOARD_FILTER_DEFAULTS["date_range"])})
 
 
 def _reset_dashboard_filters_and_widgets() -> None:
@@ -215,21 +219,23 @@ def _render_top_list(title: str, df: pd.DataFrame, table_key: str, side: str) ->
         return
 
     selected_row = view_df.iloc[selected_idx]
-    symbol = selected_row.get("symbol_at_trade")
+    symbol = str(selected_row.get("symbol_at_trade") or "").strip()
+    if not symbol or symbol.lower() in {"nan", "none"}:
+        symbol = "Unbekanntes Symbol"
     dedupe_key = selected_row.get("dedupe_key")
 
     if selected_row.get("profile_status") != "FETCHED":
         st.caption("Profil fehlt / unvollständig: API2 nicht geladen oder unvollständig.")
 
     with st.container(border=True):
-        st.markdown(f"**Ausgewählt:** {symbol or 'Unbekanntes Symbol'}")
+        st.markdown(f"**Ausgewählt:** {symbol}")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("Trade öffnen", key=f"open_trade_{side}", use_container_width=True):
+            if st.button("Trade öffnen", key=f"open_trade_{side}_{selected_idx}", use_container_width=True):
                 _navigate_to_trade(dedupe_key)
         with c2:
-            if st.button("Unternehmen öffnen", key=f"open_company_{side}", use_container_width=True):
-                _navigate_to_company(symbol)
+            if st.button("Unternehmen öffnen", key=f"open_company_{side}_{selected_idx}", use_container_width=True):
+                _navigate_to_company(symbol if symbol != "Unbekanntes Symbol" else None)
 
 
 def render_dashboard_page(
@@ -248,10 +254,11 @@ def render_dashboard_page(
     if st.button(
         "Zur Trades-Arbeitsfläche",
         key="dashboard_open_trades_workspace",
-        type="secondary",
+        type="primary",
         use_container_width=False,
     ):
         _navigate_to_trades()
+        return
 
     if "dashboard_filters" not in st.session_state:
         st.session_state["dashboard_filters"] = dict(DASHBOARD_FILTER_DEFAULTS)
@@ -270,6 +277,7 @@ def render_dashboard_page(
             if st.button("Filter zurücksetzen", use_container_width=True, key="dashboard_reset_filters"):
                 _reset_dashboard_filters_and_widgets()
                 st.rerun()
+                return
 
     st.session_state["dashboard_filters"] = _read_dashboard_filters_from_widgets()
     date_range = st.session_state["dashboard_filters"]["date_range"]

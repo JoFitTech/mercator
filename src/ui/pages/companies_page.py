@@ -83,14 +83,15 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
         key="companies_search_term",
         help="Filtert die untenstehende Tabelle.",
     )
-    summarize_filters("Aktive Filter", {"Suche": search.strip()})
-    if search:
+    search_term = search.strip()
+    summarize_filters("Aktive Filter", {"Suche": search_term})
+    if search_term:
         df = df[
-            (df["company_name"].str.contains(search, case=False, na=False)) |
-            (df["current_symbol"].str.contains(search, case=False, na=False))
+            (df["company_name"].str.contains(search_term, case=False, na=False)) |
+            (df["current_symbol"].str.contains(search_term, case=False, na=False))
         ]
-    if df.empty and search.strip():
-        render_empty_state(f"Keine Unternehmen für den Suchbegriff „{search.strip()}“ gefunden.")
+    if df.empty and search_term:
+        render_empty_state(f"Keine Unternehmen für den Suchbegriff „{search_term}“ gefunden.")
         if st.button("Suche zurücksetzen", key="companies_reset_search", use_container_width=True):
             st.session_state["companies_search_term"] = ""
             st.rerun()
@@ -159,6 +160,7 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
                 type="primary",
                 use_container_width=True,
                 disabled=not can_navigate,
+                key=f"companies_open_detail_{selected_idx}",
                 help="Navigation benötigt ein gültiges Symbol." if not can_navigate else None,
             ):
                 st.session_state["selected_company_symbol"] = symbol_value

@@ -89,7 +89,6 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     df["gate_status"] = df["gate_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
     df["validation_status"] = df["validation_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
     df["transaction_date"] = pd.to_datetime(df["transaction_date"], errors="coerce")
-    df = df.sort_values("transaction_date", ascending=False, na_position="last").reset_index(drop=True)
 
     col_config = {
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small", pinned=True),

@@ -79,7 +79,9 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
     if trades_df.empty:
         st.info("Keine Trades in der Historie gefunden.")
     else:
-        # Wir nutzen die Standard-Tabelle
+        if "transaction_date" in trades_df.columns:
+            trades_df["transaction_date"] = pd.to_datetime(trades_df["transaction_date"], errors="coerce")
+            trades_df = trades_df.sort_values("transaction_date", ascending=False, na_position="last").reset_index(drop=True)
         event = render_trade_table(trades_df, height=500)
         selected_idx = get_single_selected_row_index(event, len(trades_df))
         if selected_idx is not None:
