@@ -53,7 +53,14 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
     if normalized.get("validation_status") not in {"Alle", "VALID", "INVALID"}:
         normalized["validation_status"] = "Alle"
     date_range = normalized.get("date_range")
-    if not isinstance(date_range, (list, tuple)) or len(date_range) < 2:
+    if isinstance(date_range, date):
+        normalized["date_range"] = (date_range, date_range)
+    elif isinstance(date_range, (list, tuple)) and len(date_range) > 0:
+        date_from = date_range[0] if isinstance(date_range[0], date) else TRADE_FILTER_DEFAULTS["date_range"][0]
+        second = date_range[1] if len(date_range) > 1 else date_from
+        date_to = second if isinstance(second, date) else date_from
+        normalized["date_range"] = (date_from, date_to) if date_to >= date_from else (date_to, date_from)
+    else:
         normalized["date_range"] = TRADE_FILTER_DEFAULTS["date_range"]
     normalized["min_score"] = int(normalized.get("min_score") or 0)
     normalized["min_value"] = int(normalized.get("min_value") or 0)
@@ -131,30 +138,32 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
         st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
     st.session_state["trades_filters"] = _normalize_trades_filters(st.session_state["trades_filters"])
     _sync_trade_filter_widgets_from_state()
-    active_filters = st.session_state["trades_filters"]
 
     with st.expander("Filter und Suche", expanded=True):
-        f1, f2, f3 = st.columns(3)
-        f1.text_input("Symbol", key="trades_filter_symbol", help="Ticker-Symbol (z.B. AAPL)")
-        f2.text_input("Insider-Name", key="trades_filter_reporting_name", help="Name des Insiders")
-        f3.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="trades_filter_direction")
+        with st.form("trades_filters_form", clear_on_submit=False):
+            f1, f2, f3 = st.columns(3)
+            f1.text_input("Symbol", key="trades_filter_symbol", help="Ticker-Symbol (z.B. AAPL)")
+            f2.text_input("Insider-Name", key="trades_filter_reporting_name", help="Name des Insiders")
+            f3.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="trades_filter_direction")
 
-        f4, f5, f6 = st.columns(3)
-        f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL"], key="trades_filter_gate_status")
-        f5.selectbox("Validierungsstatus", options=["Alle", "VALID", "INVALID"], key="trades_filter_validation_status")
-        f6.date_input("Zeitraum (Transaktionsdatum)", key="trades_filter_date_range")
+            f4, f5, f6 = st.columns(3)
+            f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL"], key="trades_filter_gate_status")
+            f5.selectbox("Validierungsstatus", options=["Alle", "VALID", "INVALID"], key="trades_filter_validation_status")
+            f6.date_input("Zeitraum (Transaktionsdatum)", key="trades_filter_date_range")
 
-        f7, f8 = st.columns(2)
-        f7.slider("Min. Score", 0, 100, key="trades_filter_min_score")
-        f8.number_input("Min. Wert ($)", step=10000, key="trades_filter_min_value")
+            f7, f8 = st.columns(2)
+            f7.slider("Min. Score", 0, 100, key="trades_filter_min_score")
+            f8.number_input("Min. Wert ($)", step=10000, key="trades_filter_min_value")
 
-        b1, b2 = st.columns(2)
-        if b1.button("Filter anwenden", type="primary", use_container_width=True, key="trades_apply_filters"):
+            apply_pressed = st.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
+        _, b2 = st.columns(2)
+        if apply_pressed:
             st.session_state["trades_filters"] = _read_trade_filters_from_widgets()
             st.rerun()
         if b2.button("Filter zurücksetzen", use_container_width=True, key="trades_reset_filters"):
             _reset_trade_filters_and_widgets()
             st.rerun()
+            return
 
     # 2. Daten laden
     active_filters = _normalize_trades_filters(st.session_state["trades_filters"])
@@ -217,6 +226,10 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     st.subheader("Trades-Arbeitsfläche")
     
     # Detail-Button Logik via AgGrid Auswahl
+    trades_df = trades_df.copy()
+    if "transaction_date" in trades_df.columns:
+        trades_df["transaction_date"] = pd.to_datetime(trades_df["transaction_date"], errors="coerce")
+        trades_df = trades_df.sort_values("transaction_date", ascending=False, na_position="last").reset_index(drop=True)
     event = render_trade_table(trades_df, height=600)
     st.caption(
         "Sortierung: standardmäßig nach Datum (neueste zuerst). "
@@ -226,19 +239,27 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
 
     selected_idx = get_single_selected_row_index(event, len(trades_df))
     if selected_idx is not None:
-        selected_trade = trades_df.reset_index(drop=True).iloc[selected_idx]
+        selected_trade = trades_df.iloc[selected_idx]
         symbol_label = _trade_action_symbol_label(selected_trade)
+        symbol_value = str(selected_trade.get("symbol_at_trade") or "").strip()
+        can_open_company = bool(symbol_value) and symbol_value.lower() not in {"nan", "none"}
         with st.container(border=True):
             st.markdown(f"**Ausgewählt:** {symbol_label}")
             c1, c2 = st.columns(2)
             with c1:
-                if st.button(f"Trade-Detail öffnen: {symbol_label}", type="primary", use_container_width=True):
+                if st.button(f"Trade-Detail öffnen: {symbol_label}", type="primary", use_container_width=True, key=f"open_trade_detail_{selected_idx}"):
                     st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
                     st.session_state["nav_target"] = "Trade-Detail"
                     st.rerun()
             with c2:
-                if st.button(f"Unternehmens-Detail öffnen: {symbol_label}", use_container_width=True):
-                    st.session_state["selected_company_symbol"] = selected_trade.get("symbol_at_trade")
+                if st.button(
+                    f"Unternehmens-Detail öffnen: {symbol_label}",
+                    use_container_width=True,
+                    disabled=not can_open_company,
+                    key=f"open_company_detail_{selected_idx}",
+                    help="Navigation benötigt ein gültiges Symbol." if not can_open_company else None,
+                ):
+                    st.session_state["selected_company_symbol"] = symbol_value
                     st.session_state["nav_target"] = "Unternehmens-Detail"
                     st.rerun()
     else:

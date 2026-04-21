@@ -40,6 +40,13 @@ def test_build_dashboard_filters_handles_incomplete_range() -> None:
     }
 
 
+def test_build_dashboard_filters_handles_single_date_widget_value() -> None:
+    assert _build_dashboard_filters(date(2026, 2, 1)) == {
+        "date_from": date(2026, 2, 1),
+        "date_to": date(2026, 2, 1),
+    }
+
+
 def test_dashboard_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -> None:
     monkeypatch.setattr(
         dashboard_page.st,
@@ -61,6 +68,14 @@ def test_normalize_trades_filters_resets_invalid_direction() -> None:
     assert normalized["direction"] == "Alle"
     assert normalized["min_score"] == 0
     assert normalized["min_value"] == 0
+
+
+def test_normalize_trades_filters_accepts_single_date_and_sorts_range() -> None:
+    single = _normalize_trades_filters({"date_range": date(2026, 1, 1)})
+    assert single["date_range"] == (date(2026, 1, 1), date(2026, 1, 1))
+
+    swapped = _normalize_trades_filters({"date_range": (date(2026, 2, 1), date(2026, 1, 1))})
+    assert swapped["date_range"] == (date(2026, 1, 1), date(2026, 2, 1))
 
 
 def test_build_query_filters_maps_direction_and_blank_values() -> None:
@@ -151,6 +166,22 @@ def test_dashboard_top_table_sort_prefers_value_then_date() -> None:
     ])
     sorted_df = table_components.sort_dashboard_top_rows(df)
     assert list(sorted_df["symbol_at_trade"]) == ["BBB", "CCC", "AAA"]
+
+
+def test_trade_table_keeps_row_order_for_selection_mapping(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_dataframe(data, **kwargs):  # noqa: ANN001
+        captured["rows"] = list(data["symbol_at_trade"])
+        return {"selection": {"rows": [0]}}
+
+    monkeypatch.setattr(table_components.st, "dataframe", _fake_dataframe)
+    table_components.render_trade_table(pd.DataFrame([
+        {"symbol_at_trade": "OLDER", "transaction_date": "2026-01-01"},
+        {"symbol_at_trade": "NEWER", "transaction_date": "2026-03-01"},
+    ]))
+
+    assert captured["rows"] == ["OLDER", "NEWER"]
 
 
 def test_ui_missing_values_are_sanitized_for_detail_and_company_views() -> None:
