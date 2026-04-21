@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pymongo import ASCENDING
+from pymongo import UpdateOne
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -239,6 +240,32 @@ class CompanyMongoRepository:
                 {"$set": payload},
                 upsert=False,
             )
+
+    def upsert_profiles(self, companies: list[dict[str, Any]], batch_size: int = 200) -> int:
+        if not companies:
+            return 0
+        written = 0
+        for start in range(0, len(companies), batch_size):
+            chunk = companies[start : start + batch_size]
+            ops: list[UpdateOne] = []
+            for company in chunk:
+                normalized_key = self._normalize_company_key(company.get("company_key"))
+                if not normalized_key:
+                    continue
+                payload = {k: v for k, v in dict(company).items() if v is not None}
+                payload["company_key"] = normalized_key
+                ops.append(
+                    UpdateOne(
+                        {"company_key": normalized_key},
+                        {"$set": payload},
+                        upsert=True,
+                    )
+                )
+            if not ops:
+                continue
+            self.collection.bulk_write(ops, ordered=False)
+            written += len(ops)
+        return written
 
     def count_all(self) -> int:
         """Liefert Anzahl der gespeicherten Profile."""

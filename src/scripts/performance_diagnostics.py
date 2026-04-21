@@ -20,6 +20,7 @@ from src.db.mongo_client import MongoClientWrapper
 from src.db.repositories.company_repository import CompanyRepository
 from src.db.repositories.trade_repository import InsiderTradeRepository
 from src.services.dashboard_service import DashboardService
+from src.services.historical_market_data_service import HistoricalMarketDataService
 
 
 @dataclass
@@ -127,6 +128,20 @@ class _DashTradeRepo:
                 }
             ]
         )
+
+    def fetch_dashboard_kpi_snapshot(self, filters: dict | None = None) -> dict[str, Any]:
+        self.sql_queries += 1
+        return {"buy_count": 1, "sell_count": 0, "buy_volume": 20.0, "sell_volume": 0.0, "relevant_trades": 1, "affected_companies": 1, "gate_passed_count": 1, "avg_score": 80.0}
+
+    def fetch_dashboard_sector_distribution(self, filters: dict | None = None) -> pd.DataFrame:
+        self.sql_queries += 1
+        return pd.DataFrame([{"direction": "BUY", "sector": "Technology", "count": 1, "volume": 20.0}])
+
+    def fetch_dashboard_top_trades(self, direction: str, filters: dict | None = None, limit: int = 5) -> pd.DataFrame:
+        self.sql_queries += 1
+        if direction == "SELL":
+            return pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"])
+        return pd.DataFrame([{"trade_date": "2026-01-01", "accumulated_trade_value_estimated": 20.0}])
 
 
 class _DashCompanyRepo:
@@ -244,6 +259,64 @@ def benchmark_companies_page_query_path() -> MetricRow:
     return MetricRow("Companies page", "count + page", elapsed_ms, min(len(rows), count), "n/a", client.sql_queries)
 
 
+def benchmark_dashboard_aggregate_path() -> MetricRow:
+    trade_repo = _DashTradeRepo()
+    company_repo = _DashCompanyRepo()
+    service = DashboardService(raw_repo=None, company_mongo_repo=None, trade_repo=trade_repo, company_repo=company_repo)  # type: ignore[arg-type]
+    t0 = time.perf_counter()
+    payload = service.build_dashboard_payload(filters={"symbol": "AAPL"})
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    return MetricRow("Dashboard", "Aggregate query path", elapsed_ms, int(payload.get("kpi_relevant_trades_count", 0)), "miss", trade_repo.sql_queries + company_repo.sql_queries)
+
+
+class _Api3CacheRepo:
+    def __init__(self, cached: dict[str, Any] | None) -> None:
+        self.cached = cached
+        self.writes = 0
+
+    def get_symbol_cache(self, symbol: str) -> dict[str, Any] | None:
+        return self.cached
+
+    def upsert_symbol_cache(self, payload: dict[str, Any]) -> None:
+        self.writes += 1
+
+
+def benchmark_api3_cache_hit_miss() -> tuple[MetricRow, MetricRow]:
+    fmp_calls = {"count": 0}
+
+    class _Fmp:
+        def fetch_historical_price_eod_full(self, symbol: str, date_from: str, date_to: str):
+            fmp_calls["count"] += 1
+            return [{"date": "2026-01-01", "close": 10, "volume": 1000}]
+
+    miss_service = HistoricalMarketDataService(_Fmp(), cache_repo=_Api3CacheRepo(cached=None))  # type: ignore[arg-type]
+    t0 = time.perf_counter()
+    _ = miss_service.load_signal("AAPL")
+    miss_ms = (time.perf_counter() - t0) * 1000
+
+    cache_row = {
+        "symbol": "AAPL",
+        "avg_20d_volume": 1000.0,
+        "avg_20d_dollar_volume": 10000.0,
+        "sma_50": 10.0,
+        "sma_200": 10.0,
+        "momentum_3m": 0.0,
+        "momentum_6m": 0.0,
+        "technical_state": "MIXED",
+        "liquidity_state": "LOW",
+        "to_date": datetime(2026, 1, 2).date(),
+        "refreshed_at": datetime.now(),
+    }
+    hit_service = HistoricalMarketDataService(_Fmp(), cache_repo=_Api3CacheRepo(cached=cache_row))  # type: ignore[arg-type]
+    t1 = time.perf_counter()
+    _ = hit_service.load_signal("AAPL", today=datetime(2026, 1, 1).date())
+    hit_ms = (time.perf_counter() - t1) * 1000
+    return (
+        MetricRow("API3", "cache miss", miss_ms, 1, "miss", fmp_calls["count"]),
+        MetricRow("API3", "cache hit", hit_ms, 1, "hit", fmp_calls["count"] - 1),
+    )
+
+
 def diagnose_mongo() -> dict[str, str]:
     settings = load_settings()
     uri = settings.mongo.uri
@@ -310,6 +383,8 @@ def main() -> None:
     metrics.extend(benchmark_dashboard_cache())
     metrics.append(benchmark_trades_page_query_path())
     metrics.append(benchmark_companies_page_query_path())
+    metrics.append(benchmark_dashboard_aggregate_path())
+    metrics.extend(benchmark_api3_cache_hit_miss())
 
     print("# Mercator Performance Diagnostics")
     _print_metrics(metrics)

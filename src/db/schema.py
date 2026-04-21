@@ -153,6 +153,38 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
+    CREATE TABLE IF NOT EXISTS company_trade_stats (
+        company_key VARCHAR(64) NOT NULL,
+        trade_count BIGINT NOT NULL DEFAULT 0,
+        buy_count BIGINT NOT NULL DEFAULT 0,
+        sell_count BIGINT NOT NULL DEFAULT 0,
+        last_trade_date DATE NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (company_key),
+        CONSTRAINT fk_company_trade_stats_company_key
+            FOREIGN KEY (company_key) REFERENCES companies(company_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS market_signal_cache (
+        symbol VARCHAR(20) NOT NULL,
+        from_date DATE NOT NULL,
+        to_date DATE NOT NULL,
+        avg_20d_volume DECIMAL(20,2) NULL,
+        avg_20d_dollar_volume DECIMAL(20,2) NULL,
+        sma_50 DECIMAL(18,4) NULL,
+        sma_200 DECIMAL(18,4) NULL,
+        momentum_3m DECIMAL(12,6) NULL,
+        momentum_6m DECIMAL(12,6) NULL,
+        technical_state VARCHAR(32) NOT NULL,
+        liquidity_state VARCHAR(32) NOT NULL,
+        refreshed_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (symbol),
+        INDEX idx_market_signal_cache_refreshed_at (refreshed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
     CREATE TABLE IF NOT EXISTS trade_republic_universe_reference (
         isin VARCHAR(32) NOT NULL,
         symbol VARCHAR(32) NULL,
