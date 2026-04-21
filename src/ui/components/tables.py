@@ -65,7 +65,9 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
 
     visible_cols = [
         "transaction_date", "symbol_at_trade", "reporting_name", "direction",
-        "trade_value_estimated", "score", "gate_status", "validation_status",
+        "trade_value", "transaction_code_class", "gate_status", "filing_age_days",
+        "market_cap", "industry", "score", "score_class", "decision_status",
+        "technical_state", "liquidity_state", "validation_status",
     ]
 
     # Sicherstellen dass sichtbare Spalten existieren
@@ -75,7 +77,7 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
 
     df["symbol_at_trade"] = df["symbol_at_trade"].apply(lambda value: _safe_text(value, "–"))
     df["reporting_name"] = df["reporting_name"].apply(lambda value: _safe_text(value, "Unbekannter Insider"))
-    df["trade_value_estimated"] = pd.to_numeric(df["trade_value_estimated"], errors="coerce")
+    df["trade_value"] = pd.to_numeric(df.get("trade_value", df.get("trade_value_estimated")), errors="coerce")
     df["score"] = pd.to_numeric(df["score"], errors="coerce")
     df["gate_status"] = df["gate_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
     df["validation_status"] = df["validation_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
@@ -86,7 +88,8 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
         "direction": st.column_config.TextColumn("Richtung", width="small"),
         "sector": st.column_config.TextColumn("Sektor", width="medium"),
-        "trade_value_estimated": st.column_config.NumberColumn("Wert", format="$%.0f", width="small"),
+        "trade_value": st.column_config.NumberColumn("Trade Value", format="$%.0f", width="small"),
+        "transaction_code_class": st.column_config.TextColumn("Tx Code Class", width="small"),
         "core_insider_score": st.column_config.NumberColumn("Core Insider", format="%.1f", width="small"),
         "final_score": st.column_config.NumberColumn("Final Score", format="%.1f", width="small"),
         "final_class": st.column_config.TextColumn("Class", width="small"),

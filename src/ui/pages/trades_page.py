@@ -49,7 +49,7 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
         normalized.update(filters)
     if normalized.get("direction") not in {"Alle", "BUY", "SELL"}:
         normalized["direction"] = "Alle"
-    if normalized.get("gate_status") not in {"Alle", "PASS", "PENDING", "FAIL"}:
+    if normalized.get("gate_status") not in {"Alle", "PASS", "PENDING", "FAIL", "PRE_GATE_FAIL"}:
         normalized["gate_status"] = "Alle"
     if normalized.get("validation_status") not in {"Alle", "VALID", "INVALID"}:
         normalized["validation_status"] = "Alle"
@@ -153,7 +153,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             f3.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="trades_filter_direction")
 
             f4, f5, f6 = st.columns(3)
-            f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL"], key="trades_filter_gate_status")
+            f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL", "PRE_GATE_FAIL"], key="trades_filter_gate_status")
             f5.selectbox("Validierungsstatus", options=["Alle", "VALID", "INVALID"], key="trades_filter_validation_status")
             f6.date_input("Zeitraum (Transaktionsdatum)", key="trades_filter_date_range")
 

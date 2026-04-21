@@ -12,6 +12,8 @@ from src.data_sources.fmp_client import FmpClient
 from src.data_sources.alpha_vantage_client import AlphaVantageClient
 from src.data_sources.polygon_client import PolygonClient
 from src.services.company_enrichment_service import CompanyEnrichmentService
+from src.services.company_profile_enrichment_service import CompanyProfileEnrichmentService
+from src.services.historical_market_data_service import HistoricalMarketDataService
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.repositories.company_repository import CompanyMySqlRepository
 from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
@@ -76,6 +78,8 @@ class ImportService:
         self.tr_ingestion_service = tr_ingestion_service
         self.tr_matching_service = tr_matching_service
         self.enrichment_service = enrichment_service or CompanyEnrichmentService(fmp_client)
+        self.profile_service = CompanyProfileEnrichmentService(fmp_client)
+        self.historical_service = HistoricalMarketDataService(fmp_client)
         self.scoring_service = scoring_service or ScoringService()
 
     def run_hourly_import(
@@ -125,18 +129,6 @@ class ImportService:
             decision = self.gate_evaluator.evaluate(item)
             item["gate_status"] = decision.status
             item["gate_reason"] = decision.reason
-            res = self.scoring_service.compute_trade_score(item)
-            item["score"] = res["score"]
-            item["score_value"] = res["score"]
-            item["score_class"] = res["score_class"]
-            item["core_insider_score"] = res.get("core_insider_score")
-            item["investability_score"] = res.get("investability_score")
-            item["execution_score"] = res.get("execution_score")
-            item["trade_republic_score"] = res.get("trade_republic_score")
-            item["final_score"] = res.get("final_score", res["score"])
-            item["final_class"] = res.get("final_class", res["score_class"])
-            item["decision_status"] = res.get("decision_status")
-            item["filing_age_days"] = res.get("filing_age_days", item.get("filing_age_days"))
 
             symbol = str(item.get("symbol") or "").strip().upper()
             if symbol:
@@ -169,14 +161,12 @@ class ImportService:
         # Bestimme Symbole für Enrichment
         symbols_to_enrich: set[str] = set()
         
-        if mode in ("ALL_TRADED_COMPANIES", "ALL TRADED COMPANIES"):
-            symbols_to_enrich = all_traded_symbols
-        elif mode != "DISABLED":
-            for trade in normalized:
-                if trade["gate_status"].upper() in effective_profile_fetch_statuses:
-                    sym = str(trade.get("symbol") or "").strip().upper()
-                    if sym:
-                        symbols_to_enrich.add(sym)
+        for trade in normalized:
+            if str(trade.get("gate_status") or "").upper() != GATE_PASS:
+                continue
+            sym = str(trade.get("symbol") or "").strip().upper()
+            if sym:
+                symbols_to_enrich.add(sym)
         
         symbols_considered_for_enrichment = len(symbols_to_enrich)
         trades_by_symbol: dict[str, list[dict[str, Any]]] = {}
@@ -184,6 +174,8 @@ class ImportService:
             sym = str(trade.get("symbol") or "").strip().upper()
             if sym:
                 trades_by_symbol.setdefault(sym, []).append(trade)
+
+        symbols_with_profile_success: set[str] = set()
 
         # Führe Enrichment durch
         for symbol in symbols_to_enrich:
@@ -225,26 +217,38 @@ class ImportService:
 
             try:
                 profile_fetch_attempts += 1
-                # Nutze die neue Enrichment-Kette
-                company_obj = self.enrichment_service.enrich_company_profile(symbol)
-                
-                # Konvertiere in Dict für die bestehende Pipeline
-                from dataclasses import asdict
-                company = asdict(company_obj)
-                if not company.get("sector_resolution_status"):
-                    company["sector_resolution_status"] = "UNRESOLVED"
+                if hasattr(self.fmp_client, "fetch_company_profile"):
+                    profile_payload = self.profile_service.fetch_profile(symbol)
+                    mapped = self.profile_service.map_profile_fields(profile_payload)
+                    company = {
+                        "company_key": company_key_str,
+                        "current_symbol": symbol,
+                        "company_name": mapped.get("company_name"),
+                        "market_cap": mapped.get("market_cap"),
+                        "industry": mapped.get("industry"),
+                        "company_cik": mapped.get("cik"),
+                        "isin": mapped.get("isin"),
+                        "cusip": mapped.get("cusip"),
+                        "exchange": mapped.get("exchange"),
+                        "country": mapped.get("country"),
+                        "sector": mapped.get("sector"),
+                        "profile_updated_at": fetched_at,
+                        "last_seen_at": fetched_at,
+                        "sync_version": 1,
+                        "profile_status": "FETCHED" if mapped else "FAILED",
+                        "profile_reason": "api2_v2",
+                    }
+                else:
+                    company_obj = self.enrichment_service.enrich_company_profile(symbol)
+                    from dataclasses import asdict
+                    company = asdict(company_obj)
+                    company["company_key"] = company_key_str
+                    company["last_seen_at"] = fetched_at
+                    company["profile_updated_at"] = fetched_at
+                    company["sync_version"] = 1
+                    company["profile_status"] = "FETCHED" if company_obj.sector_resolution_status == "RESOLVED" else "FAILED"
+                    company["profile_reason"] = "api_fetch" if company["profile_status"] == "FETCHED" else "unresolved_sector"
 
-                # Metadaten ergänzen
-                company["company_key"] = company_key_str
-                company["last_seen_at"] = fetched_at
-                company["profile_updated_at"] = fetched_at
-                company["sync_version"] = 1
-                company["profile_status"] = "FETCHED" if company_obj.sector_resolution_status == "RESOLVED" else "FAILED"
-                company["profile_reason"] = "api_fetch" if company["profile_status"] == "FETCHED" else "unresolved_sector"
-                
-                # Backwards compatibility für den Rest des Codes
-                profile = company
-                
                 self._apply_trade_republic_match(company)
                 self._persist_company_batch([company])
                 company_lookup_by_key[company_key_str] = company
@@ -255,6 +259,7 @@ class ImportService:
 
                 if company["profile_status"] == "FETCHED":
                     fetched_profiles += 1
+                    symbols_with_profile_success.add(symbol)
             except Exception:
                 LOGGER.exception("Profilabruf fehlgeschlagen für %s", symbol)
                 profile_failures += 1
@@ -274,6 +279,29 @@ class ImportService:
                 company_lookup_by_key.update(
                     self.company_mysql_repo.get_companies_by_keys(sorted(set(missing_company_keys)))
                 )
+
+        # API3 nur für Gate-Passer mit erfolgreichem API2-Profil
+        for symbol in symbols_with_profile_success:
+            matching_trades = trades_by_symbol.get(symbol, [])
+            if not matching_trades:
+                continue
+            if not any(str(t.get("gate_status", "")).upper() == GATE_PASS for t in matching_trades):
+                continue
+            try:
+                if not hasattr(self.fmp_client, "fetch_historical_price_eod_full"):
+                    continue
+                signal = self.historical_service.load_signal(symbol)
+                for t in matching_trades:
+                    t["avg_20d_volume"] = signal.avg_20d_volume
+                    t["avg_20d_dollar_volume"] = signal.avg_20d_dollar_volume
+                    t["sma_50"] = signal.sma_50
+                    t["sma_200"] = signal.sma_200
+                    t["momentum_3m"] = signal.momentum_3m
+                    t["momentum_6m"] = signal.momentum_6m
+                    t["technical_state"] = signal.technical_state
+                    t["liquidity_state"] = signal.liquidity_state
+            except Exception:
+                LOGGER.exception("API3 historical enrichment fehlgeschlagen für %s", symbol)
 
         for item in normalized:
             self._apply_trade_republic_match(item)

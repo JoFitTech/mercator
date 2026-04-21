@@ -64,6 +64,8 @@ def should_call_exchange_variants(trade: dict[str, Any], preliminary_score: floa
     context = context or {}
     gate_ok = str(trade.get("gate_status") or "").upper() in {"PASS", "PENDING"}
     direction = str(trade.get("acquisition_or_disposition") or "").upper()
+    tx_code = str(trade.get("transaction_type") or "").strip().upper()[:1]
+    tx_class = str(trade.get("transaction_code_class") or "").upper()
     unresolved = bool(context.get("listing_unresolved"))
     in_corridor = preliminary_score >= float(context.get("watchlist_min_score", 55))
     candidate = bool(context.get("trade_republic_candidate"))
@@ -88,6 +90,8 @@ def score_trade(trade: dict[str, Any]) -> ScoreResult:
     market_cap = float(trade.get("market_cap") or 0)
     avg_20d_dollar_volume = float(trade.get("avg_20d_dollar_volume") or 0)
     direction = str(trade.get("acquisition_or_disposition") or "").upper()
+    tx_code = str(trade.get("transaction_type") or "").strip().upper()[:1]
+    tx_class = str(trade.get("transaction_code_class") or "").upper()
     role = str(trade.get("type_of_owner") or "UNKNOWN").upper()
     filing_age = _filing_age_days(trade)
     security_type = str(trade.get("normalized_instrument_type") or normalize_security_type(trade.get("security_name")))
@@ -106,7 +110,9 @@ def score_trade(trade: dict[str, Any]) -> ScoreResult:
     core += 8 if rel_vol >= 0.20 else 6 if rel_vol >= 0.10 else 4 if rel_vol >= 0.05 else 2 if rel_vol >= 0.01 else 0
     role_scores = {"CEO": 8, "EXECUTIVE_CHAIR": 8, "CFO": 7, "PRESIDENT": 6, "COO": 6, "DIRECTOR": 5, "TEN_PERCENT_OWNER": 4, "OTHER": 2, "UNKNOWN": 0}
     core += role_scores.get(role, 2)
-    core += 8 if direction == "A" else 0
+    core += 10 if tx_code == "P" else 0
+    core += 2 if tx_class == "SECONDARY_SIGNAL" else 0
+    core -= 6 if tx_code == "S" else 0
     core += 4 if same_insider else 2
     core += 5 if multi_count >= 3 else 3 if multi_count >= 2 else 0
     if filing_age is not None:
@@ -130,15 +136,17 @@ def score_trade(trade: dict[str, Any]) -> ScoreResult:
 
     status = STATUS_REJECT
     caps: list[str] = []
-    if direction == "D" and (trade_value >= 1_000_000 or role_scores.get(role, 0) >= 6 or multi_count >= 2):
+    if tx_code == "S" and (trade_value >= 1_000_000 or role_scores.get(role, 0) >= 6 or multi_count >= 2):
         status = STATUS_SELL_WARNING
-    elif direction == "A":
+    elif tx_code == "P":
         if final_score >= 78 and core >= 34 and execution >= 12 and TR_AVAILABILITY_SCORES.get(tr_availability, 1) >= 3 and (filing_age or 999) <= 21 and earnings_distance_days > 2 and technical_state != "BROKEN":
             status = STATUS_ACTIONABLE_BUY
         elif final_score >= 70:
             status = STATUS_BUY_CANDIDATE
         elif final_score >= 55:
             status = STATUS_WATCHLIST
+    if tx_class in {"EXCLUDE_FROM_CORE", "MANUAL_REVIEW"} and tx_code != "S":
+        status = STATUS_MANUAL_REVIEW
     if status == STATUS_REJECT and final_score >= 55:
         status = STATUS_WATCHLIST
 

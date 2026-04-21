@@ -33,4 +33,13 @@ def test_mysql_schema_contains_required_fields() -> None:
     assert "sync_version" in ddl_blob
 
 
+def test_mysql_schema_contains_v2_api3_fields() -> None:
+    ddl_blob = "\n".join(MYSQL_SCHEMA_STATEMENTS).lower()
+    assert "transaction_code_class" in ddl_blob
+    assert "avg_20d_volume" in ddl_blob
+    assert "avg_20d_dollar_volume" in ddl_blob
+    assert "momentum_3m" in ddl_blob
+    assert "liquidity_state" in ddl_blob
+
+
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

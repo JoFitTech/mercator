@@ -60,7 +60,11 @@ class _EnrichmentServiceStub:
 
 
 class _ScoringServiceStub:
+    def __init__(self) -> None:
+        self.calls = 0
+
     def compute_trade_score(self, _trade: dict) -> dict[str, int | str]:
+        self.calls += 1
         return {"score": 1, "score_class": "LOW"}
 
 
@@ -234,4 +238,48 @@ def test_cache_hit_syncs_cached_company_profile_to_mysql_and_trade(monkeypatch) 
     assert synced["sector_resolution_status"] == "RESOLVED"
     assert synced["market_cap"] == 123456789
 
+
+def test_api2_is_only_called_for_gate_pass(monkeypatch) -> None:
+    monkeypatch.setattr("src.services.import_service.normalize_insider_trade", lambda item, fetched_at: item)
+
+    class _GateEvaluatorMixed:
+        def evaluate(self, item: dict) -> _Decision:
+            return _Decision(status="PASS" if item.get("symbol") == "AAPL" else "PRE_GATE_FAIL")
+
+    class _FmpWithProfile:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(profile_ttl_days=30)
+            self.profile_calls: list[str] = []
+
+        def fetch_latest_insider_trades(self, page, limit):
+            return [{"symbol": "AAPL", "company_key": "AAPL"}, {"symbol": "MSFT", "company_key": "MSFT"}]
+
+        def fetch_company_profile(self, symbol: str):
+            self.profile_calls.append(symbol)
+            return {"companyName": f"{symbol} Inc.", "symbol": symbol}
+
+        def fetch_search_cik(self, symbol: str):
+            return []
+
+        def fetch_company_profile_by_cik(self, cik: str):
+            return None
+
+    fmp = _FmpWithProfile()
+    scoring = _ScoringServiceStub()
+    service = ImportService(
+        fmp_client=fmp,
+        gate_evaluator=_GateEvaluatorMixed(),
+        raw_repo=_RawRepoStub(),
+        company_mongo_repo=_CompanyMongoRepoStub(),
+        trade_mysql_repo=None,
+        company_mysql_repo=None,
+        tr_ingestion_service=None,
+        tr_matching_service=None,
+        enrichment_service=_EnrichmentServiceStub(),
+        scoring_service=scoring,
+    )
+    service.run_hourly_import()
+
+    assert fmp.profile_calls == ["AAPL"]
+    assert scoring.calls == 2
 

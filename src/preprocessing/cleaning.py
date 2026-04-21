@@ -7,7 +7,8 @@ from typing import Any
 
 from src.preprocessing.deduplication import build_dedupe_key
 from src.preprocessing.normalization import parse_datetime, parse_float
-from src.services.buy_engine import normalize_security_type
+from src.services.security_normalization_service import SecurityNormalizationService
+from src.services.transaction_code_classifier import TransactionCodeClassifier
 
 
 def build_company_key(company_cik: Any, symbol: Any) -> str | None:
@@ -53,6 +54,7 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
     if filing_date is not None:
         filing_age_days = max(0, (now.date() - filing_date.date()).days)
 
+    tx_info = TransactionCodeClassifier.classify(raw_trade.get("transactionType"))
     normalized = {
         "symbol": normalized_symbol,
         "filing_date": filing_date,
@@ -60,18 +62,21 @@ def normalize_insider_trade(raw_trade: dict[str, Any], fetched_at: datetime | No
         "reporting_cik": raw_trade.get("reportingCik"),
         "company_cik": company_cik,
         "transaction_type": raw_trade.get("transactionType"),
+        "transaction_code_class": tx_info.classification,
         "securities_owned": parse_float(raw_trade.get("securitiesOwned"), "securitiesOwned"),
         "reporting_name": raw_trade.get("reportingName"),
         "type_of_owner": raw_trade.get("typeOfOwner"),
         "acquisition_or_disposition": str(raw_trade.get("acquisitionOrDisposition") or "")[:1].upper() or None,
+        "direction": "BUY" if str(raw_trade.get("acquisitionOrDisposition") or "").upper().startswith("A") else "SELL" if str(raw_trade.get("acquisitionOrDisposition") or "").upper().startswith("D") else "UNKNOWN",
         "direct_or_indirect": raw_trade.get("directOrIndirect"),
         "form_type": raw_trade.get("formType"),
         "qty": qty,
         "price": price,
         "trade_value_estimated": trade_value_estimated,
+        "trade_value": trade_value_estimated,
         "validation_status": validation_status,
         "security_name": raw_trade.get("securityName"),
-        "normalized_instrument_type": normalize_security_type(raw_trade.get("securityName")),
+        "normalized_instrument_type": SecurityNormalizationService.normalize(raw_trade.get("securityName")),
         "filing_age_days": filing_age_days,
         "is_actively_trading": raw_trade.get("isActivelyTrading"),
         "source_url": raw_trade.get("url"),

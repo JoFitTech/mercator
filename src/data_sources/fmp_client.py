@@ -18,6 +18,7 @@ from src.config.settings import (
     PROFILE_ENDPOINT,
     SEARCH_CIK_ENDPOINT,
     EXCHANGE_VARIANTS_ENDPOINT,
+    HISTORICAL_PRICE_EOD_FULL_ENDPOINT,
     SEARCH_INSIDER_TRADES_ENDPOINT,
     FmpConfig,
     validate_fmp_api_key,
@@ -58,7 +59,7 @@ class FmpClient:
             try:
                 self._track_call()
                 started_at = time.perf_counter()
-                response = self._session.get(
+                response = requests.get(
                     f"{self.config.base_url}{endpoint}",
                     params=params,
                     timeout=self.timeout_seconds,
@@ -159,6 +160,16 @@ class FmpClient:
         payload = self._request(EXCHANGE_VARIANTS_ENDPOINT, params=params)
         return payload if isinstance(payload, list) else []
 
+
+    def fetch_search_cik(self, symbol: str) -> list[dict[str, Any]]:
+        """Alias für /search-cik (v2 Naming)."""
+        return self.fetch_cik_lookup(symbol)
+
+    def fetch_historical_price_eod_full(self, symbol: str, date_from: str, date_to: str) -> list[dict[str, Any]]:
+        """Lädt API3 Historical EOD Full für festen Lookback-Zeitraum."""
+        params = {"symbol": symbol, "from": date_from, "to": date_to, "apikey": self.config.api_key}
+        payload = self._request(HISTORICAL_PRICE_EOD_FULL_ENDPOINT, params=params)
+        return payload if isinstance(payload, list) else []
     def fetch_insider_trade_statistics(self, symbol: str) -> dict[str, Any]:
         """Vorbereitete Methode für Insider-Statistiken (MAY)."""
         params = {"symbol": symbol, "apikey": self.config.api_key}

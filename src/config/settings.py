@@ -29,6 +29,7 @@ PROFILE_CIK_ENDPOINT = "/profile-cik"
 SEARCH_CIK_ENDPOINT = "/search-cik"
 SEARCH_INSIDER_TRADES_ENDPOINT = "/insider-trading/search"
 EXCHANGE_VARIANTS_ENDPOINT = "/search-exchange-variants"
+HISTORICAL_PRICE_EOD_FULL_ENDPOINT = "/historical-price-eod/full"
 INSIDER_STATISTICS_ENDPOINT = "/insider-trading/statistics"
 COMPANY_SCREENER_ENDPOINT = "/company-screener"
 DEFAULT_FEED_PAGE = 0
@@ -40,6 +41,7 @@ ALLOWED_GATE_FILTER_STATUSES = {
     "PASS",
     "PENDING",
     "FAIL",
+    "PRE_GATE_FAIL",
 }
 ALLOWED_MYSQL_TARGETS = {"local", "uni"}
 FMP_API_KEY_PLACEHOLDERS = {

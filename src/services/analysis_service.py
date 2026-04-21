@@ -371,13 +371,20 @@ class AnalysisService:
         # Rohdaten mit Group-ID mitschicken
         raw_rows = trades.to_dict(orient="records")
         
+        if profile:
+            detail_note = "Profildaten verfügbar."
+        elif profile_source == "no_api2":
+            detail_note = "Profildaten nicht verfügbar (API2 nicht konfiguriert)."
+        else:
+            detail_note = f"Quelle: {profile_source}"
+
         return AnalysisResult(
             title=f"Detail für {normalized_symbol}",
             metrics=metrics,
             rows=rows,
             raw_rows=raw_rows,
             company_profile=profile,
-            note=f"Quelle: {profile_source}"
+            note=detail_note
         )
 
     def compute_insider_quality(self, reporting_name: str) -> dict | None:

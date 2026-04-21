@@ -190,3 +190,12 @@ def test_upsert_trade_sets_trade_republic_defaults() -> None:
     assert params["trade_republic_universe_status"] == "UNKNOWN"
     assert params["trade_republic_match_method"] == "NONE"
     assert params["trade_republic_match_confidence"] == "LOW"
+
+
+def test_upsert_sql_contains_v2_api3_columns() -> None:
+    repo = InsiderTradeRepository(MagicMock())
+    sql = repo._upsert_sql
+    assert "avg_20d_volume" in sql
+    assert "avg_20d_dollar_volume" in sql
+    assert "momentum_3m" in sql
+    assert "liquidity_state" in sql
