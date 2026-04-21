@@ -50,6 +50,9 @@ class TunnelSession:
     stale_reason: str | None = None
     last_healthcheck_at: datetime | None = None
     last_healthcheck_ok: bool | None = None
+    last_process_alive: bool | None = None
+    last_local_healthcheck_ok: bool | None = None
+    last_public_healthcheck_ok: bool | None = None
 
 
 class TunnelProvider(Protocol):
@@ -73,6 +76,7 @@ class CloudflareQuickTunnelProvider:
         self.cloudflared_bin = cloudflared_bin
         self.startup_timeout_seconds = startup_timeout_seconds
         self.healthcheck_timeout_seconds = healthcheck_timeout_seconds
+        self._last_public_url_error: str | None = None
 
     def is_binary_available(self) -> bool:
         return self._resolve_bin() is not None
@@ -273,26 +277,44 @@ class CloudflareQuickTunnelProvider:
         if not session.public_url:
             return TunnelStatus.STOPPED if session.status == TunnelStatus.STOPPED else session.status
 
-        process = session.process
-        if process is not None and process.poll() is not None:
+        process_alive = self._is_session_process_alive(session)
+        session.last_process_alive = process_alive
+        if not process_alive:
+            session.stale_reason = "Tunnelprozess ist nicht mehr aktiv."
+            session.error_message = "Tunnelprozess ist beendet. Eine neue öffentliche URL ist erforderlich."
             return TunnelStatus.STALE
 
         if session.last_healthcheck_at and datetime.now(timezone.utc) - session.last_healthcheck_at < timedelta(
             seconds=_HEALTHCHECK_INTERVAL_SECONDS
         ):
+            if session.last_public_healthcheck_ok is False:
+                return TunnelStatus.STALE
             return TunnelStatus.RUNNING if session.last_healthcheck_ok else TunnelStatus.WARNING
 
-        # Health-Check: lokale URL statt öffentliche URL prüfen
-        # Die öffentliche URL kann aufgrund von Netzwerk-Abstraktionen schwer erreichbar sein
         local_healthy = self._is_local_url_healthy(session.local_url)
+        public_healthy = self._is_public_url_reachable(session.public_url)
+        public_error = self._last_public_url_error
         session.last_healthcheck_at = datetime.now(timezone.utc)
-        session.last_healthcheck_ok = local_healthy
+        session.last_local_healthcheck_ok = local_healthy
+        session.last_public_healthcheck_ok = public_healthy
+        session.last_healthcheck_ok = local_healthy and public_healthy
 
-        if local_healthy:
+        if not local_healthy:
+            session.error_message = "Tunnelprozess läuft, aber die lokale Streamlit-App ist derzeit nicht erreichbar."
+            session.stale_reason = None
+            return TunnelStatus.WARNING
+
+        if not public_healthy:
+            session.error_message = public_error or "Öffentliche Tunnel-URL ist nicht erreichbar. Neue URL erforderlich."
+            session.stale_reason = session.error_message
+            return TunnelStatus.STALE
+
+        if local_healthy and public_healthy:
             session.error_message = None
+            session.stale_reason = None
             return TunnelStatus.RUNNING
 
-        session.error_message = "Tunnel läuft, aber die lokale Streamlit-App ist derzeit nicht erreichbar."
+        session.error_message = "Tunnelzustand unklar."
         return TunnelStatus.WARNING
 
     @staticmethod
@@ -326,20 +348,60 @@ class CloudflareQuickTunnelProvider:
                 continue
         return False
 
-    def _is_public_url_reachable(self, url: str) -> bool:
-        """Diagnostik-Methode: Überprüft öffentliche Tunnel-URL (unreliable, daher nicht mehr primär verwendet)."""
+    def _check_public_url(self, url: str | None) -> tuple[bool, str | None]:
+        if not url:
+            return False, "Keine öffentliche URL vorhanden."
+
         for method in ("HEAD", "GET"):
             req = url_request.Request(url, method=method)
             try:
                 with url_request.urlopen(req, timeout=self.healthcheck_timeout_seconds) as resp:
-                    if 200 <= getattr(resp, "status", 200) < 500:
-                        return True
+                    status = getattr(resp, "status", 200)
+                    if 200 <= status < 500:
+                        return True, None
+                    return False, f"Öffentliche URL antwortet mit HTTP {status}."
             except url_error.HTTPError as exc:
                 if 200 <= exc.code < 500:
-                    return True
-            except Exception:
-                continue
-        return False
+                    return True, None
+                detail = f"Öffentliche URL antwortet mit HTTP {exc.code}."
+                if exc.code == 530:
+                    try:
+                        body = exc.read().decode("utf-8", errors="ignore")
+                        if "1033" in body:
+                            detail = "Öffentliche URL ist nicht mehr auflösbar (Cloudflare Error 1033)."
+                    except Exception:
+                        pass
+                return False, detail
+            except url_error.URLError as exc:
+                return False, f"Öffentliche URL nicht erreichbar: {exc.reason}."
+            except Exception as exc:
+                return False, f"Öffentliche URL-Prüfung fehlgeschlagen: {exc}."
+        return False, "Öffentliche URL nicht erreichbar."
+
+    def _is_public_url_reachable(self, url: str | None) -> bool:
+        """Kompatibilitätsmethode: boolsche Erreichbarkeit der öffentlichen URL."""
+        reachable, detail = self._check_public_url(url)
+        self._last_public_url_error = detail
+        return reachable
+
+    @staticmethod
+    def _is_session_process_alive(session: TunnelSession) -> bool:
+        process = session.process
+        if process is not None:
+            return process.poll() is None
+
+        if session.pid is None:
+            return False
+
+        try:
+            os.kill(session.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
 
     @staticmethod
     def extract_public_url_from_log_line(line: str) -> str | None:
@@ -411,15 +473,26 @@ class TunnelManager:
         session.public_url = None
         session.last_healthcheck_ok = None
         session.last_healthcheck_at = None
+        session.last_process_alive = None
+        session.last_local_healthcheck_ok = None
+        session.last_public_healthcheck_ok = None
+
+    @staticmethod
+    def is_session_restartable(session: TunnelSession) -> bool:
+        return session.status in {TunnelStatus.STALE, TunnelStatus.ERROR, TunnelStatus.STOPPED}
 
     def start(self, local_url: str | None = None) -> TunnelSession:
         existing = self.session
         if existing is not None:
             current_status = self.provider.get_status(existing)
             existing.status = current_status
-            if current_status in {TunnelStatus.STARTING, TunnelStatus.RUNNING, TunnelStatus.WARNING}:
+            if not self.is_session_restartable(existing):
                 return existing
             if current_status == TunnelStatus.STALE:
+                try:
+                    self.provider.stop(existing)
+                except Exception as exc:
+                    LOGGER.debug("Konnte stale Session nicht sauber stoppen: %s", exc)
                 self.cleanup_terminated_session(existing)
 
         target_url = (local_url or self.default_local_url).strip()
