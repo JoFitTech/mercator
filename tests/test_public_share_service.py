@@ -177,8 +177,12 @@ def test_start_reads_url_from_threaded_output(monkeypatch) -> None:
     assert "Booting cloudflared" in session.raw_log_tail[0]
 
 
-def test_start_appends_extra_args_from_env(monkeypatch) -> None:
-    provider = CloudflareQuickTunnelProvider(cloudflared_bin="cloudflared", startup_timeout_seconds=1)
+def test_start_appends_extra_args_from_config(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider(
+        cloudflared_bin="cloudflared",
+        startup_timeout_seconds=1,
+        cloudflared_extra_args=("--protocol", "http2", "--edge-ip-version", "4"),
+    )
     fake_process = _FakeProcess(
         lines=["Booting cloudflared\n", "URL is https://abc.trycloudflare.com\n"],
         poll_value=None,
@@ -190,7 +194,6 @@ def test_start_appends_extra_args_from_env(monkeypatch) -> None:
         captured_cmd.extend(cmd)
         return fake_process
 
-    monkeypatch.setenv("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", "--protocol http2 --edge-ip-version 4")
     monkeypatch.setattr(provider, "_resolve_bin", lambda: "cloudflared")
     monkeypatch.setattr(provider, "_is_local_url_healthy", lambda _url: True)
     monkeypatch.setattr("subprocess.Popen", _fake_popen)
@@ -210,6 +213,35 @@ def test_start_appends_extra_args_from_env(monkeypatch) -> None:
     ]
 
 
+def test_start_does_not_reparse_extra_args_from_env(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider(
+        cloudflared_bin="cloudflared",
+        startup_timeout_seconds=1,
+        cloudflared_extra_args=("--protocol", "http2"),
+    )
+    fake_process = _FakeProcess(
+        lines=["Booting cloudflared\n", "URL is https://abc.trycloudflare.com\n"],
+        poll_value=None,
+        pid=889,
+    )
+    captured_cmd: list[str] = []
+
+    def _fake_popen(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        return fake_process
+
+    monkeypatch.setenv("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", "--edge-ip-version 4")
+    monkeypatch.setattr(provider, "_resolve_bin", lambda: "cloudflared")
+    monkeypatch.setattr(provider, "_is_local_url_healthy", lambda _url: True)
+    monkeypatch.setattr("subprocess.Popen", _fake_popen)
+
+    session = provider.start("http://localhost:8501")
+
+    assert session.status == TunnelStatus.RUNNING
+    assert "--protocol" in captured_cmd
+    assert "--edge-ip-version" not in captured_cmd
+
+
 def test_start_timeout_without_url_terminates_process(monkeypatch) -> None:
     provider = CloudflareQuickTunnelProvider(cloudflared_bin="cloudflared", startup_timeout_seconds=0)
     fake_process = _FakeProcess(lines=["still booting\n"], poll_value=None)
@@ -224,15 +256,6 @@ def test_start_timeout_without_url_terminates_process(monkeypatch) -> None:
     assert session.status == TunnelStatus.ERROR
     assert "keine öffentliche URL" in (session.error_message or "")
     assert fake_process.terminated is True
-
-
-def test_effective_extra_args_fallbacks_to_config(monkeypatch) -> None:
-    provider = CloudflareQuickTunnelProvider(cloudflared_extra_args=("--metrics", "127.0.0.1:1234"))
-    monkeypatch.delenv("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", raising=False)
-
-    args = provider._get_effective_extra_args()
-
-    assert args == ("--metrics", "127.0.0.1:1234")
 
 
 def test_get_status_transitions_to_stale_when_process_died() -> None:
@@ -326,7 +349,7 @@ def test_get_status_returns_starting_for_temporary_dns_error_during_grace_period
     provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
         False,
         "Öffentliche URL nicht erreichbar: [Errno -2] Name or service not known.",
-        "url_error",
+        "dns_temporary",
     )
 
     status = provider.get_status(session)
@@ -428,7 +451,7 @@ def test_get_status_running_process_with_internal_dns_error_is_warning_not_stale
     provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
         False,
         "Öffentliche URL nicht erreichbar: [Errno -2] Name or service not known.",
-        "url_error",
+        "dns_temporary",
     )
 
     status = provider.get_status(session)
@@ -461,6 +484,45 @@ def test_get_status_running_process_with_cloudflare_1033_after_grace_is_stale() 
     assert status == TunnelStatus.STALE
     assert session.stale_reason is not None
     assert session.last_public_check_hard_failure is True
+
+
+def test_check_public_url_classifies_dns_temporary(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider(healthcheck_timeout_seconds=0.1)
+
+    def _raise_url_error(*_args, **_kwargs):
+        raise url_error.URLError("[Errno -3] Temporary failure in name resolution")
+
+    monkeypatch.setattr("src.services.public_share_service.url_request.urlopen", _raise_url_error)
+
+    ok, detail, check_type = provider._check_public_url("https://demo.trycloudflare.com")
+
+    assert ok is False
+    assert detail is not None
+    assert check_type == "dns_temporary"
+
+
+def test_get_status_repeated_hard_public_failures_become_stale() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.startup_grace_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    class _AliveProcess:
+        def poll(self):
+            return None
+
+    session.process = _AliveProcess()  # type: ignore[assignment]
+    provider._is_local_url_healthy = lambda _url: True  # type: ignore[method-assign]
+    provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
+        False,
+        "Öffentliche URL antwortet mit HTTP 530.",
+        "cloudflare_530",
+    )
+
+    first = provider.get_status(session)
+    second = provider.get_status(session)
+
+    assert first == TunnelStatus.STALE
+    assert second == TunnelStatus.STALE
 
 
 def test_refresh_log_tail_collects_follow_up_logs() -> None:

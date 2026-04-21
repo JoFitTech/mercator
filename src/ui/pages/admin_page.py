@@ -34,6 +34,27 @@ def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
     return "caption", "Tunnel ist gestoppt."
 
 
+def _public_share_error_feedback(session) -> tuple[str, str]:
+    message = "Tunnel meldet einen Fehler."
+    level = "error"
+    if session.last_process_alive is True and session.last_public_healthcheck_ok is False:
+        message = "Tunnelprozess lebt, aber Public-Health aus Container fehlgeschlagen."
+        level = "warning"
+    if session.last_process_alive is False:
+        message = "Tunnelprozess wurde beendet."
+        level = "error"
+    if session.last_public_check_type == "cloudflare_1033":
+        message = "Cloudflare meldet 1033."
+        level = "error"
+    if session.last_public_check_type == "cloudflare_530":
+        message = "Cloudflare meldet 530."
+        level = "error"
+    if session.last_local_healthcheck_ok is False:
+        message = "Lokale App nicht erreichbar."
+        level = "error"
+    return level, message
+
+
 def _get_public_share_manager(settings: AppSettings) -> TunnelManager:
     manager = st.session_state.get(PUBLIC_SHARE_MANAGER_STATE_KEY)
     if isinstance(manager, TunnelManager):
@@ -917,18 +938,8 @@ def render_admin_page(
                 st.caption("Noch keine Tunnel-Logs verfügbar.")
 
             if session and session.error_message:
-                message = "Tunnel meldet einen Fehler."
                 details = session.error_message
-                if session.last_process_alive is True and session.last_public_healthcheck_ok is False:
-                    message = "Tunnelprozess lebt, aber Public-Health aus Container fehlgeschlagen."
-                if session.last_process_alive is False:
-                    message = "Tunnelprozess wurde beendet."
-                if session.last_public_check_type == "cloudflare_1033":
-                    message = "Cloudflare meldet 1033."
-                if session.last_public_check_type == "cloudflare_530":
-                    message = "Cloudflare meldet 530."
-                if session.last_local_healthcheck_ok is False:
-                    message = "Lokale App nicht erreichbar."
-                _show_admin_feedback("error", message, details)
+                level, message = _public_share_error_feedback(session)
+                _show_admin_feedback(level, message, details)
             if session and session.stale_reason:
                 _show_admin_feedback("warning", "Neue URL erforderlich.", session.stale_reason)
