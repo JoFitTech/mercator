@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 from queue import Empty, Queue
 import re
-import shlex
 import shutil
 import signal
 import subprocess
@@ -27,7 +26,8 @@ TRY_CLOUDFLARE_URL_PATTERN = re.compile(r"https://[a-zA-Z0-9.-]+\.trycloudflare\
 _MAX_LOG_LINES = 40
 _HEALTHCHECK_INTERVAL_SECONDS = 15
 _DEFAULT_STARTUP_GRACE_SECONDS = 15
-_INTERNAL_DNS_FAILURE_STALE_THRESHOLD = 4
+_INTERNAL_DNS_FAILURE_WARNING_THRESHOLD = 4
+_HARD_PUBLIC_FAILURE_STALE_THRESHOLD = 2
 
 
 class TunnelStatus(str, Enum):
@@ -197,7 +197,7 @@ class CloudflareQuickTunnelProvider:
                 ),
             )
 
-        command = [resolved_bin, "tunnel", "--url", local_url, *self._get_effective_extra_args()]
+        command = [resolved_bin, "tunnel", "--url", local_url, *self.cloudflared_extra_args]
         started_at = datetime.now(timezone.utc)
         log_tail: deque[str] = deque(maxlen=_MAX_LOG_LINES)
 
@@ -387,7 +387,14 @@ class CloudflareQuickTunnelProvider:
                 session.error_message = public_error or "Cloudflare meldet einen harten Fehler."
                 session.stale_reason = session.error_message
                 return TunnelStatus.STALE
-            if session.consecutive_internal_dns_failures >= _INTERNAL_DNS_FAILURE_STALE_THRESHOLD:
+            if session.consecutive_hard_public_failures >= _HARD_PUBLIC_FAILURE_STALE_THRESHOLD:
+                session.error_message = (
+                    "Tunnel meldet wiederholt harte Public-Fehler "
+                    f"({session.consecutive_hard_public_failures}x): {public_error or 'unbekannt'}"
+                )
+                session.stale_reason = session.error_message
+                return TunnelStatus.STALE
+            if session.consecutive_internal_dns_failures >= _INTERNAL_DNS_FAILURE_WARNING_THRESHOLD:
                 session.error_message = (
                     "Tunnelprozess lebt, aber Public-Health-Check aus Container bleibt wegen DNS-Auflösung "
                     "fehlgeschlagen. Externe Clients könnten weiterhin funktionieren."
@@ -460,7 +467,7 @@ class CloudflareQuickTunnelProvider:
                     status = getattr(resp, "status", 200)
                     if 200 <= status < 500:
                         return True, None, "ok"
-                    return False, f"Öffentliche URL antwortet mit HTTP {status}.", f"http_{status}"
+                    return False, f"Öffentliche URL antwortet mit HTTP {status}.", "http_status"
             except url_error.HTTPError as exc:
                 if 200 <= exc.code < 500:
                     return True, None, "ok"
@@ -474,12 +481,15 @@ class CloudflareQuickTunnelProvider:
                     except Exception:
                         pass
                     return False, detail, "cloudflare_530"
-                return False, detail, f"http_{exc.code}"
+                return False, detail, "http_status"
             except url_error.URLError as exc:
-                return False, f"Öffentliche URL nicht erreichbar: {exc.reason}.", "url_error"
+                detail = f"Öffentliche URL nicht erreichbar: {exc.reason}."
+                if self._is_temporary_public_resolution_error(detail):
+                    return False, detail, "dns_temporary"
+                return False, detail, "unexpected"
             except Exception as exc:
-                return False, f"Öffentliche URL-Prüfung fehlgeschlagen: {exc}.", "unknown_error"
-        return False, "Öffentliche URL nicht erreichbar.", "unreachable"
+                return False, f"Öffentliche URL-Prüfung fehlgeschlagen: {exc}.", "unexpected"
+        return False, "Öffentliche URL nicht erreichbar.", "unexpected"
 
     def _is_public_url_reachable(self, url: str | None) -> bool:
         """Kompatibilitätsmethode: boolsche Erreichbarkeit der öffentlichen URL."""
@@ -567,15 +577,6 @@ class CloudflareQuickTunnelProvider:
             name=thread_name,
         )
         reader_thread.start()
-
-    def _get_effective_extra_args(self) -> tuple[str, ...]:
-        env_args = os.getenv("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", "").strip()
-        if env_args:
-            try:
-                return tuple(shlex.split(env_args))
-            except ValueError:
-                LOGGER.warning("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS konnte nicht geparst werden: %s", env_args)
-        return self.cloudflared_extra_args
 
     @staticmethod
     def extract_public_url_from_log_line(line: str) -> str | None:

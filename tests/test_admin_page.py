@@ -5,7 +5,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 from src.config.settings import AppSettings, EnrichmentConfig, FmpConfig, GateConfig, MongoConfig, MySqlTargetSettings, Settings
-from src.ui.pages.admin_page import AdminDashboardService
+from src.services.public_share_service import TunnelSession, TunnelStatus
+from src.ui.pages.admin_page import AdminDashboardService, _public_share_error_feedback
 
 
 class _CursorStub:
@@ -129,3 +130,66 @@ def test_clear_mysql_companies_blocked_in_review_mode() -> None:
 
     assert success is False
     assert "deaktiviert" in message.lower()
+
+
+def _build_tunnel_session() -> TunnelSession:
+    from datetime import datetime, timezone
+
+    return TunnelSession(
+        provider="cloudflare",
+        local_url="http://localhost:8501",
+        public_url="https://demo.trycloudflare.com",
+        pid=123,
+        started_at=datetime.now(timezone.utc),
+        status=TunnelStatus.WARNING,
+        raw_log_tail=[],
+        error_message="diagnostic",
+    )
+
+
+def test_public_share_error_feedback_uses_warning_for_container_public_check_failures() -> None:
+    session = _build_tunnel_session()
+    session.last_process_alive = True
+    session.last_local_healthcheck_ok = True
+    session.last_public_healthcheck_ok = False
+    session.last_public_check_type = "dns_temporary"
+
+    level, message = _public_share_error_feedback(session)
+
+    assert level == "warning"
+    assert "Public-Health" in message
+
+
+def test_public_share_error_feedback_prioritizes_cloudflare_1033() -> None:
+    session = _build_tunnel_session()
+    session.last_process_alive = True
+    session.last_public_healthcheck_ok = False
+    session.last_public_check_type = "cloudflare_1033"
+
+    level, message = _public_share_error_feedback(session)
+
+    assert level == "error"
+    assert "1033" in message
+
+
+def test_public_share_error_feedback_process_dead_is_error() -> None:
+    session = _build_tunnel_session()
+    session.last_process_alive = False
+    session.last_public_healthcheck_ok = False
+
+    level, message = _public_share_error_feedback(session)
+
+    assert level == "error"
+    assert "beendet" in message
+
+
+def test_public_share_error_feedback_local_app_failure_is_error() -> None:
+    session = _build_tunnel_session()
+    session.last_process_alive = True
+    session.last_local_healthcheck_ok = False
+    session.last_public_healthcheck_ok = True
+
+    level, message = _public_share_error_feedback(session)
+
+    assert level == "error"
+    assert "Lokale App" in message
