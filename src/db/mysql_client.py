@@ -67,6 +67,19 @@ class MySqlClient:
                 conn.commit()
         return affected_rows
 
+    def execute_many(self, sql: str, params_seq: list[dict[str, Any] | tuple[Any, ...]], *, commit: bool = True) -> int:
+        """Fuehrt ein SQL-Statement als Batch (executemany) aus."""
+
+        if not params_seq:
+            return 0
+        with self.connection(include_database=True) as conn:
+            with conn.cursor() as cursor:
+                cursor.executemany(sql, params_seq)
+                affected_rows = int(getattr(cursor, "rowcount", 0) or 0)
+            if commit:
+                conn.commit()
+        return affected_rows
+
     @staticmethod
     def _query_has_row(cursor, query: str, params: tuple | None = None) -> bool:
         """Fuehrt eine Existenzabfrage aus und leert Restzeilen auf unbuffered Cursorn."""
@@ -397,6 +410,29 @@ class MySqlClient:
                 if not self._index_exists(cursor, "insider_trades", "uq_insider_trades_dedupe_key"):
                     cursor.execute("ALTER TABLE insider_trades ADD UNIQUE INDEX uq_insider_trades_dedupe_key (dedupe_key)")
                     actions.append("insider_trades: Added Unique Index `uq_insider_trades_dedupe_key`.")
+
+                # Querypfad-Indizes (idempotent) für echte UI- und Dashboard-Zugriffe.
+                # Diese werden bewusst im Schema-Setup gehalten, damit Deployments ohne manuelle Migrationsschritte stabil bleiben.
+                trade_indexes = [
+                    ("idx_trades_transaction_filing", "transaction_date, filing_date"),
+                    ("idx_trades_symbol_transaction", "symbol_at_trade, transaction_date"),
+                    ("idx_trades_company_transaction", "company_key, transaction_date"),
+                    ("idx_trades_gate_validation_transaction", "gate_status, validation_status, transaction_date"),
+                    ("idx_trades_score", "score"),
+                    ("idx_trades_tr_universe_status", "trade_republic_universe_status"),
+                ]
+                for index_name, index_cols in trade_indexes:
+                    if not self._index_exists(cursor, "insider_trades", index_name):
+                        cursor.execute(
+                            f"ALTER TABLE insider_trades ADD INDEX {index_name} ({index_cols})"
+                        )
+                        actions.append(f"insider_trades: Added Index `{index_name}`.")
+
+                if not self._index_exists(cursor, "companies", "idx_companies_active_symbol"):
+                    cursor.execute(
+                        "ALTER TABLE companies ADD INDEX idx_companies_active_symbol (is_actively_trading, current_symbol)"
+                    )
+                    actions.append("companies: Added Index `idx_companies_active_symbol`.")
 
             conn.commit()
         return actions

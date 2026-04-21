@@ -42,6 +42,7 @@ class FmpClient:
         self.config = config
         self.timeout_seconds = timeout_seconds
         self.api_usage_service = api_usage_service
+        self._session = requests.Session()
         validate_fmp_api_key(self.config.api_key)
 
     def _track_call(self) -> None:
@@ -56,10 +57,19 @@ class FmpClient:
         for attempt in range(retries + 1):
             try:
                 self._track_call()
-                response = requests.get(
+                started_at = time.perf_counter()
+                response = self._session.get(
                     f"{self.config.base_url}{endpoint}",
                     params=params,
                     timeout=self.timeout_seconds,
+                )
+                latency_ms = (time.perf_counter() - started_at) * 1000
+                LOGGER.info(
+                    "fmp_request endpoint=%s status=%s latency_ms=%.1f attempt=%s",
+                    endpoint,
+                    response.status_code,
+                    latency_ms,
+                    attempt + 1,
                 )
                 if response.status_code == 403:
                     raise FmpApiError("FMP API-Key ungültig oder gesperrt (HTTP 403).")
@@ -154,7 +164,7 @@ class FmpClient:
         params = {"symbol": symbol, "apikey": self.config.api_key}
         try:
             self._track_call()
-            response = requests.get(
+            response = self._session.get(
                 f"{self.config.base_url}{INSIDER_STATISTICS_ENDPOINT}",
                 params=params,
                 timeout=self.timeout_seconds,
@@ -172,7 +182,7 @@ class FmpClient:
         params = {**kwargs, "apikey": self.config.api_key}
         try:
             self._track_call()
-            response = requests.get(
+            response = self._session.get(
                 f"{self.config.base_url}{COMPANY_SCREENER_ENDPOINT}",
                 params=params,
                 timeout=self.timeout_seconds,

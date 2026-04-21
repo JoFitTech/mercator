@@ -10,23 +10,7 @@ class CompanyRepository:
 
     def __init__(self, client: MySqlClient) -> None:
         self._client = client
-
-    @staticmethod
-    def _rows_to_dicts(cursor: Any, rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
-        """Wandelt Cursor-Resultsets in Listen aus Dictionaries um."""
-        columns = [description[0] for description in cursor.description] if cursor.description else []
-        return [dict(zip(columns, row, strict=False)) for row in rows]
-
-    @staticmethod
-    def _normalize_sector_resolution_status(raw_value: Any) -> str:
-        """Garantiert einen gueltigen NOT-NULL-Status fuer das Companies-Schema."""
-
-        value = "" if raw_value is None else str(raw_value).strip().upper()
-        return value or "UNRESOLVED"
-
-    def upsert_company(self, company: dict[str, Any]) -> None:
-        """Speichert oder aktualisiert ein Unternehmensprofil per Upsert."""
-        sql = """
+        self._upsert_sql = """
             INSERT INTO companies (
                 company_key, company_cik, current_symbol, company_name, profile_status, profile_reason, first_seen_at, last_seen_at, market_cap, price, currency, isin, cusip,
                 exchange, exchange_full_name, industry, sector,
@@ -101,8 +85,23 @@ class CompanyRepository:
                 sync_version = VALUES(sync_version),
                 updated_at = VALUES(updated_at)
         """
+
+    @staticmethod
+    def _rows_to_dicts(cursor: Any, rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
+        """Wandelt Cursor-Resultsets in Listen aus Dictionaries um."""
+        columns = [description[0] for description in cursor.description] if cursor.description else []
+        return [dict(zip(columns, row, strict=False)) for row in rows]
+
+    @staticmethod
+    def _normalize_sector_resolution_status(raw_value: Any) -> str:
+        """Garantiert einen gueltigen NOT-NULL-Status fuer das Companies-Schema."""
+
+        value = "" if raw_value is None else str(raw_value).strip().upper()
+        return value or "UNRESOLVED"
+
+    def _build_company_params(self, company: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
-        params = {
+        return {
             "company_key": company.get("company_key"),
             "company_cik": company.get("company_cik"),
             "current_symbol": company.get("current_symbol"),
@@ -151,7 +150,17 @@ class CompanyRepository:
             "created_at": company.get("created_at", now),
             "updated_at": company.get("updated_at", now),
         }
-        self._client.execute(sql, params)
+
+    def upsert_company(self, company: dict[str, Any]) -> None:
+        """Speichert oder aktualisiert ein Unternehmensprofil per Upsert."""
+        self._client.execute(self._upsert_sql, self._build_company_params(company))
+
+    def upsert_companies(self, companies: list[dict[str, Any]]) -> int:
+        if not companies:
+            return 0
+        params_batch = [self._build_company_params(company) for company in companies]
+        self._client.execute_many(self._upsert_sql, params_batch)
+        return len(params_batch)
 
     def list_active_companies(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
         """Lädt aktive Unternehmen mit aggregierten Trade-Statistiken (trade_count, last_trade_date)."""
@@ -182,6 +191,71 @@ class CompanyRepository:
                 cursor.execute(sql, (limit, offset))
                 rows = cursor.fetchall()
                 return self._rows_to_dicts(cursor, rows)
+
+    def count_active_companies(self, search_term: str | None = None) -> int:
+        sql = "SELECT COUNT(*) FROM companies c WHERE c.is_actively_trading = 1"
+        params: list[Any] = []
+        if search_term:
+            sql += " AND (c.company_name LIKE %s OR c.current_symbol LIKE %s)"
+            like = f"%{search_term}%"
+            params.extend([like, like])
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                result = cursor.fetchone()
+                return int(result[0]) if result else 0
+
+    def list_active_companies_page(
+        self,
+        limit: int,
+        offset: int,
+        search_term: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sql = """
+            SELECT
+                c.current_symbol,
+                c.company_name,
+                c.profile_status,
+                c.sector,
+                c.industry,
+                c.market_cap,
+                COALESCE(ts.trade_count, 0) AS trade_count,
+                ts.last_trade_date
+            FROM companies c
+            LEFT JOIN (
+                SELECT
+                    t.company_key,
+                    COUNT(*) AS trade_count,
+                    MAX(t.transaction_date) AS last_trade_date
+                FROM insider_trades t
+                GROUP BY t.company_key
+            ) ts ON ts.company_key = c.company_key
+            WHERE c.is_actively_trading = 1
+        """
+        params: list[Any] = []
+        if search_term:
+            sql += " AND (c.company_name LIKE %s OR c.current_symbol LIKE %s)"
+            like = f"%{search_term}%"
+            params.extend([like, like])
+        sql += " ORDER BY COALESCE(ts.trade_count, 0) DESC, c.current_symbol ASC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+                return self._rows_to_dicts(cursor, rows)
+
+    def get_companies_by_keys(self, company_keys: list[str]) -> dict[str, dict[str, Any]]:
+        if not company_keys:
+            return {}
+        placeholders = ", ".join(["%s"] * len(company_keys))
+        sql = f"SELECT * FROM companies WHERE company_key IN ({placeholders})"
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, company_keys)
+                rows = cursor.fetchall()
+                as_dicts = self._rows_to_dicts(cursor, rows)
+        return {str(row.get("company_key")): row for row in as_dicts if row.get("company_key")}
 
     def get_company_by_symbol(self, symbol: str) -> dict[str, Any] | None:
         sql = "SELECT * FROM companies WHERE company_key = %s"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import time
 from typing import Any
 
 import pandas as pd
@@ -30,11 +31,18 @@ class DashboardService:
         self.company_mongo_repo = company_mongo_repo
         self.trade_repo = trade_repo
         self.company_repo = company_repo
+        self._payload_cache_ttl_seconds = 45
+        self._payload_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     def build_dashboard_payload(self, filters: dict | None = None) -> dict[str, Any]:
         """Liefert alle Dashboard-Daten in einem stabilen Payload."""
         filters = dict(filters or {})
         filters.pop("dashboard_valid", None)
+        cache_key = self._build_cache_key(filters)
+        cached = self._payload_cache.get(cache_key)
+        now = time.time()
+        if cached and now - cached[0] <= self._payload_cache_ttl_seconds:
+            return cached[1]
 
         payload_error_message: str | None = None
         try:
@@ -65,7 +73,23 @@ class DashboardService:
             "last_update": self._get_last_update_str(prepared_df),
             "payload_error_message": payload_error_message,
         }
+        self._payload_cache[cache_key] = (now, payload)
         return payload
+
+    def _build_cache_key(self, filters: dict[str, Any]) -> str:
+        trade_state = (
+            self.trade_repo.get_max_updated_at()
+            if hasattr(self.trade_repo, "get_max_updated_at")
+            else "none"
+        ) or "none"
+        company_state = (
+            self.company_repo.get_max_updated_at()
+            if hasattr(self.company_repo, "get_max_updated_at")
+            else None
+        )
+        company_state_token = str(company_state) if company_state is not None else "none"
+        filter_token = tuple(sorted(filters.items()))
+        return f"{trade_state}|{company_state_token}|{filter_token}"
 
     def _hydrate_company_fields_from_mongo(self, df: pd.DataFrame) -> pd.DataFrame:
         """Füllt fehlende Company-Felder aus Mongo-Profilen nach, falls MySQL-Stubs vorliegen."""

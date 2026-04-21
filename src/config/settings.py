@@ -436,6 +436,8 @@ class MongoConfig:
     active_target: str
     uri: str
     database: str
+    direct_connection: bool | None = None
+    tls_allow_invalid_certificates: bool = False
 
     @classmethod
     def from_env(cls) -> MongoConfig:
@@ -461,7 +463,18 @@ class MongoConfig:
                 "LOCAL_MONGO_DATABASE", default=_read_string_env("MONGO_DATABASE", default="mercator")
             )
 
-        return cls(active_target=active_target, uri=uri, database=database)
+        direct_connection_raw = _read_string_env("MONGO_DIRECT_CONNECTION", default="")
+        direct_connection: bool | None = None
+        if direct_connection_raw.strip():
+            direct_connection = _read_bool_env("MONGO_DIRECT_CONNECTION", default=False)
+
+        return cls(
+            active_target=active_target,
+            uri=uri,
+            database=database,
+            direct_connection=direct_connection,
+            tls_allow_invalid_certificates=_read_bool_env("MONGO_TLS_ALLOW_INVALID_CERTIFICATES", default=False),
+        )
 
 
 @dataclass(frozen=True)
