@@ -26,7 +26,7 @@ def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
     if status == TunnelStatus.STARTING:
         return "info", "Tunnel wird gestartet …"
     if status == TunnelStatus.STALE:
-        return "warning", "Tunnelprozess ist stale/beendet."
+        return "warning", "Tunnel ist stale (z. B. öffentliche URL tot) und muss neu gestartet werden."
     if status == TunnelStatus.WARNING:
         return "warning", "Tunnel läuft, aber die öffentliche URL ist aktuell nicht erreichbar."
     if status == TunnelStatus.ERROR:
@@ -818,6 +818,25 @@ def render_admin_page(
                 public_url_value = session.public_url if session and session.public_url else "-"
                 st.text_input("Öffentliche URL", value=public_url_value, disabled=True)
                 st.caption("Tipp: Feld markieren und kopieren (Strg/Cmd+C).")
+                if session:
+                    st.text_input(
+                        "Lokale App gesund",
+                        value="Ja" if session.last_local_healthcheck_ok is True else ("Nein" if session.last_local_healthcheck_ok is False else "Unbekannt"),
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "Tunnelprozess lebt",
+                        value="Ja" if session.last_process_alive is True else ("Nein" if session.last_process_alive is False else "Unbekannt"),
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "Öffentliche URL erreichbar",
+                        value="Ja" if session.last_public_healthcheck_ok is True else ("Nein" if session.last_public_healthcheck_ok is False else "Unbekannt"),
+                        disabled=True,
+                    )
+                    st.text_input("Session stale", value="Ja" if session.status == TunnelStatus.STALE else "Nein", disabled=True)
+                    st.text_input("stale_reason", value=session.stale_reason or "-", disabled=True)
+                    st.text_input("error_message", value=session.error_message or "-", disabled=True)
 
                 # Erweiterte Diagnostik: cloudflared Binary
                 if isinstance(provider, CloudflareQuickTunnelProvider):
@@ -865,3 +884,5 @@ def render_admin_page(
 
             if session and session.error_message:
                 _show_admin_feedback("error", "Tunnel meldet einen Fehler.", session.error_message)
+            if session and session.stale_reason:
+                _show_admin_feedback("warning", "Neue URL erforderlich.", session.stale_reason)
