@@ -555,7 +555,7 @@ class TunnelManager:
 
 def sync_public_share_sidebar_state(manager: TunnelManager | None) -> None:
     session = manager.get_session() if manager else None
-    is_running = bool(session and session.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING} and session.public_url)
+    is_running = bool(session and session.status == TunnelStatus.RUNNING and session.public_url)
     st_url = session.public_url if is_running else None
 
     # keine harte Streamlit-Abhängigkeit für Tests

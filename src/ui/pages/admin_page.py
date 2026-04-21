@@ -28,7 +28,7 @@ def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
     if status == TunnelStatus.STALE:
         return "warning", "Tunnel ist stale (z. B. öffentliche URL tot) und muss neu gestartet werden."
     if status == TunnelStatus.WARNING:
-        return "warning", "Tunnel läuft, aber die öffentliche URL ist aktuell nicht erreichbar."
+        return "warning", "Tunnelprozess läuft, aber die lokale Streamlit-App ist derzeit nicht erreichbar."
     if status == TunnelStatus.ERROR:
         return "error", "Tunnel konnte nicht gestartet werden."
     return "caption", "Tunnel ist gestoppt."
@@ -868,7 +868,7 @@ def render_admin_page(
                     binary_available = provider.is_binary_available() if isinstance(provider, CloudflareQuickTunnelProvider) else False
                     st.text_input("Binärdatei gefunden", value="Ja" if binary_available else "Nein", disabled=True)
 
-            can_open = bool(session and session.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING} and session.public_url)
+            can_open = bool(session and session.status == TunnelStatus.RUNNING and session.public_url)
             st.link_button(
                 "Öffentliche URL öffnen",
                 session.public_url if can_open and session and session.public_url else "http://localhost",

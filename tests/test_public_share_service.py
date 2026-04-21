@@ -448,3 +448,33 @@ def test_sync_public_share_sidebar_state_for_stale_session(monkeypatch) -> None:
     assert fake_state["public_share_url"] is None
     assert fake_state["public_share_status"] == TunnelStatus.STALE.value
     assert fake_state["public_share_active"] is False
+
+
+def test_sync_public_share_sidebar_state_for_warning_session_is_not_active(monkeypatch) -> None:
+    fake_state: dict[str, object] = {}
+
+    class _FakeStreamlit:
+        session_state = fake_state
+
+    session = _build_session(status=TunnelStatus.WARNING)
+    session.public_url = "https://demo.trycloudflare.com"
+    session.pid = None
+
+    class _AliveProcess:
+        def poll(self):
+            return None
+
+    session.process = _AliveProcess()  # type: ignore[assignment]
+    provider = _ProviderStub(session)
+    manager = TunnelManager(provider=provider, provider_name="cloudflare", default_local_url="http://localhost:8501")
+    manager.session = session
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "streamlit", _FakeStreamlit())
+
+    sync_public_share_sidebar_state(manager)
+
+    assert fake_state["public_share_url"] is None
+    assert fake_state["public_share_status"] == TunnelStatus.WARNING.value
+    assert fake_state["public_share_active"] is False
