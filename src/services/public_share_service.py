@@ -239,13 +239,17 @@ class CloudflareQuickTunnelProvider:
         ):
             return TunnelStatus.RUNNING if session.last_healthcheck_ok else TunnelStatus.WARNING
 
-        reachable = self._is_public_url_reachable(session.public_url)
+        # Health-Check: lokale URL statt öffentliche URL prüfen
+        # Die öffentliche URL kann aufgrund von Netzwerk-Abstraktionen schwer erreichbar sein
+        local_healthy = self._is_local_url_healthy(session.local_url)
         session.last_healthcheck_at = datetime.now(timezone.utc)
-        session.last_healthcheck_ok = reachable
-        if reachable:
+        session.last_healthcheck_ok = local_healthy
+
+        if local_healthy:
             session.error_message = None
             return TunnelStatus.RUNNING
-        session.error_message = "Tunnel läuft, aber die öffentliche URL ist derzeit nicht erreichbar."
+
+        session.error_message = "Tunnel läuft, aber die lokale Streamlit-App ist derzeit nicht erreichbar."
         return TunnelStatus.WARNING
 
     @staticmethod
@@ -263,7 +267,24 @@ class CloudflareQuickTunnelProvider:
         finally:
             output_queue.put(None)
 
+    def _is_local_url_healthy(self, local_url: str) -> bool:
+        """Prüft die lokale URL statt der öffentlichen URL für zuverlässigere Health-Checks."""
+        for method in ("HEAD", "GET"):
+            req = url_request.Request(local_url, method=method)
+            try:
+                with url_request.urlopen(req, timeout=self.healthcheck_timeout_seconds) as resp:
+                    status = getattr(resp, "status", 200)
+                    if 200 <= status < 500:
+                        return True
+            except url_error.HTTPError as exc:
+                if 200 <= exc.code < 500:
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _is_public_url_reachable(self, url: str) -> bool:
+        """Diagnostik-Methode: Überprüft öffentliche Tunnel-URL (unreliable, daher nicht mehr primär verwendet)."""
         for method in ("HEAD", "GET"):
             req = url_request.Request(url, method=method)
             try:
