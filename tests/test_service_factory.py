@@ -177,3 +177,19 @@ def test_import_service_disabled_when_mongo_repo_init_fails(monkeypatch) -> None
     assert factory_module.ServiceFactory.last_import_issue is not None
     assert "Mongo nicht erreichbar" in factory_module.ServiceFactory.last_import_issue
 
+
+def test_import_service_disabled_with_clear_reason_when_mongo_client_missing() -> None:
+    settings = _build_settings()
+
+    service_factory = factory_module.ServiceFactory(
+        settings=settings,
+        mysql_client=_MySqlClientStub(),
+        mongo_wrapper=None,
+    )
+
+    import_service = service_factory.create_import_service()
+
+    assert import_service is None
+    assert factory_module.ServiceFactory.last_import_issue == (
+        "ImportService deaktiviert: Mongo-Client fehlt (raw pipeline nicht verfuegbar)."
+    )

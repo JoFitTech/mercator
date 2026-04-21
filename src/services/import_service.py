@@ -158,16 +158,23 @@ class ImportService:
         profile_cache_hits = 0
         profile_failures = 0
         
-        # Bestimme Symbole für Enrichment
+        # Bestimme Symbole für API2-Profilanreicherung
         symbols_to_enrich: set[str] = set()
-        
+
+        api2_skip_by_gate = 0
         for trade in normalized:
-            if str(trade.get("gate_status") or "").upper() != GATE_PASS:
+            symbol = str(trade.get("symbol") or "").strip().upper()
+            if not symbol:
                 continue
-            sym = str(trade.get("symbol") or "").strip().upper()
-            if sym:
-                symbols_to_enrich.add(sym)
-        
+            gate_status = str(trade.get("gate_status") or "").upper()
+            if mode in ("ALL_TRADED_COMPANIES", "ALL TRADED COMPANIES"):
+                symbols_to_enrich.add(symbol)
+                continue
+            if gate_status not in effective_profile_fetch_statuses:
+                api2_skip_by_gate += 1
+                continue
+            symbols_to_enrich.add(symbol)
+
         symbols_considered_for_enrichment = len(symbols_to_enrich)
         trades_by_symbol: dict[str, list[dict[str, Any]]] = {}
         for trade in normalized:
@@ -268,6 +275,21 @@ class ImportService:
                     t["profile_reason"] = "request_failed"
                 continue
 
+        if not symbols_to_enrich:
+            LOGGER.info(
+                "API2 uebersprungen: mode=%s effective_statuses=%s (keine Symbole qualifiziert).",
+                mode,
+                sorted(effective_profile_fetch_statuses),
+            )
+        elif api2_skip_by_gate:
+            LOGGER.info(
+                "API2 gate filter: mode=%s effective_statuses=%s skipped_trades=%s selected_symbols=%s",
+                mode,
+                sorted(effective_profile_fetch_statuses),
+                api2_skip_by_gate,
+                len(symbols_to_enrich),
+            )
+
         # Score und Dashboard-Validität nach Profilanreicherung neu berechnen
         if self.company_mysql_repo is not None and hasattr(self.company_mysql_repo, "get_companies_by_keys"):
             missing_company_keys = [
@@ -281,15 +303,22 @@ class ImportService:
                 )
 
         # API3 nur für Gate-Passer mit erfolgreichem API2-Profil
+        api3_skipped_no_gate_pass = 0
+        api3_skipped_no_api2_profile = 0
+        api3_skipped_missing_client_method = 0
+        attempted_api3_symbols = 0
         for symbol in symbols_with_profile_success:
             matching_trades = trades_by_symbol.get(symbol, [])
             if not matching_trades:
                 continue
             if not any(str(t.get("gate_status", "")).upper() == GATE_PASS for t in matching_trades):
+                api3_skipped_no_gate_pass += 1
                 continue
             try:
                 if not hasattr(self.fmp_client, "fetch_historical_price_eod_full"):
+                    api3_skipped_missing_client_method += 1
                     continue
+                attempted_api3_symbols += 1
                 signal = self.historical_service.load_signal(symbol)
                 for t in matching_trades:
                     t["avg_20d_volume"] = signal.avg_20d_volume
@@ -302,6 +331,24 @@ class ImportService:
                     t["liquidity_state"] = signal.liquidity_state
             except Exception:
                 LOGGER.exception("API3 historical enrichment fehlgeschlagen für %s", symbol)
+
+        api3_candidate_symbols = {
+            symbol
+            for symbol, symbol_trades in trades_by_symbol.items()
+            if any(str(t.get("gate_status", "")).upper() == GATE_PASS for t in symbol_trades)
+        }
+        api3_skipped_no_api2_profile = len(api3_candidate_symbols - symbols_with_profile_success)
+        if api3_candidate_symbols:
+            LOGGER.info(
+                "API3 status: candidates=%s attempted=%s skipped_no_api2_profile=%s skipped_no_gate_pass=%s skipped_missing_method=%s",
+                len(api3_candidate_symbols),
+                attempted_api3_symbols,
+                api3_skipped_no_api2_profile,
+                api3_skipped_no_gate_pass,
+                api3_skipped_missing_client_method,
+            )
+        else:
+            LOGGER.info("API3 uebersprungen: keine Gate-PASS Kandidaten vorhanden.")
 
         for item in normalized:
             self._apply_trade_republic_match(item)

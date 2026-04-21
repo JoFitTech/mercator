@@ -138,9 +138,15 @@ class ServiceFactory:
         )
 
     def create_import_service(self) -> ImportService | None:
-        # Requirement 9: Kein Betrieb ohne Kernkomponenten (MySQL hier Pflicht fuer vollen Import)
-        if not self.mysql_client or not self.mongo_wrapper:
-            LOGGER.warning("ServiceFactory: ImportService nicht moeglich (DB fehlt).")
+        # Requirement 9: Kein Betrieb ohne Kernkomponenten (MySQL + Mongo fuer raw+clean Pipeline Pflicht)
+        if not self.mysql_client:
+            ServiceFactory.last_import_issue = "ImportService deaktiviert: MySQL-Client fehlt."
+            LOGGER.warning("ServiceFactory: %s", ServiceFactory.last_import_issue)
+            return None
+
+        if not self.mongo_wrapper:
+            ServiceFactory.last_import_issue = "ImportService deaktiviert: Mongo-Client fehlt (raw pipeline nicht verfuegbar)."
+            LOGGER.warning("ServiceFactory: %s", ServiceFactory.last_import_issue)
             return None
 
         trade_repo = InsiderTradeMySqlRepository(self.mysql_client)

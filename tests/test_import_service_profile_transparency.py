@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
 from src.services.import_service import ImportService
 
 
@@ -283,3 +285,112 @@ def test_api2_is_only_called_for_gate_pass(monkeypatch) -> None:
     assert fmp.profile_calls == ["AAPL"]
     assert scoring.calls == 2
 
+
+@pytest.mark.parametrize(
+    ("mode", "expected_calls"),
+    [
+        ("ONLY PASS", ["AAPL"]),
+        ("PASS + PENDING", ["AAPL", "MSFT"]),
+        ("ALL VALID", ["AAPL", "GOOG", "MSFT"]),
+        ("DISABLED", []),
+    ],
+)
+def test_api2_firing_mode_controls_actual_symbol_selection(monkeypatch, mode: str, expected_calls: list[str]) -> None:
+    monkeypatch.setattr("src.services.import_service.normalize_insider_trade", lambda item, fetched_at: item)
+
+    class _GateEvaluatorMode:
+        def evaluate(self, item: dict) -> _Decision:
+            mapping = {"AAPL": "PASS", "MSFT": "PENDING", "GOOG": "FAIL"}
+            return _Decision(status=mapping[item["symbol"]])
+
+    class _FmpWithProfile:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(profile_ttl_days=30)
+            self.profile_calls: list[str] = []
+
+        def fetch_latest_insider_trades(self, page, limit):
+            return [
+                {"symbol": "AAPL", "company_key": "AAPL"},
+                {"symbol": "MSFT", "company_key": "MSFT"},
+                {"symbol": "GOOG", "company_key": "GOOG"},
+            ]
+
+        def fetch_company_profile(self, symbol: str):
+            self.profile_calls.append(symbol)
+            return {"companyName": f"{symbol} Inc.", "symbol": symbol}
+
+        def fetch_search_cik(self, symbol: str):
+            return []
+
+        def fetch_company_profile_by_cik(self, cik: str):
+            return None
+
+    fmp = _FmpWithProfile()
+    service = ImportService(
+        fmp_client=fmp,
+        gate_evaluator=_GateEvaluatorMode(),
+        raw_repo=_RawRepoStub(),
+        company_mongo_repo=_CompanyMongoRepoStub(),
+        trade_mysql_repo=None,
+        company_mysql_repo=None,
+        api2_firing_mode=mode,
+        tr_ingestion_service=None,
+        tr_matching_service=None,
+        enrichment_service=_EnrichmentServiceStub(),
+        scoring_service=_ScoringServiceStub(),
+    )
+
+    service.run_hourly_import()
+    assert sorted(fmp.profile_calls) == expected_calls
+
+
+def test_api3_runs_only_for_symbols_with_successful_profile(monkeypatch, caplog) -> None:
+    monkeypatch.setattr("src.services.import_service.normalize_insider_trade", lambda item, fetched_at: item)
+    caplog.set_level("INFO")
+
+    class _FmpWithApi2AndApi3:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(profile_ttl_days=30)
+            self.api3_calls: list[str] = []
+
+        def fetch_latest_insider_trades(self, page, limit):
+            return [
+                {"symbol": "AAPL", "company_key": "AAPL"},
+                {"symbol": "MSFT", "company_key": "MSFT"},
+            ]
+
+        def fetch_company_profile(self, symbol: str):
+            if symbol == "MSFT":
+                raise RuntimeError("api2 failed")
+            return {"companyName": f"{symbol} Inc.", "symbol": symbol}
+
+        def fetch_search_cik(self, symbol: str):
+            return []
+
+        def fetch_company_profile_by_cik(self, cik: str):
+            return None
+
+        def fetch_historical_price_eod_full(self, symbol: str, date_from: str, date_to: str):
+            self.api3_calls.append(symbol)
+            return [
+                {"date": "2026-01-01", "close": 10, "volume": 100},
+                {"date": "2026-01-02", "close": 11, "volume": 120},
+            ]
+
+    fmp = _FmpWithApi2AndApi3()
+    service = ImportService(
+        fmp_client=fmp,
+        gate_evaluator=_GateEvaluatorStub(),
+        raw_repo=_RawRepoStub(),
+        company_mongo_repo=_CompanyMongoRepoStub(),
+        trade_mysql_repo=None,
+        company_mysql_repo=None,
+        tr_ingestion_service=None,
+        tr_matching_service=None,
+        enrichment_service=_EnrichmentServiceStub(),
+        scoring_service=_ScoringServiceStub(),
+    )
+
+    service.run_hourly_import()
+    assert fmp.api3_calls == ["AAPL"]
+    assert "skipped_no_api2_profile=1" in caplog.text
