@@ -23,6 +23,9 @@ class GateRules:
     required_form_type: str = "4"
     max_filing_age_days_reject: int = 45
     filing_age_watchlist_days: int = 21
+    allowed_acquisition_or_disposition: tuple[str, ...] = ("A", "D")
+    excluded_transaction_types: tuple[str, ...] = ("A-Award", "M-Exempt")
+    required_validation_status: str = "VALID"
 
 
 class GateEvaluator:
