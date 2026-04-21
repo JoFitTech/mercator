@@ -29,6 +29,7 @@ from src.ui.pages.trades_page import (
 )
 from src.ui.pages.companies_page import _clamp_page as _clamp_companies_page, _company_display_name, _format_market_cap
 from src.ui.pages import companies_page
+from src.ui.pages import settings_page
 from src.ui.components import tables as table_components
 from src.ui.pages.company_detail_page import _safe_text as company_safe_text
 from src.ui.pages.trade_detail_page import _safe_text as trade_safe_text
@@ -71,6 +72,7 @@ def test_dashboard_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -
 
     assert dashboard_page.st.session_state["dashboard_filters"]["date_range"] == dashboard_page.DASHBOARD_FILTER_DEFAULTS["date_range"]
     assert dashboard_page.st.session_state["dashboard_filter_date_range"] == dashboard_page.DASHBOARD_FILTER_DEFAULTS["date_range"]
+    assert dashboard_page.st.session_state["dashboard_feedback"][0] == "success"
 
 
 def test_normalize_trades_filters_resets_invalid_direction() -> None:
@@ -139,6 +141,7 @@ def test_trades_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -> N
     assert trades_page.st.session_state["trades_filter_direction"] == "Alle"
     assert trades_page.st.session_state["trades_filter_min_score"] == 0
     assert trades_page.st.session_state["trades_filter_min_value"] == 0
+    assert trades_page.st.session_state["trades_current_page"] == 1
 
 
 def test_trades_apply_reads_current_widget_values_without_enter(monkeypatch) -> None:
@@ -223,6 +226,7 @@ def test_navigate_to_trades_sets_nav_target_and_reruns(monkeypatch) -> None:
     dashboard_page._navigate_to_trades()
 
     assert dashboard_page.st.session_state["nav_target"] == "Trades"
+    assert dashboard_page.st.session_state["header_nav_target"] == "Trades"
     assert called["rerun"] is True
 
 
@@ -320,6 +324,22 @@ def test_sidebar_widget_sync_resets_only_stale_header_value() -> None:
         widget_value="Dashboard",
         previous_header_target="Trades",
     ) is False
+
+
+def test_sidebar_header_click_allows_direct_navigation_from_secondary_pages() -> None:
+    update = app_navigation._determine_header_nav_update(
+        current_target="Admin",
+        selected_header_target="Trades",
+        previous_header_target="Trades",
+        clicked_header_target="Trades",
+    )
+    assert update == "Trades"
+
+
+def test_settings_save_feedback_is_persisted_in_session_state(monkeypatch) -> None:
+    monkeypatch.setattr(settings_page.st, "session_state", {})
+    settings_page._render_save_feedback(True, "Gate-Einstellungen")
+    assert "dauerhaft gespeichert" in settings_page.st.session_state["settings_feedback"]
 
 
 def test_admin_import_summary_helpers_include_new_profile_counters() -> None:

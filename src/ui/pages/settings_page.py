@@ -10,7 +10,7 @@ from src.ui.components.page_scaffold import render_page_header
 
 def _render_save_feedback(persistence_available: bool, scope: str) -> None:
     suffix = "dauerhaft gespeichert." if persistence_available else "nur für diese Sitzung übernommen."
-    st.success(f"{scope} wurden {suffix}")
+    st.session_state["settings_feedback"] = f"{scope} wurden {suffix}"
 
 
 def render_settings_page(
@@ -28,6 +28,9 @@ def render_settings_page(
         st.info(
             "Datenbank für Einstellungen derzeit nicht verfügbar. Änderungen werden nur für diese Sitzung übernommen."
         )
+    feedback = st.session_state.pop("settings_feedback", None)
+    if feedback:
+        st.success(str(feedback))
 
     # Tabs für Fachbereiche
     tab_gates, tab_score, tab_explanation = st.tabs([

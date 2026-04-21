@@ -16,7 +16,6 @@ from src.ui.components.page_scaffold import (
     render_kpi_row,
     render_page_header,
     render_empty_state,
-    render_error_state,
     safe_service_call,
     summarize_filters,
 )
@@ -69,6 +68,7 @@ def _read_dashboard_filters_from_widgets() -> dict:
 def _reset_dashboard_filters_and_widgets() -> None:
     st.session_state["dashboard_filters"] = dict(DASHBOARD_FILTER_DEFAULTS)
     _sync_dashboard_filter_widgets_from_state(force=True)
+    st.session_state["dashboard_feedback"] = ("success", "Dashboard-Filter wurden auf den Standardzeitraum zurückgesetzt.")
 
 
 def _format_period_label(filters: dict[str, date | None]) -> str:
@@ -86,6 +86,7 @@ def _format_period_label(filters: dict[str, date | None]) -> str:
 
 def _navigate_to_trades() -> None:
     """Legacy-Helfer für bestehende Tests/Navigation."""
+    st.session_state["header_nav_target"] = "Trades"
     st.session_state["nav_target"] = "Trades"
     st.rerun()
 
@@ -280,6 +281,15 @@ def render_dashboard_page(
                 return
 
     st.session_state["dashboard_filters"] = _read_dashboard_filters_from_widgets()
+    feedback = st.session_state.pop("dashboard_feedback", None)
+    if feedback:
+        level, message = feedback
+        if level == "success":
+            st.success(message)
+        elif level == "warning":
+            st.warning(message)
+        else:
+            st.info(message)
     date_range = st.session_state["dashboard_filters"]["date_range"]
 
     filters = _build_dashboard_filters(date_range)
@@ -292,14 +302,14 @@ def render_dashboard_page(
             fallback={},
         )
     if load_error is not None:
-        render_error_state("Dashboard-Daten konnten aktuell nicht geladen werden.")
+        st.warning("Dashboard-Daten konnten aktuell nicht geladen werden. Bitte in wenigen Sekunden erneut versuchen.")
         with st.expander("Technische Details", expanded=False):
             st.code(str(load_error), language="text")
         return
 
     payload_error = str(payload.get("payload_error_message") or "").strip()
     if payload_error:
-        render_error_state("Datenquelle aktuell nicht erreichbar. Dashboard läuft im eingeschränkten Modus.")
+        st.warning("Datenquelle aktuell nicht erreichbar. Dashboard läuft im eingeschränkten Modus.")
         st.info("Kennzahlen werden vorübergehend ausgeblendet, bis die Datenquelle wieder verfügbar ist.")
         with st.expander("Technische Details", expanded=False):
             st.code(payload_error, language="text")
