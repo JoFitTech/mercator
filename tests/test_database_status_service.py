@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pymongo.errors import InvalidURI, OperationFailure, ServerSelectionTimeoutError
+
+from src.config.settings import MongoConfig
 from src.config.settings import MySqlTargetSettings, Settings
 from src.services.database_status_service import DatabaseStatusService
 
@@ -21,10 +24,18 @@ class _MongoDbStub:
 class _MongoClientStub:
     """Gibt eine steuerbare MongoDB-Instanz zurück."""
 
-    def __init__(self, should_fail: bool = False) -> None:
+    def __init__(self, should_fail: bool = False, exception: Exception | None = None) -> None:
         self.should_fail = should_fail
+        self.exception = exception
+        self.config = MongoConfig(
+            active_target="uni",
+            uri="mongodb://example:27017/?authSource=admin",
+            database="uni",
+        )
 
     def get_database(self) -> _MongoDbStub:
+        if self.exception is not None:
+            raise self.exception
         return _MongoDbStub(should_fail=self.should_fail)
 
 
@@ -124,4 +135,100 @@ def test_database_status_service_flags_mongo_as_warning(monkeypatch) -> None:
 
     assert status.mysql.is_connected is True
     assert status.mongo.is_connected is False
-    assert "nicht erreichbar" in status.mongo.message
+    assert status.mongo.message == "Mongo Unbekannter Fehler"
+
+
+def test_database_status_service_classifies_invalid_mongo_uri(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.services.database_status_service.resolve_active_mysql_target",
+        lambda settings, requested_target: type(
+            "Resolution",
+            (),
+            {
+                "requested_target": requested_target,
+                "active_target": "local",
+                "client": object(),
+                "used_fallback": False,
+                "messages": ["local ok"],
+            },
+        )(),
+    )
+    service = DatabaseStatusService()
+    status, _ = service.evaluate(
+        mysql_settings=_build_settings(),
+        mongo_client=_MongoClientStub(exception=InvalidURI("bad uri")),
+        requested_target="local",
+    )
+    assert status.mongo.message == "Mongo URI ungültig"
+
+
+def test_database_status_service_classifies_mongo_auth_error(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.services.database_status_service.resolve_active_mysql_target",
+        lambda settings, requested_target: type(
+            "Resolution",
+            (),
+            {
+                "requested_target": requested_target,
+                "active_target": "local",
+                "client": object(),
+                "used_fallback": False,
+                "messages": ["local ok"],
+            },
+        )(),
+    )
+    service = DatabaseStatusService()
+    status, _ = service.evaluate(
+        mysql_settings=_build_settings(),
+        mongo_client=_MongoClientStub(exception=OperationFailure("Authentication failed.", code=18)),
+        requested_target="local",
+    )
+    assert status.mongo.message == "Mongo Authentifizierung fehlgeschlagen"
+
+
+def test_database_status_service_classifies_server_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.services.database_status_service.resolve_active_mysql_target",
+        lambda settings, requested_target: type(
+            "Resolution",
+            (),
+            {
+                "requested_target": requested_target,
+                "active_target": "local",
+                "client": object(),
+                "used_fallback": False,
+                "messages": ["local ok"],
+            },
+        )(),
+    )
+    service = DatabaseStatusService()
+    status, _ = service.evaluate(
+        mysql_settings=_build_settings(),
+        mongo_client=_MongoClientStub(exception=ServerSelectionTimeoutError("timeout")),
+        requested_target="local",
+    )
+    assert status.mongo.message == "Mongo Host oder Port nicht erreichbar"
+
+
+def test_database_status_service_classifies_permission_error(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.services.database_status_service.resolve_active_mysql_target",
+        lambda settings, requested_target: type(
+            "Resolution",
+            (),
+            {
+                "requested_target": requested_target,
+                "active_target": "local",
+                "client": object(),
+                "used_fallback": False,
+                "messages": ["local ok"],
+            },
+        )(),
+    )
+    service = DatabaseStatusService()
+    status, _ = service.evaluate(
+        mysql_settings=_build_settings(),
+        mongo_client=_MongoClientStub(exception=OperationFailure("not authorized", code=13)),
+        requested_target="local",
+    )
+    assert status.mongo.message == "Mongo verbunden, aber keine Berechtigung für Datenbank 'uni'"

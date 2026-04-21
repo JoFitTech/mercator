@@ -16,6 +16,7 @@ from src.ui.pages.admin_page import (
 )
 from src.app.navigation import public_share_sidebar_status_text
 from src.app import navigation as app_navigation
+from src.services.database_status_service import DatabaseStatus, MongoStatus, MySqlStatus
 from src.services.public_share_service import TunnelStatus
 from src.ui.pages.trades_page import (
     TRADE_FILTER_DEFAULTS,
@@ -32,6 +33,14 @@ from src.ui.components import tables as table_components
 from src.ui.pages.company_detail_page import _safe_text as company_safe_text
 from src.ui.pages.trade_detail_page import _safe_text as trade_safe_text
 from src.ui.components import page_scaffold
+
+
+class _Ctx:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_build_dashboard_filters_handles_incomplete_range() -> None:
@@ -215,6 +224,25 @@ def test_navigate_to_trades_sets_nav_target_and_reruns(monkeypatch) -> None:
 
     assert dashboard_page.st.session_state["nav_target"] == "Trades"
     assert called["rerun"] is True
+
+
+def test_system_status_sidebar_shows_mongo_reason_when_offline(monkeypatch) -> None:
+    captured: list[str] = []
+
+    monkeypatch.setattr(app_navigation.st, "sidebar", _Ctx())
+    monkeypatch.setattr(app_navigation.st, "expander", lambda *_args, **_kwargs: _Ctx())
+    monkeypatch.setattr(app_navigation.st, "markdown", lambda text: captured.append(text))
+    monkeypatch.setattr(app_navigation.st, "caption", lambda text: captured.append(text))
+
+    status = DatabaseStatus(
+        mysql=MySqlStatus("local", "local", True, False, []),
+        mongo=MongoStatus(is_connected=False, message="Mongo URI ungültig"),
+    )
+
+    app_navigation.render_system_status_sidebar(db_status=status, mysql_res=None)
+
+    assert any("MongoDB: Offline" in line for line in captured)
+    assert any("Grund: Mongo URI ungültig" in line for line in captured)
 
 
 def test_format_period_label_without_none_artifacts() -> None:
