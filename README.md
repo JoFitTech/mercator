@@ -165,6 +165,7 @@ Pflichtvariablen (MySQL-Mehrzielbetrieb):
 - `LOCAL_MYSQL_HOST`, `LOCAL_MYSQL_PORT`, `LOCAL_MYSQL_DATABASE`, `LOCAL_MYSQL_USER`, `LOCAL_MYSQL_PASSWORD`
 - `UNI_MYSQL_HOST`, `UNI_MYSQL_PORT`, `UNI_MYSQL_DATABASE`, `UNI_MYSQL_USER`, `UNI_MYSQL_PASSWORD`
 - `MONGO_ACTIVE_TARGET` (`local` oder `uni`)
+- `MONGO_AUTO_FALLBACK_TO_LOCAL` (`true`/`false`)
 - Für `local`: `LOCAL_MONGO_URI`, `LOCAL_MONGO_DATABASE` (Fallback kompatibel: `MONGO_URI`, `MONGO_DATABASE`)
 - Für `uni`: `UNI_MONGO_URI`, `UNI_MONGO_DATABASE` (Pflicht bei `MONGO_ACTIVE_TARGET=uni`)
 - `FMP_API_KEY`
@@ -173,6 +174,7 @@ Pflichtvariablen (MySQL-Mehrzielbetrieb):
 Kompatibilität:
 - Bestehende `MYSQL_*` Variablen werden weiter als Fallback für das lokale Ziel unterstützt.
 - Für Mongo gilt: `authSource=admin` im URI ist nur die Auth-DB; die Zieldatenbank bleibt `*_MONGO_DATABASE`.
+- Mongo-Fallback ist transparent und greift nur bei `MONGO_ACTIVE_TARGET=uni` optional auf `local` zurück.
 
 Optionale Import-/Gate-Parameter:
 - `GATE_MIN_TRADE_VALUE` (Default `10000`)
@@ -249,6 +251,7 @@ Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen foku
 ## Datenbank-Statusanzeigen in der UI
 - MySQL- und MongoDB-Status werden getrennt angezeigt.
 - Bei Uni-Ausfall mit erlaubtem Fallback wird der Wechsel auf `local` explizit ausgewiesen.
+- Mongo nutzt denselben transparenten Resolver-Mechanismus wie MySQL (requested target, active target, fallback-Flag, Meldungen).
 - Wenn nur MongoDB ausfällt, bleibt die App für MySQL-basierte Auswertungen nutzbar; Rohdatenspeicherung/Import ist dann eingeschränkt.
 
 ## Start der Anwendung

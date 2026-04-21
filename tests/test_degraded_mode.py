@@ -37,7 +37,7 @@ def _build_settings() -> AppSettings:
 def test_infrastructure_mode_marks_offline_states() -> None:
     status = DatabaseStatus(
         mysql=MySqlStatus("local", None, False, False, ["offline"]),
-        mongo=MongoStatus(is_connected=True, message="ok"),
+        mongo=MongoStatus("local", "local", True, False, ["ok"]),
     )
     mode = build_infrastructure_mode(status)
     assert mode.mysql_online is False
@@ -65,7 +65,7 @@ def test_session_only_settings_persist_within_session(monkeypatch) -> None:
 def test_admin_capabilities_disable_write_when_one_db_offline() -> None:
     status = DatabaseStatus(
         mysql=MySqlStatus("local", "local", True, False, []),
-        mongo=MongoStatus(is_connected=False, message="offline"),
+        mongo=MongoStatus("local", None, False, False, ["offline"]),
     )
 
     class _SettingsServiceStub:

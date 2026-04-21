@@ -4,8 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import streamlit as st
-from src.config.settings import AppSettings, load_settings
-from src.db.mongo_client import MongoClientWrapper
+from src.config.settings import AppSettings, MongoSettings, load_settings
 from src.services.database_status_service import DatabaseStatusService
 from src.services.factory import ServiceFactory
 from src.ui.ui_theme import apply_ui_theme
@@ -51,11 +50,9 @@ def _init_core_services(settings: AppSettings):
     requested_target = st.session_state.get(MYSQL_TARGET_STATE_KEY, settings.mysql.mysql_active_target)
     
     status_service = DatabaseStatusService()
-    mongo_wrapper = MongoClientWrapper(settings.mongo)
-    
-    db_status, mysql_res = status_service.evaluate(
+    db_status, mysql_res, mongo_res = status_service.evaluate(
         mysql_settings=settings.mysql,
-        mongo_client=mongo_wrapper,
+        mongo_settings=settings.mongo_targets or MongoSettings.from_env(),
         requested_target=requested_target
     )
     
@@ -63,7 +60,7 @@ def _init_core_services(settings: AppSettings):
     mysql_client = mysql_res.client if (mysql_res and db_status.mysql.is_connected) else None
         
     # Mongo nur dann an die Factory geben, wenn die Verbindung als nutzbar bewertet wurde.
-    mongo_for_factory = mongo_wrapper if db_status.mongo.is_connected else None
+    mongo_for_factory = mongo_res.client if (mongo_res and db_status.mongo.is_connected) else None
 
     # Factory
     factory = ServiceFactory(
