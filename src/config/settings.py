@@ -443,6 +443,8 @@ class Settings:
     mysql_sync_enabled: bool
     local_mysql: MySqlTargetSettings
     uni_mysql: MySqlTargetSettings
+    mysql_startup_sync_enabled: bool = True
+    mysql_startup_sync_stale_minutes: int = 15
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -463,6 +465,11 @@ class Settings:
             mysql_active_target=active_target,
             mysql_auto_fallback_to_local=_read_bool_env("MYSQL_AUTO_FALLBACK_TO_LOCAL", default=True),
             mysql_sync_enabled=_read_bool_env("MYSQL_SYNC_ENABLED", default=True),
+            mysql_startup_sync_enabled=_read_bool_env("MYSQL_STARTUP_SYNC_ENABLED", default=True),
+            mysql_startup_sync_stale_minutes=max(
+                1,
+                _read_int_env("MYSQL_STARTUP_SYNC_STALE_MINUTES", default=15),
+            ),
             local_mysql=MySqlTargetSettings(
                 name="local",
                 host=_read_string_env("LOCAL_MYSQL_HOST", default=_read_string_env("MYSQL_HOST", default="localhost")),

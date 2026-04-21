@@ -22,6 +22,7 @@ from src.db.repositories.api_usage_repository import ApiUsageRepository
 from src.preprocessing import GateEvaluator, GateRules
 from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
+from src.services.mysql_sync_service import MySqlSyncService
 from src.services.dashboard_service import DashboardService
 from src.services.import_service import ImportService
 from src.services.analysis_service import AnalysisService
@@ -203,3 +204,6 @@ class ServiceFactory:
         if not self.mysql_client:
             return None
         return CompanyMySqlRepository(self.mysql_client)
+
+    def create_mysql_sync_service(self) -> MySqlSyncService:
+        return MySqlSyncService()

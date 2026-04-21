@@ -9,10 +9,13 @@ from pathlib import Path
 from src.config.settings import AppSettings
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_client import MySqlClient
+from src.db.repositories.sync_state_repository import SyncStateRepository, StartupSyncState
 from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
 from src.services.database_status_service import DatabaseStatus
 from src.services.import_service import ImportService, ImportSummary
+from src.services.mysql_sync_service import MySqlSyncService
+from src.services.startup_sync_service import StartupSyncService
 from src.services.public_share_service import (
     CloudflareQuickTunnelProvider,
     TunnelManager,
@@ -207,6 +210,47 @@ class AdminDashboardService:
     def _deletes_blocked(self) -> bool:
         return bool(self.settings.review_mode or self.settings.disable_admin_delete)
 
+    def _local_sync_state_repo(self) -> SyncStateRepository | None:
+        try:
+            local_client = MySqlClient(self.settings.mysql.get_mysql_target("local"))
+            return SyncStateRepository(local_client)
+        except Exception:
+            return None
+
+    def get_startup_sync_state(self) -> StartupSyncState | None:
+        repo = self._local_sync_state_repo()
+        if repo is None:
+            return None
+        try:
+            return repo.load()
+        except Exception:
+            return None
+
+    def run_pending_startup_sync_now(self) -> tuple[bool, str]:
+        try:
+            local_client = MySqlClient(self.settings.mysql.get_mysql_target("local"))
+            uni_client = MySqlClient(self.settings.mysql.get_mysql_target("uni"))
+            service = StartupSyncService(
+                local_client=local_client,
+                uni_client=uni_client,
+                sync_state_repo=SyncStateRepository(local_client),
+                sync_service=MySqlSyncService(),
+                startup_sync_enabled=self.settings.mysql.mysql_startup_sync_enabled,
+                stale_minutes=self.settings.mysql.mysql_startup_sync_stale_minutes,
+            )
+            outcome = service.run_for_start(
+                requested_target="uni",
+                active_target="uni",
+                uni_reachable=True,
+            )
+            return outcome.success, outcome.message if outcome.success else (outcome.error or outcome.message)
+        except Exception as exc:
+            return False, str(exc)
+
+    def _pending_sync_blocks_deletes(self) -> bool:
+        state = self.get_startup_sync_state()
+        return bool(state and state.pending_uni_sync)
+
     def _blocked_message(self) -> tuple[bool, str]:
         return False, "Loeschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
 
@@ -303,6 +347,11 @@ class AdminDashboardService:
             return False, "MySQL-Verbindung nicht verfuegbar."
         if self._deletes_blocked():
             return self._blocked_message()
+        if self._pending_sync_blocks_deletes():
+            return (
+                False,
+                "Loeschaktionen blockiert: Es besteht ein offener Startup-Pending-Sync (local -> uni).",
+            )
 
         try:
             with self.mysql_client.connection(include_database=True) as conn:
@@ -341,6 +390,11 @@ class AdminDashboardService:
             return False, "MySQL-Verbindung nicht verfuegbar."
         if self._deletes_blocked():
             return self._blocked_message()
+        if self._pending_sync_blocks_deletes():
+            return (
+                False,
+                "Loeschaktionen blockiert: Es besteht ein offener Startup-Pending-Sync (local -> uni).",
+            )
 
         try:
             with self.mysql_client.connection(include_database=True) as conn:
@@ -363,6 +417,11 @@ class AdminDashboardService:
             return False, "MySQL-Verbindung nicht verfuegbar."
         if self._deletes_blocked():
             return self._blocked_message()
+        if self._pending_sync_blocks_deletes():
+            return (
+                False,
+                "Loeschaktionen blockiert: Es besteht ein offener Startup-Pending-Sync (local -> uni).",
+            )
 
         try:
             with self.mysql_client.connection(include_database=True) as conn:
@@ -547,6 +606,8 @@ def render_admin_page(
     ])
 
     admin_service = AdminDashboardService(settings, mysql_client, mongo_available)
+    startup_sync_state = admin_service.get_startup_sync_state()
+    pending_startup_sync = bool(startup_sync_state and startup_sync_state.pending_uni_sync)
 
     # 2. IMPORT & API2 TAB
     with tab_import:
@@ -707,6 +768,34 @@ def render_admin_page(
             st.metric("Raw Trades", f"{mongo_stats.get('insider_trades_raw_count', 0):,}")
             st.metric("Raw Companies", f"{mongo_stats.get('companies_count', 0):,}")
 
+        st.markdown("---")
+        st.markdown("#### Startup Sync Status (MySQL)")
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            st.metric("Pending Uni Sync", "Ja" if pending_startup_sync else "Nein")
+            st.caption(f"Letzter Startmodus: {(startup_sync_state.last_start_mode if startup_sync_state else '-')}")
+            st.caption(f"Requested Target: {(startup_sync_state.last_requested_target if startup_sync_state else '-')}")
+        with s2:
+            st.caption(f"Aktiver Target: {(startup_sync_state.last_active_target if startup_sync_state else '-')}")
+            st.caption(f"Letzter Auto-Sync Status: {(startup_sync_state.last_sync_status if startup_sync_state else '-')}")
+            st.caption(f"Richtung: {(startup_sync_state.last_sync_direction if startup_sync_state else '-')}")
+        with s3:
+            last_ok = startup_sync_state.last_successful_uni_sync_at if startup_sync_state else None
+            st.caption(f"Letzter erfolgreicher Uni-Sync: {last_ok or '-'}")
+            st.caption(f"Letzter Fehler: {(startup_sync_state.last_sync_error if startup_sync_state else '-')}")
+
+        if pending_startup_sync:
+            st.warning(
+                "Die App wurde zuletzt ohne aktive Uni-DB betrieben. Beim nächsten Uni-Start wird oder wurde ein local -> uni Sync ausgeführt."
+            )
+            if st.button("Pending Startup Sync jetzt ausführen", use_container_width=False):
+                success, message = admin_service.run_pending_startup_sync_now()
+                if success:
+                    _push_admin_feedback("success", message)
+                else:
+                    _push_admin_feedback("error", "Pending Startup Sync fehlgeschlagen.", message)
+                st.rerun()
+
     # 4. DB CONTROL TAB
     with tab_db_control:
         st.subheader("Datenbank-Wartung & Resets")
@@ -749,6 +838,8 @@ def render_admin_page(
             with st.popover("MySQL-Daten löschen", use_container_width=True):
                 if not mysql_online:
                     st.info("Löschfunktionen für MySQL sind nur bei aktiver MySQL-Verbindung verfügbar.")
+                if pending_startup_sync:
+                    st.warning("Löschaktionen blockiert, solange ein Pending Startup Sync offen ist.")
                 st.error("### ACHTUNG: Datenverlust")
                 st.write("Dies löscht alle verarbeiteten Insider-Trades und Firmendaten in MySQL.")
                 st.write("Rohdaten in MongoDB bleiben erhalten.")
@@ -758,7 +849,7 @@ def render_admin_page(
                     "JETZT MySQL LÖSCHEN",
                     type="primary",
                     use_container_width=True,
-                    disabled=(not confirm_mysql) or (not mysql_online),
+                    disabled=(not confirm_mysql) or (not mysql_online) or pending_startup_sync,
                 ):
                     with st.spinner("Lösche MySQL Daten..."):
                         success, msg = admin_service.clear_mysql_all()

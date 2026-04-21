@@ -345,6 +345,40 @@ class MySqlClient:
                     )
                     actions.append("app_runtime_preferences: Added Unique Index `uq_app_runtime_preferences_key`.")
 
+                # --- app_sync_state ---
+                sync_state_cols = [
+                    ("state_key", "VARCHAR(64) NOT NULL"),
+                    ("pending_uni_sync", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                    ("sync_in_progress", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                    ("last_start_mode", "VARCHAR(32) NULL"),
+                    ("last_requested_target", "VARCHAR(16) NULL"),
+                    ("last_active_target", "VARCHAR(16) NULL"),
+                    ("last_sync_direction", "VARCHAR(32) NULL"),
+                    ("last_sync_status", "VARCHAR(32) NULL"),
+                    ("last_sync_error", "TEXT NULL"),
+                    ("last_sync_started_at", "DATETIME NULL"),
+                    ("last_sync_finished_at", "DATETIME NULL"),
+                    ("last_successful_uni_sync_at", "DATETIME NULL"),
+                    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                    ("updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                ]
+                for col_name, col_def in sync_state_cols:
+                    if not self._column_exists(cursor, "app_sync_state", col_name):
+                        cursor.execute(f"ALTER TABLE app_sync_state ADD COLUMN {col_name} {col_def}")
+                        actions.append(f"app_sync_state: Added `{col_name}`.")
+                if not self._query_has_row(
+                    cursor,
+                    "SELECT 1 FROM information_schema.KEY_COLUMN_USAGE "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s "
+                    "AND CONSTRAINT_NAME = 'PRIMARY' AND COLUMN_NAME = %s LIMIT 1",
+                    ("app_sync_state", "state_key"),
+                ):
+                    if self._has_primary_key(cursor, "app_sync_state"):
+                        cursor.execute("ALTER TABLE app_sync_state DROP PRIMARY KEY")
+                    cursor.execute("ALTER TABLE app_sync_state MODIFY state_key VARCHAR(64) NOT NULL")
+                    cursor.execute("ALTER TABLE app_sync_state ADD PRIMARY KEY (state_key)")
+                    actions.append("app_sync_state: Set `state_key` as Primary Key.")
+
                 # 3. Daten-Migration (Keys befüllen)
                 companies_has_legacy_symbol = self._column_exists(cursor, "companies", "symbol")
                 trades_has_legacy_symbol = self._column_exists(cursor, "insider_trades", "symbol")

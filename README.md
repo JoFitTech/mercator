@@ -257,9 +257,11 @@ Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen foku
 ## Kontrollierter MySQL-Sync
 - Sync ist explizit und per Env steuerbar (`MYSQL_SYNC_ENABLED=true|false`).
 - Default-Richtung im aktuellen Stand: `local -> uni`.
-- Betroffene Tabellen: `companies` und `insider_trades`.
+- Betroffene Tabellen: `companies`, `insider_trades`, `app_filter_settings`, `app_runtime_preferences`.
 - Verfahren: SQL-basierte Upserts (`companies` über `company_key`, `insider_trades` über `dedupe_key`).
-- Es gibt **keinen** automatischen Hintergrund-Sync beim App-Start.
+- Startup-Reconnect ist jetzt steuerbar über `MYSQL_STARTUP_SYNC_ENABLED=true|false`.
+- Bei Start ohne aktive Uni-DB wird lokal `pending_uni_sync=true` markiert; beim nächsten erfolgreichen Uni-Start wird automatisch `local -> uni` synchronisiert.
+- Stale-Running-Locks werden über `MYSQL_STARTUP_SYNC_STALE_MINUTES` automatisch aufgelöst.
 - Der Sync wird nur über den Sidebar-Button ausgelöst, wenn `uni` erreichbar ist.
 
 ## Datenbank-Statusanzeigen in der UI

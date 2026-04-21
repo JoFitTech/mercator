@@ -36,6 +36,9 @@ class SyncSummary:
     target_target: str
     company_result: SyncResult
     insider_trade_result: SyncResult
+    app_filter_settings_result: SyncResult | None = None
+    app_runtime_preferences_result: SyncResult | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 class MySqlSyncService:
@@ -251,12 +254,8 @@ class MySqlSyncService:
 
         company_result = self.sync_companies(actual_source, actual_target)
         insider_trade_result = self.sync_insider_trades(actual_source, actual_target)
-        try:
-            _app_filter_settings_result = self.sync_app_filter_settings(actual_source, actual_target)
-            _app_runtime_preferences_result = self.sync_app_runtime_preferences(actual_source, actual_target)
-        except Exception:
-            # Settings-Sync ist ergänzend und darf den Kernsync nicht blockieren.
-            pass
+        app_filter_settings_result = self.sync_app_filter_settings(actual_source, actual_target)
+        app_runtime_preferences_result = self.sync_app_runtime_preferences(actual_source, actual_target)
 
         return SyncSummary(
             direction=effective_direction,
@@ -264,6 +263,21 @@ class MySqlSyncService:
             target_target=actual_target.target_name,
             company_result=company_result,
             insider_trade_result=insider_trade_result,
+            app_filter_settings_result=app_filter_settings_result,
+            app_runtime_preferences_result=app_runtime_preferences_result,
+        )
+
+    def sync_startup_reconnect(
+        self,
+        local_client: MySqlClient,
+        uni_client: MySqlClient,
+    ) -> SyncSummary:
+        """Startup-Reconnect-Sync mit fester Richtung local -> uni."""
+
+        return self.sync_all(
+            local_client=local_client,
+            uni_client=uni_client,
+            direction="local_to_uni",
         )
 
     def determine_auto_direction(self, local_client: MySqlClient, uni_client: MySqlClient) -> str:
@@ -298,4 +312,3 @@ class MySqlSyncService:
             return "uni_to_local"
         except Exception:
             return "local_to_uni"  # Fallback
-

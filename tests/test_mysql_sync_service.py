@@ -45,6 +45,31 @@ class _DummyClient:
         self.target_name = target_name
 
 
+class _SourceSettingsRepository:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
+
+    def list_all(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
+        return self._rows[offset : offset + limit]
+
+    def get_by_business_key(self, *args):  # noqa: ANN002, ANN003
+        return None
+
+
+class _TargetSettingsRepository:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+
+    def list_all(self, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
+        return []
+
+    def get_by_business_key(self, *args):  # noqa: ANN002, ANN003
+        return None
+
+    def upsert(self, row: dict[str, Any]) -> None:
+        self.rows.append(row)
+
+
 def test_sync_companies_skips_rows_without_symbol(monkeypatch) -> None:
     """Prüft, dass Company-Sync Einträge ohne company_key überspringt."""
 
@@ -90,6 +115,14 @@ def test_sync_all_reports_target_names(monkeypatch) -> None:
     target_company_repo = _TargetCompanyRepository()
     source_trade_repo = _SourceTradeRepository([{"dedupe_key": "abc", "symbol": "AAPL"}])
     target_trade_repo = _TargetTradeRepository()
+    source_filter_repo = _SourceSettingsRepository(
+        [{"setting_scope": "trades", "setting_key": "x", "setting_value_json": {"a": 1}}]
+    )
+    target_filter_repo = _TargetSettingsRepository()
+    source_pref_repo = _SourceSettingsRepository(
+        [{"preference_key": "advanced_mode", "preference_value_json": True}]
+    )
+    target_pref_repo = _TargetSettingsRepository()
 
     monkeypatch.setattr(
         "src.services.mysql_sync_service.CompanyRepository",
@@ -99,6 +132,14 @@ def test_sync_all_reports_target_names(monkeypatch) -> None:
         "src.services.mysql_sync_service.InsiderTradeRepository",
         lambda client: source_trade_repo if client.target_name == "local" else target_trade_repo,
     )
+    monkeypatch.setattr(
+        "src.services.mysql_sync_service.AppFilterSettingsRepository",
+        lambda client: source_filter_repo if client.target_name == "local" else target_filter_repo,
+    )
+    monkeypatch.setattr(
+        "src.services.mysql_sync_service.AppRuntimePreferencesRepository",
+        lambda client: source_pref_repo if client.target_name == "local" else target_pref_repo,
+    )
 
     service = MySqlSyncService(batch_size=100)
     summary = service.sync_all(_DummyClient("local"), _DummyClient("uni"))
@@ -107,6 +148,8 @@ def test_sync_all_reports_target_names(monkeypatch) -> None:
     assert summary.target_target == "uni"
     assert summary.company_result.written_count == 1
     assert summary.insider_trade_result.written_count == 1
+    assert summary.app_filter_settings_result is not None
+    assert summary.app_runtime_preferences_result is not None
 
 
 def test_determine_auto_direction_handles_string_timestamps(monkeypatch) -> None:
@@ -134,3 +177,44 @@ def test_determine_auto_direction_handles_string_timestamps(monkeypatch) -> None
 
     assert direction == "local_to_uni"
 
+
+def test_sync_startup_reconnect_forces_local_to_uni(monkeypatch) -> None:
+    service = MySqlSyncService()
+    captured: dict[str, str] = {}
+
+    def _fake_sync_all(local_client, uni_client, direction="local_to_uni"):  # noqa: ANN001
+        captured["direction"] = direction
+        return "ok"
+
+    monkeypatch.setattr(service, "sync_all", _fake_sync_all)
+
+    result = service.sync_startup_reconnect(_DummyClient("local"), _DummyClient("uni"))
+    assert result == "ok"
+    assert captured["direction"] == "local_to_uni"
+
+
+def test_sync_all_raises_if_settings_sync_fails(monkeypatch) -> None:
+    source_company_repo = _SourceCompanyRepository([{"company_key": "SYM:AAPL", "current_symbol": "AAPL"}])
+    target_company_repo = _TargetCompanyRepository()
+    source_trade_repo = _SourceTradeRepository([{"dedupe_key": "abc", "symbol": "AAPL"}])
+    target_trade_repo = _TargetTradeRepository()
+
+    monkeypatch.setattr(
+        "src.services.mysql_sync_service.CompanyRepository",
+        lambda client: source_company_repo if client.target_name == "local" else target_company_repo,
+    )
+    monkeypatch.setattr(
+        "src.services.mysql_sync_service.InsiderTradeRepository",
+        lambda client: source_trade_repo if client.target_name == "local" else target_trade_repo,
+    )
+    monkeypatch.setattr(
+        "src.services.mysql_sync_service.AppFilterSettingsRepository",
+        lambda client: (_ for _ in ()).throw(RuntimeError("settings failed")),
+    )
+
+    service = MySqlSyncService(batch_size=100)
+    try:
+        service.sync_all(_DummyClient("local"), _DummyClient("uni"))
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "settings failed" in str(exc)
