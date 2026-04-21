@@ -20,12 +20,13 @@ from src.services.public_share_service import TunnelStatus
 from src.ui.pages.trades_page import (
     TRADE_FILTER_DEFAULTS,
     _build_query_filters,
+    _clamp_page as _clamp_trades_page,
     _normalize_trades_filters,
     _read_trade_filters_from_widgets,
     _reset_trade_filters_and_widgets,
     _trade_action_symbol_label,
 )
-from src.ui.pages.companies_page import _company_display_name, _format_market_cap
+from src.ui.pages.companies_page import _clamp_page as _clamp_companies_page, _company_display_name, _format_market_cap
 from src.ui.pages import companies_page
 from src.ui.components import tables as table_components
 from src.ui.pages.company_detail_page import _safe_text as company_safe_text
@@ -94,6 +95,18 @@ def test_build_query_filters_maps_direction_and_blank_values() -> None:
     assert query["reporting_name"] is None
     assert query["validation_status"] == "VALID"
     assert query["acquisition_or_disposition"] == "D"
+
+
+def test_trades_page_clamps_out_of_range_page() -> None:
+    clamped, total_pages = _clamp_trades_page(current_page=9, total_rows=210, page_size=100)
+    assert total_pages == 3
+    assert clamped == 3
+
+
+def test_companies_page_clamps_out_of_range_page() -> None:
+    clamped, total_pages = _clamp_companies_page(current_page=5, total_rows=0, page_size=50)
+    assert total_pages == 1
+    assert clamped == 1
 
 
 def test_trades_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -> None:

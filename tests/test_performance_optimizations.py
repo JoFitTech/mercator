@@ -19,13 +19,15 @@ class _DummyClient:
 
 class _TradeRepoForDashboard:
     def __init__(self) -> None:
-        self.calls = 0
+        self.fetch_calls = 0
+        self.state_calls = 0
 
     def get_max_updated_at(self):
+        self.state_calls += 1
         return "2026-01-01 00:00:00"
 
     def fetch_trades_enriched_with_company(self, limit: int, filters: dict | None = None):
-        self.calls += 1
+        self.fetch_calls += 1
         return pd.DataFrame(
             [
                 {
@@ -47,7 +49,11 @@ class _TradeRepoForDashboard:
 
 
 class _CompanyRepoForDashboard:
+    def __init__(self) -> None:
+        self.state_calls = 0
+
     def get_max_updated_at(self):
+        self.state_calls += 1
         return "2026-01-01 00:00:00"
 
 
@@ -129,11 +135,12 @@ def test_company_upsert_companies_uses_executemany_batch() -> None:
 
 def test_dashboard_payload_uses_short_cache() -> None:
     trade_repo = _TradeRepoForDashboard()
+    company_repo = _CompanyRepoForDashboard()
     service = DashboardService(
         raw_repo=None,
         company_mongo_repo=None,
         trade_repo=trade_repo,  # type: ignore[arg-type]
-        company_repo=_CompanyRepoForDashboard(),  # type: ignore[arg-type]
+        company_repo=company_repo,  # type: ignore[arg-type]
     )
 
     payload_a = service.build_dashboard_payload(filters={"symbol": "AAPL"})
@@ -141,7 +148,9 @@ def test_dashboard_payload_uses_short_cache() -> None:
 
     assert payload_a["kpi_relevant_trades_count"] >= 0
     assert payload_b["kpi_relevant_trades_count"] >= 0
-    assert trade_repo.calls == 1
+    assert trade_repo.fetch_calls == 1
+    assert trade_repo.state_calls == 2
+    assert company_repo.state_calls == 2
 
 
 def test_import_persists_trades_even_if_enrichment_fails(monkeypatch) -> None:

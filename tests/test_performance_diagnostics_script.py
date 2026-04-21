@@ -12,6 +12,16 @@ def test_benchmark_import_batch_vs_legacy_shows_lower_query_count_for_batch() ->
     assert legacy.rows == batch.rows == 100
 
 
+def test_benchmark_dashboard_cache_keeps_state_lookup_on_cache_hit() -> None:
+    miss, hit = diag.benchmark_dashboard_cache()
+
+    assert miss.area == "Dashboard"
+    assert "state lookup" in miss.scenario
+    assert "state lookup only" in hit.scenario
+    assert miss.sql_queries == 3
+    assert hit.sql_queries == 2
+
+
 def test_diagnose_mongo_classifies_missing_local_service(monkeypatch) -> None:
     monkeypatch.setattr(
         diag,

@@ -163,9 +163,15 @@ class InsiderTradeRepository:
         if min_score is not None and min_score > 0:
             conditions.append(f"{prefix}score >= %s")
             params.append(min_score)
+        min_value = filters.get("min_value")
+        if min_value is not None and min_value > 0:
+            conditions.append(f"{prefix}trade_value_estimated >= %s")
+            params.append(min_value)
         if filters.get("trade_republic_universe_status"):
-            conditions.append(f"{prefix}trade_republic_universe_status = %s")
-            params.append(filters["trade_republic_universe_status"])
+            status = str(filters["trade_republic_universe_status"]).strip().upper()
+            if status and status != "ALL":
+                conditions.append(f"{prefix}trade_republic_universe_status = %s")
+                params.append(status)
         if filters.get("dashboard_valid") is not None:
             conditions.append(f"{prefix}dashboard_valid = %s")
             params.append(1 if filters["dashboard_valid"] else 0)

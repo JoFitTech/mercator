@@ -95,14 +95,19 @@ class _SyntheticPagedClient(_SyntheticMySqlClient):
 
 class _DashTradeRepo:
     def __init__(self, delay_ms: float = 12.0) -> None:
-        self.calls = 0
+        self.fetch_calls = 0
+        self.state_calls = 0
+        self.sql_queries = 0
         self.delay_s = delay_ms / 1000.0
 
     def get_max_updated_at(self):
+        self.state_calls += 1
+        self.sql_queries += 1
         return datetime(2026, 1, 1, 10, 0, 0)
 
     def fetch_trades_enriched_with_company(self, limit: int, filters: dict | None = None) -> pd.DataFrame:
-        self.calls += 1
+        self.fetch_calls += 1
+        self.sql_queries += 1
         time.sleep(self.delay_s)
         return pd.DataFrame(
             [
@@ -125,7 +130,13 @@ class _DashTradeRepo:
 
 
 class _DashCompanyRepo:
+    def __init__(self) -> None:
+        self.state_calls = 0
+        self.sql_queries = 0
+
     def get_max_updated_at(self):
+        self.state_calls += 1
+        self.sql_queries += 1
         return datetime(2026, 1, 1, 10, 0, 0)
 
 
@@ -162,26 +173,29 @@ def benchmark_import_batch_vs_legacy() -> tuple[MetricRow, MetricRow]:
 
 def benchmark_dashboard_cache() -> tuple[MetricRow, MetricRow]:
     trade_repo = _DashTradeRepo()
+    company_repo = _DashCompanyRepo()
     service = DashboardService(
         raw_repo=None,
         company_mongo_repo=None,
         trade_repo=trade_repo,  # type: ignore[arg-type]
-        company_repo=_DashCompanyRepo(),  # type: ignore[arg-type]
+        company_repo=company_repo,  # type: ignore[arg-type]
     )
     filters = {"symbol": "AAPL"}
 
     t0 = time.perf_counter()
     payload_a = service.build_dashboard_payload(filters=filters)
     miss_ms = (time.perf_counter() - t0) * 1000
+    miss_queries = trade_repo.sql_queries + company_repo.sql_queries
 
     t1 = time.perf_counter()
     payload_b = service.build_dashboard_payload(filters=filters)
     hit_ms = (time.perf_counter() - t1) * 1000
+    total_queries = trade_repo.sql_queries + company_repo.sql_queries
 
     rows = int(payload_a.get("kpi_relevant_trades_count", 0) or payload_b.get("kpi_relevant_trades_count", 0))
     return (
-        MetricRow("Dashboard", "Cache miss", miss_ms, rows, "miss", trade_repo.calls),
-        MetricRow("Dashboard", "Cache hit", hit_ms, rows, "hit", trade_repo.calls),
+        MetricRow("Dashboard", "Cache miss (state lookup + aggregation)", miss_ms, rows, "miss", miss_queries),
+        MetricRow("Dashboard", "Cache hit (state lookup only)", hit_ms, rows, "hit", total_queries - miss_queries),
     )
 
 

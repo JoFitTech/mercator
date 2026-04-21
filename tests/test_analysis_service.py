@@ -124,3 +124,48 @@ def test_get_ticker_detail_stable_with_reduced_data() -> None:
     assert len(result.rows) == 1
     assert "score" in result.rows[0]
     assert "score_class" in result.rows[0]
+
+
+class _PagedTradeRepo:
+    def __init__(self) -> None:
+        self.count_filters = None
+        self.page_filters = None
+        self.page_offset = None
+
+    def count_trades(self, filters=None):
+        self.count_filters = dict(filters or {})
+        return 3
+
+    def fetch_trades_page(self, filters=None, limit=100, offset=0):
+        self.page_filters = dict(filters or {})
+        self.page_offset = offset
+        return pd.DataFrame(
+            [
+                {
+                    "symbol_at_trade": "AAPL",
+                    "acquisition_or_disposition": "A",
+                    "qty": 1,
+                    "price": 500000,
+                    "trade_value_estimated": 500000,
+                    "trade_republic_universe_status": "IN_UNIVERSE",
+                }
+            ]
+        )
+
+
+def test_get_filtered_trades_page_uses_same_filter_basis_and_clamps_offset() -> None:
+    repo = _PagedTradeRepo()
+    service = AnalysisService(repo, _FakeCompanyRepo())  # type: ignore[arg-type]
+
+    df, total = service.get_filtered_trades_page(
+        filters={"symbol": "AAPL", "trade_republic_universe_status": "IN_UNIVERSE"},
+        limit=2,
+        offset=10,
+        min_value=400000,
+    )
+
+    assert total == 3
+    assert repo.count_filters == repo.page_filters
+    assert repo.count_filters["min_value"] == 400000
+    assert repo.page_offset == 2
+    assert len(df) == 1

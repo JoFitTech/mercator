@@ -125,6 +125,11 @@ def _build_query_filters(active_filters: dict) -> dict:
     return filters
 
 
+def _clamp_page(current_page: int, total_rows: int, page_size: int) -> tuple[int, int]:
+    total_pages = max(1, (int(total_rows) + int(page_size) - 1) // int(page_size))
+    return min(max(1, int(current_page)), total_pages), total_pages
+
+
 def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Trades-Seite."""
     render_page_header("Trades", "Operative Arbeitsfläche für Insider-Trades.")
@@ -206,6 +211,23 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
         st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
         return
 
+    valid_page, total_pages = _clamp_page(current_page, int(total_rows), int(page_size))
+    if valid_page != current_page:
+        st.session_state["trades_current_page"] = int(valid_page)
+        current_page = int(valid_page)
+        offset = (current_page - 1) * int(page_size)
+        with st.spinner("Aktualisiere Trades-Seite..."):
+            (trades_df, total_rows), load_error = safe_service_call(lambda: service.get_filtered_trades_page(
+                filters=filters,
+                limit=int(page_size),
+                offset=offset,
+                min_value=active_filters["min_value"],
+            ), context_label="Trades", fallback=(pd.DataFrame(), 0))
+        if load_error is not None:
+            st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
+            return
+        current_page, total_pages = _clamp_page(current_page, int(total_rows), int(page_size))
+
     if trades_df.empty:
         render_empty_state("Keine Trades für die aktuellen Filter gefunden.")
         st.caption("Nächster Schritt: Filter zurücksetzen oder Zeitraum erweitern.")
@@ -220,7 +242,6 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             st.rerun()
         return
 
-    total_pages = max(1, (int(total_rows) + int(page_size) - 1) // int(page_size))
     st.caption(f"Seite {current_page} von {total_pages} · Gesamt {total_rows} Treffer")
 
     # 3. KPIs
