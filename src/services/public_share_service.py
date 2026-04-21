@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from queue import Empty, Queue
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -26,6 +27,7 @@ TRY_CLOUDFLARE_URL_PATTERN = re.compile(r"https://[a-zA-Z0-9.-]+\.trycloudflare\
 _MAX_LOG_LINES = 40
 _HEALTHCHECK_INTERVAL_SECONDS = 15
 _DEFAULT_STARTUP_GRACE_SECONDS = 15
+_INTERNAL_DNS_FAILURE_STALE_THRESHOLD = 4
 
 
 class TunnelStatus(str, Enum):
@@ -57,6 +59,18 @@ class TunnelSession:
     startup_grace_until: datetime | None = None
     last_public_check_detail: str | None = None
     last_public_check_is_temporary: bool | None = None
+    last_public_check_type: str | None = None
+    last_public_check_error: str | None = None
+    last_public_check_origin: str | None = None
+    last_public_check_hard_failure: bool | None = None
+    last_exit_code: int | None = None
+    public_check_failure_count: int = 0
+    consecutive_internal_dns_failures: int = 0
+    consecutive_hard_public_failures: int = 0
+    _log_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    _log_buffer: deque[str] = field(
+        default_factory=lambda: deque(maxlen=_MAX_LOG_LINES), repr=False, compare=False
+    )
 
 
 class TunnelProvider(Protocol):
@@ -77,11 +91,13 @@ class CloudflareQuickTunnelProvider:
         startup_timeout_seconds: int = 20,
         healthcheck_timeout_seconds: float = 2.0,
         startup_grace_seconds: int = _DEFAULT_STARTUP_GRACE_SECONDS,
+        cloudflared_extra_args: tuple[str, ...] = (),
     ):
         self.cloudflared_bin = cloudflared_bin
         self.startup_timeout_seconds = startup_timeout_seconds
         self.healthcheck_timeout_seconds = healthcheck_timeout_seconds
         self.startup_grace_seconds = max(0, startup_grace_seconds)
+        self.cloudflared_extra_args = tuple(arg for arg in cloudflared_extra_args if arg)
         self._last_public_url_error: str | None = None
 
     def is_binary_available(self) -> bool:
@@ -181,7 +197,7 @@ class CloudflareQuickTunnelProvider:
                 ),
             )
 
-        command = [resolved_bin, "tunnel", "--url", local_url]
+        command = [resolved_bin, "tunnel", "--url", local_url, *self._get_effective_extra_args()]
         started_at = datetime.now(timezone.utc)
         log_tail: deque[str] = deque(maxlen=_MAX_LOG_LINES)
 
@@ -207,13 +223,15 @@ class CloudflareQuickTunnelProvider:
             )
 
         output_queue: Queue[str | None] = Queue()
-        reader_thread = threading.Thread(
-            target=self._enqueue_output,
-            args=(process, output_queue),
-            daemon=True,
-            name="cloudflared-output-reader",
+        log_buffer: deque[str] = deque(maxlen=_MAX_LOG_LINES)
+        log_lock = threading.Lock()
+        self._start_output_collector(
+            process=process,
+            output_queue=output_queue,
+            log_buffer=log_buffer,
+            log_lock=log_lock,
+            thread_name="cloudflared-output-reader",
         )
-        reader_thread.start()
 
         deadline = time.monotonic() + self.startup_timeout_seconds
         found_url: str | None = None
@@ -241,11 +259,9 @@ class CloudflareQuickTunnelProvider:
                 found_url = match.group(0)
                 break
 
-        reader_thread.join(timeout=0.2)
-
         if found_url and process.poll() is None:
             startup_grace_until = started_at + timedelta(seconds=self.startup_grace_seconds)
-            return TunnelSession(
+            session = TunnelSession(
                 provider="cloudflare",
                 local_url=local_url,
                 public_url=found_url,
@@ -256,6 +272,9 @@ class CloudflareQuickTunnelProvider:
                 process=process,
                 startup_grace_until=startup_grace_until,
             )
+            session._log_buffer = log_buffer
+            session._log_lock = log_lock
+            return session
 
         error_message = "Tunnelstart fehlgeschlagen: keine öffentliche URL erhalten."
         if process.poll() is not None:
@@ -286,11 +305,21 @@ class CloudflareQuickTunnelProvider:
             return TunnelStatus.STOPPED if session.status == TunnelStatus.STOPPED else session.status
 
         now = datetime.now(timezone.utc)
+        self._refresh_log_tail(session)
         process_alive = self._is_session_process_alive(session)
         session.last_process_alive = process_alive
+        session.last_exit_code = self._get_process_exit_code(session)
         if not process_alive:
             session.stale_reason = "Tunnelprozess ist nicht mehr aktiv."
-            session.error_message = "Tunnelprozess ist beendet. Eine neue öffentliche URL ist erforderlich."
+            exit_suffix = (
+                f" Exit-Code: {session.last_exit_code}."
+                if session.last_exit_code is not None
+                else ""
+            )
+            session.error_message = (
+                "Tunnelprozess wurde beendet. Eine neue öffentliche URL ist erforderlich."
+                f"{exit_suffix}"
+            )
             return TunnelStatus.STALE
 
         grace_active = self._is_startup_grace_active(session, now)
@@ -305,19 +334,44 @@ class CloudflareQuickTunnelProvider:
                         session.last_public_check_detail
                     )
                     return TunnelStatus.STARTING
-                return TunnelStatus.STALE
+                if session.last_public_check_hard_failure:
+                    return TunnelStatus.STALE
+                session.error_message = (
+                    "Tunnelprozess lebt, aber Public-Health-Check aus dem Container schlägt fehl. "
+                    "Externe Erreichbarkeit kann dennoch gegeben sein."
+                )
+                session.stale_reason = None
+                return TunnelStatus.WARNING
             return TunnelStatus.RUNNING if session.last_healthcheck_ok else TunnelStatus.WARNING
 
         local_healthy = self._is_local_url_healthy(session.local_url)
-        public_healthy = self._is_public_url_reachable(session.public_url)
-        public_error = self._last_public_url_error
+        public_healthy, public_error, public_check_type = self._check_public_url(session.public_url)
         public_error_is_temporary = self._is_temporary_public_resolution_error(public_error)
+        public_check_hard_failure = self._is_hard_public_failure(public_check_type, public_error)
         session.last_healthcheck_at = now
         session.last_local_healthcheck_ok = local_healthy
         session.last_public_healthcheck_ok = public_healthy
         session.last_healthcheck_ok = local_healthy and public_healthy
         session.last_public_check_detail = public_error
         session.last_public_check_is_temporary = public_error_is_temporary
+        session.last_public_check_type = public_check_type
+        session.last_public_check_error = public_error
+        session.last_public_check_origin = "container"
+        session.last_public_check_hard_failure = public_check_hard_failure
+        if public_healthy:
+            session.public_check_failure_count = 0
+            session.consecutive_internal_dns_failures = 0
+            session.consecutive_hard_public_failures = 0
+        else:
+            session.public_check_failure_count += 1
+            if public_error_is_temporary:
+                session.consecutive_internal_dns_failures += 1
+            else:
+                session.consecutive_internal_dns_failures = 0
+            if public_check_hard_failure:
+                session.consecutive_hard_public_failures += 1
+            else:
+                session.consecutive_hard_public_failures = 0
 
         if not local_healthy:
             session.error_message = "Tunnelprozess läuft, aber die lokale Streamlit-App ist derzeit nicht erreichbar."
@@ -329,9 +383,23 @@ class CloudflareQuickTunnelProvider:
                 session.error_message = self._format_startup_grace_message(public_error)
                 session.stale_reason = None
                 return TunnelStatus.STARTING
-            session.error_message = public_error or "Öffentliche Tunnel-URL ist nicht erreichbar. Neue URL erforderlich."
-            session.stale_reason = session.error_message
-            return TunnelStatus.STALE
+            if public_check_hard_failure:
+                session.error_message = public_error or "Cloudflare meldet einen harten Fehler."
+                session.stale_reason = session.error_message
+                return TunnelStatus.STALE
+            if session.consecutive_internal_dns_failures >= _INTERNAL_DNS_FAILURE_STALE_THRESHOLD:
+                session.error_message = (
+                    "Tunnelprozess lebt, aber Public-Health-Check aus Container bleibt wegen DNS-Auflösung "
+                    "fehlgeschlagen. Externe Clients könnten weiterhin funktionieren."
+                )
+                session.stale_reason = None
+                return TunnelStatus.WARNING
+            session.error_message = (
+                "Tunnelprozess lebt, aber Public-Health-Check aus Container fehlgeschlagen. "
+                f"Letzter Fehler: {public_error or 'unbekannt'}"
+            )
+            session.stale_reason = None
+            return TunnelStatus.WARNING
 
         if local_healthy and public_healthy:
             session.error_message = None
@@ -342,7 +410,12 @@ class CloudflareQuickTunnelProvider:
         return TunnelStatus.WARNING
 
     @staticmethod
-    def _enqueue_output(process: subprocess.Popen[str], output_queue: Queue[str | None]) -> None:
+    def _enqueue_output(
+        process: subprocess.Popen[str],
+        output_queue: Queue[str | None],
+        log_buffer: deque[str],
+        log_lock: threading.Lock,
+    ) -> None:
         stdout = process.stdout
         if stdout is None:
             output_queue.put(None)
@@ -350,6 +423,10 @@ class CloudflareQuickTunnelProvider:
 
         try:
             for line in stdout:
+                stripped = line.strip()
+                if stripped:
+                    with log_lock:
+                        log_buffer.append(stripped)
                 output_queue.put(line)
         except Exception:
             LOGGER.debug("Ausgabe-Reader wurde beendet", exc_info=True)
@@ -372,9 +449,9 @@ class CloudflareQuickTunnelProvider:
                 continue
         return False
 
-    def _check_public_url(self, url: str | None) -> tuple[bool, str | None]:
+    def _check_public_url(self, url: str | None) -> tuple[bool, str | None, str]:
         if not url:
-            return False, "Keine öffentliche URL vorhanden."
+            return False, "Keine öffentliche URL vorhanden.", "missing_url"
 
         for method in ("HEAD", "GET"):
             req = url_request.Request(url, method=method)
@@ -382,31 +459,42 @@ class CloudflareQuickTunnelProvider:
                 with url_request.urlopen(req, timeout=self.healthcheck_timeout_seconds) as resp:
                     status = getattr(resp, "status", 200)
                     if 200 <= status < 500:
-                        return True, None
-                    return False, f"Öffentliche URL antwortet mit HTTP {status}."
+                        return True, None, "ok"
+                    return False, f"Öffentliche URL antwortet mit HTTP {status}.", f"http_{status}"
             except url_error.HTTPError as exc:
                 if 200 <= exc.code < 500:
-                    return True, None
+                    return True, None, "ok"
                 detail = f"Öffentliche URL antwortet mit HTTP {exc.code}."
                 if exc.code == 530:
                     try:
                         body = exc.read().decode("utf-8", errors="ignore")
                         if "1033" in body:
                             detail = "Öffentliche URL ist nicht mehr auflösbar (Cloudflare Error 1033)."
+                            return False, detail, "cloudflare_1033"
                     except Exception:
                         pass
-                return False, detail
+                    return False, detail, "cloudflare_530"
+                return False, detail, f"http_{exc.code}"
             except url_error.URLError as exc:
-                return False, f"Öffentliche URL nicht erreichbar: {exc.reason}."
+                return False, f"Öffentliche URL nicht erreichbar: {exc.reason}.", "url_error"
             except Exception as exc:
-                return False, f"Öffentliche URL-Prüfung fehlgeschlagen: {exc}."
-        return False, "Öffentliche URL nicht erreichbar."
+                return False, f"Öffentliche URL-Prüfung fehlgeschlagen: {exc}.", "unknown_error"
+        return False, "Öffentliche URL nicht erreichbar.", "unreachable"
 
     def _is_public_url_reachable(self, url: str | None) -> bool:
         """Kompatibilitätsmethode: boolsche Erreichbarkeit der öffentlichen URL."""
-        reachable, detail = self._check_public_url(url)
+        reachable, detail, _ = self._check_public_url(url)
         self._last_public_url_error = detail
         return reachable
+
+    @staticmethod
+    def _is_hard_public_failure(check_type: str, detail: str | None) -> bool:
+        if check_type in {"cloudflare_1033", "cloudflare_530"}:
+            return True
+        normalized = (detail or "").lower()
+        if "cloudflare error 1033" in normalized or "http 530" in normalized:
+            return True
+        return False
 
     @staticmethod
     def _is_temporary_public_resolution_error(detail: str | None) -> bool:
@@ -452,6 +540,42 @@ class CloudflareQuickTunnelProvider:
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _get_process_exit_code(session: TunnelSession) -> int | None:
+        if session.process is None:
+            return None
+        return session.process.poll()
+
+    def _refresh_log_tail(self, session: TunnelSession) -> None:
+        with session._log_lock:
+            if session._log_buffer:
+                session.raw_log_tail = list(session._log_buffer)
+
+    @staticmethod
+    def _start_output_collector(
+        process: subprocess.Popen[str],
+        output_queue: Queue[str | None],
+        log_buffer: deque[str],
+        log_lock: threading.Lock,
+        thread_name: str,
+    ) -> None:
+        reader_thread = threading.Thread(
+            target=CloudflareQuickTunnelProvider._enqueue_output,
+            args=(process, output_queue, log_buffer, log_lock),
+            daemon=True,
+            name=thread_name,
+        )
+        reader_thread.start()
+
+    def _get_effective_extra_args(self) -> tuple[str, ...]:
+        env_args = os.getenv("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", "").strip()
+        if env_args:
+            try:
+                return tuple(shlex.split(env_args))
+            except ValueError:
+                LOGGER.warning("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS konnte nicht geparst werden: %s", env_args)
+        return self.cloudflared_extra_args
 
     @staticmethod
     def extract_public_url_from_log_line(line: str) -> str | None:

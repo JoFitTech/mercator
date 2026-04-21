@@ -6,6 +6,7 @@ Dieses Modul lädt Umgebungsvariablen und stellt typsichere Settings bereit.
 from __future__ import annotations
 
 import os
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -715,6 +716,7 @@ class PublicShareConfig:
     startup_timeout_seconds: int = 20
     startup_grace_seconds: int = 15
     healthcheck_timeout_seconds: float = 2.0
+    cloudflared_extra_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -755,6 +757,15 @@ def load_settings() -> AppSettings:
     poly_api_key, _ = _read_secret_first_env_fallback("POLYGON_API_KEY", default="")
 
     mongo_targets = MongoSettings.from_env()
+    public_share_extra_args_raw = _read_string_env("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", default="")
+    try:
+        public_share_extra_args = tuple(shlex.split(public_share_extra_args_raw)) if public_share_extra_args_raw else ()
+    except ValueError:
+        LOGGER.warning(
+            "PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS konnte nicht geparst werden und wird ignoriert: %s",
+            public_share_extra_args_raw,
+        )
+        public_share_extra_args = ()
     app_settings = AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
         app_title=os.getenv("APP_TITLE", "Mercator"),
@@ -807,6 +818,7 @@ def load_settings() -> AppSettings:
             startup_timeout_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS", default=20),
             startup_grace_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_GRACE_SECONDS", default=15),
             healthcheck_timeout_seconds=_read_float_env("PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS", default=2.0),
+            cloudflared_extra_args=public_share_extra_args,
         ),
         mongo_targets=mongo_targets,
     )

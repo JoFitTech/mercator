@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timedelta, timezone
 import io
 from pathlib import Path
 from queue import Queue
+import threading
 from urllib import error as url_error
 
 from src.services.public_share_service import (
@@ -143,12 +145,15 @@ def test_resolve_bin_prefers_repo_local_cloudflared_exe_when_not_in_path(monkeyp
 def test_output_reader_enqueues_all_lines() -> None:
     queue: Queue[str | None] = Queue()
     process = _FakeProcess(lines=["line 1\n", "line 2\n"], poll_value=0)
+    log_buffer = deque(maxlen=40)
+    log_lock = threading.Lock()
 
-    CloudflareQuickTunnelProvider._enqueue_output(process, queue)
+    CloudflareQuickTunnelProvider._enqueue_output(process, queue, log_buffer, log_lock)
 
     assert queue.get() == "line 1\n"
     assert queue.get() == "line 2\n"
     assert queue.get() is None
+    assert list(log_buffer) == ["line 1", "line 2"]
 
 
 def test_start_reads_url_from_threaded_output(monkeypatch) -> None:
@@ -172,6 +177,39 @@ def test_start_reads_url_from_threaded_output(monkeypatch) -> None:
     assert "Booting cloudflared" in session.raw_log_tail[0]
 
 
+def test_start_appends_extra_args_from_env(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider(cloudflared_bin="cloudflared", startup_timeout_seconds=1)
+    fake_process = _FakeProcess(
+        lines=["Booting cloudflared\n", "URL is https://abc.trycloudflare.com\n"],
+        poll_value=None,
+        pid=888,
+    )
+    captured_cmd: list[str] = []
+
+    def _fake_popen(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        return fake_process
+
+    monkeypatch.setenv("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", "--protocol http2 --edge-ip-version 4")
+    monkeypatch.setattr(provider, "_resolve_bin", lambda: "cloudflared")
+    monkeypatch.setattr(provider, "_is_local_url_healthy", lambda _url: True)
+    monkeypatch.setattr("subprocess.Popen", _fake_popen)
+
+    session = provider.start("http://localhost:8501")
+
+    assert session.status == TunnelStatus.RUNNING
+    assert captured_cmd == [
+        "cloudflared",
+        "tunnel",
+        "--url",
+        "http://localhost:8501",
+        "--protocol",
+        "http2",
+        "--edge-ip-version",
+        "4",
+    ]
+
+
 def test_start_timeout_without_url_terminates_process(monkeypatch) -> None:
     provider = CloudflareQuickTunnelProvider(cloudflared_bin="cloudflared", startup_timeout_seconds=0)
     fake_process = _FakeProcess(lines=["still booting\n"], poll_value=None)
@@ -186,6 +224,15 @@ def test_start_timeout_without_url_terminates_process(monkeypatch) -> None:
     assert session.status == TunnelStatus.ERROR
     assert "keine öffentliche URL" in (session.error_message or "")
     assert fake_process.terminated is True
+
+
+def test_effective_extra_args_fallbacks_to_config(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider(cloudflared_extra_args=("--metrics", "127.0.0.1:1234"))
+    monkeypatch.delenv("PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS", raising=False)
+
+    args = provider._get_effective_extra_args()
+
+    assert args == ("--metrics", "127.0.0.1:1234")
 
 
 def test_get_status_transitions_to_stale_when_process_died() -> None:
@@ -233,7 +280,7 @@ def test_get_status_reports_running_when_local_url_healthy() -> None:
     session.process = _AliveProcess()  # type: ignore[assignment]
 
     provider._is_local_url_healthy = lambda _: True  # type: ignore[method-assign]
-    provider._is_public_url_reachable = lambda _: True  # type: ignore[method-assign]
+    provider._check_public_url = lambda _: (True, None, "ok")  # type: ignore[method-assign]
     status = provider.get_status(session)
 
     assert status == TunnelStatus.RUNNING
@@ -251,8 +298,11 @@ def test_get_status_marks_stale_when_public_url_dead_but_local_healthy() -> None
 
     session.process = _AliveProcess()  # type: ignore[assignment]
     provider._is_local_url_healthy = lambda _: True  # type: ignore[method-assign]
-    provider._last_public_url_error = "Öffentliche URL ist nicht erreichbar."
-    provider._is_public_url_reachable = lambda _: False  # type: ignore[method-assign]
+    provider._check_public_url = lambda _: (  # type: ignore[method-assign]
+        False,
+        "Öffentliche URL ist nicht mehr auflösbar (Cloudflare Error 1033).",
+        "cloudflare_1033",
+    )
 
     status = provider.get_status(session)
 
@@ -276,6 +326,7 @@ def test_get_status_returns_starting_for_temporary_dns_error_during_grace_period
     provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
         False,
         "Öffentliche URL nicht erreichbar: [Errno -2] Name or service not known.",
+        "url_error",
     )
 
     status = provider.get_status(session)
@@ -300,12 +351,13 @@ def test_get_status_marks_stale_for_temporary_dns_error_after_grace_period() -> 
     provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
         False,
         "Öffentliche URL nicht erreichbar: [Errno -2] Name or service not known.",
+        "url_error",
     )
 
     status = provider.get_status(session)
 
-    assert status == TunnelStatus.STALE
-    assert session.stale_reason is not None
+    assert status == TunnelStatus.WARNING
+    assert session.stale_reason is None
 
 
 def test_get_status_process_dead_is_stale_even_within_grace_period() -> None:
@@ -337,11 +389,91 @@ def test_get_status_detects_cloudflare_1033_as_stale(monkeypatch) -> None:
         )
 
     monkeypatch.setattr("src.services.public_share_service.url_request.urlopen", _raise_http_error)
-    ok, message = provider._check_public_url("https://demo.trycloudflare.com")
+    ok, message, check_type = provider._check_public_url("https://demo.trycloudflare.com")
 
     assert ok is False
     assert message is not None
     assert "1033" in message
+    assert check_type == "cloudflare_1033"
+
+
+def test_get_status_process_exit_code_is_reported_on_stale() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+
+    class _DeadProcess:
+        def poll(self):
+            return 17
+
+    session.process = _DeadProcess()  # type: ignore[assignment]
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.STALE
+    assert session.last_exit_code == 17
+    assert "Exit-Code: 17" in (session.error_message or "")
+
+
+def test_get_status_running_process_with_internal_dns_error_is_warning_not_stale() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.startup_grace_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    class _AliveProcess:
+        def poll(self):
+            return None
+
+    session.process = _AliveProcess()  # type: ignore[assignment]
+    provider._is_local_url_healthy = lambda _url: True  # type: ignore[method-assign]
+    provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
+        False,
+        "Öffentliche URL nicht erreichbar: [Errno -2] Name or service not known.",
+        "url_error",
+    )
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.WARNING
+    assert session.last_public_check_is_temporary is True
+    assert session.last_public_check_hard_failure is False
+    assert session.public_check_failure_count == 1
+
+
+def test_get_status_running_process_with_cloudflare_1033_after_grace_is_stale() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.startup_grace_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    class _AliveProcess:
+        def poll(self):
+            return None
+
+    session.process = _AliveProcess()  # type: ignore[assignment]
+    provider._is_local_url_healthy = lambda _url: True  # type: ignore[method-assign]
+    provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
+        False,
+        "Öffentliche URL ist nicht mehr auflösbar (Cloudflare Error 1033).",
+        "cloudflare_1033",
+    )
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.STALE
+    assert session.stale_reason is not None
+    assert session.last_public_check_hard_failure is True
+
+
+def test_refresh_log_tail_collects_follow_up_logs() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session._log_buffer.append("initial")
+    provider._refresh_log_tail(session)
+    assert session.raw_log_tail[-1] == "initial"
+
+    session._log_buffer.append("follow-up log line")
+    provider._refresh_log_tail(session)
+
+    assert session.raw_log_tail[-1] == "follow-up log line"
 
 
 def test_manager_marks_stale_if_process_missing_but_pid_is_dead(monkeypatch) -> None:
