@@ -28,7 +28,7 @@ def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
     if status == TunnelStatus.STALE:
         return "warning", "Tunnel ist stale (z. B. öffentliche URL tot) und muss neu gestartet werden."
     if status == TunnelStatus.WARNING:
-        return "warning", "Tunnelprozess läuft, aber die lokale Streamlit-App ist derzeit nicht erreichbar."
+        return "warning", "Tunnelprozess lebt, aber es gibt Health-Warnungen."
     if status == TunnelStatus.ERROR:
         return "error", "Tunnel konnte nicht gestartet werden."
     return "caption", "Tunnel ist gestoppt."
@@ -44,6 +44,7 @@ def _get_public_share_manager(settings: AppSettings) -> TunnelManager:
         startup_timeout_seconds=settings.public_share.startup_timeout_seconds,
         startup_grace_seconds=settings.public_share.startup_grace_seconds,
         healthcheck_timeout_seconds=settings.public_share.healthcheck_timeout_seconds,
+        cloudflared_extra_args=settings.public_share.cloudflared_extra_args,
     )
     manager = TunnelManager(
         provider=provider,
@@ -820,6 +821,7 @@ def render_admin_page(
                 st.text_input("Öffentliche URL", value=public_url_value, disabled=True)
                 st.caption("Tipp: Feld markieren und kopieren (Strg/Cmd+C).")
                 if session:
+                    grace_active = bool(session.startup_grace_until and session.startup_grace_until > datetime.now(timezone.utc))
                     st.text_input(
                         "Lokale App gesund",
                         value="Ja" if session.last_local_healthcheck_ok is True else ("Nein" if session.last_local_healthcheck_ok is False else "Unbekannt"),
@@ -835,6 +837,32 @@ def render_admin_page(
                         value="Ja" if session.last_public_healthcheck_ok is True else ("Nein" if session.last_public_healthcheck_ok is False else "Unbekannt"),
                         disabled=True,
                     )
+                    st.text_input(
+                        "Tunnelprozess Exit-Code",
+                        value=str(session.last_exit_code) if session.last_exit_code is not None else "-",
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "Public-Check Hard-Failure",
+                        value="Ja" if session.last_public_check_hard_failure is True else ("Nein" if session.last_public_check_hard_failure is False else "Unbekannt"),
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "Public-Check Failure-Counter",
+                        value=str(session.public_check_failure_count),
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "Letzter Public-Check-Typ",
+                        value=session.last_public_check_type or "-",
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "Letzter Public-Check-Fehler",
+                        value=session.last_public_check_error or "-",
+                        disabled=True,
+                    )
+                    st.text_input("Grace aktiv", value="Ja" if grace_active else "Nein", disabled=True)
                     st.text_input("Session stale", value="Ja" if session.status == TunnelStatus.STALE else "Nein", disabled=True)
                     st.text_input("stale_reason", value=session.stale_reason or "-", disabled=True)
                     st.text_input("error_message", value=session.error_message or "-", disabled=True)
@@ -850,6 +878,11 @@ def render_admin_page(
                     st.text_input(
                         "Binary gefunden unter",
                         value=binary_diags.get("resolved_bin_path") or "NICHT GEFUNDEN",
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "cloudflared Extra-Args",
+                        value=" ".join(settings.public_share.cloudflared_extra_args) or "-",
                         disabled=True,
                     )
                     if binary_diags.get("version"):
@@ -884,6 +917,18 @@ def render_admin_page(
                 st.caption("Noch keine Tunnel-Logs verfügbar.")
 
             if session and session.error_message:
-                _show_admin_feedback("error", "Tunnel meldet einen Fehler.", session.error_message)
+                message = "Tunnel meldet einen Fehler."
+                details = session.error_message
+                if session.last_process_alive is True and session.last_public_healthcheck_ok is False:
+                    message = "Tunnelprozess lebt, aber Public-Health aus Container fehlgeschlagen."
+                if session.last_process_alive is False:
+                    message = "Tunnelprozess wurde beendet."
+                if session.last_public_check_type == "cloudflare_1033":
+                    message = "Cloudflare meldet 1033."
+                if session.last_public_check_type == "cloudflare_530":
+                    message = "Cloudflare meldet 530."
+                if session.last_local_healthcheck_ok is False:
+                    message = "Lokale App nicht erreichbar."
+                _show_admin_feedback("error", message, details)
             if session and session.stale_reason:
                 _show_admin_feedback("warning", "Neue URL erforderlich.", session.stale_reason)
