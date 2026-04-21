@@ -59,7 +59,7 @@ class FmpClient:
             try:
                 self._track_call()
                 started_at = time.perf_counter()
-                response = requests.get(
+                response = self._session.get(
                     f"{self.config.base_url}{endpoint}",
                     params=params,
                     timeout=self.timeout_seconds,

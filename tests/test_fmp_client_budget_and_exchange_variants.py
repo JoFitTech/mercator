@@ -30,7 +30,7 @@ def test_budget_exhausted_degrades_gracefully() -> None:
         _client(usage).fetch_exchange_variants("AAPL")
 
 
-@patch("src.data_sources.fmp_client.requests.get")
+@patch("requests.sessions.Session.get")
 def test_fetch_exchange_variants_maps_list_response(mock_get: Mock) -> None:
     response = Mock()
     response.status_code = 200
