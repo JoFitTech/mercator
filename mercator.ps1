@@ -111,12 +111,15 @@ function Resolve-RepoPath {
 function Ensure-PublicSharePaths {
     $statusPath = Resolve-RepoPath (Get-ConfigValue "PUBLIC_SHARE_STATUS_FILE" ".mercator/public-share/status.json")
     $logPath = Resolve-RepoPath (Get-ConfigValue "PUBLIC_SHARE_LOG_FILE" ".mercator/public-share/cloudflared.log")
+    $errorLogPath = Resolve-RepoPath (Get-ConfigValue "PUBLIC_SHARE_ERROR_LOG_FILE" ".mercator/public-share/cloudflared-error.log")
     $pidPath = Resolve-RepoPath (Get-ConfigValue "PUBLIC_SHARE_PID_FILE" ".mercator/public-share/pid.txt")
     $dir = Split-Path -Parent $statusPath
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $logDir = Split-Path -Parent $logPath
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
-    return @{ StatusPath = $statusPath; LogPath = $logPath; PidPath = $pidPath }
+    $errorLogDir = Split-Path -Parent $errorLogPath
+    if (-not (Test-Path $errorLogDir)) { New-Item -ItemType Directory -Path $errorLogDir -Force | Out-Null }
+    return @{ StatusPath = $statusPath; LogPath = $logPath; ErrorLogPath = $errorLogPath; PidPath = $pidPath }
 }
 
 function Write-PublicShareStatus {
@@ -366,8 +369,9 @@ function Invoke-ShareStart {
     $extraArgs = Get-CloudflaredExtraArgs
     $arguments = @("tunnel", "--url", $localUrl) + $extraArgs
     Set-Content -Path $paths.LogPath -Value "" -Encoding UTF8
+    Set-Content -Path $paths.ErrorLogPath -Value "" -Encoding UTF8
 
-    $proc = Start-Process -FilePath $bin -ArgumentList $arguments -RedirectStandardOutput $paths.LogPath -RedirectStandardError $paths.LogPath -PassThru -WindowStyle Hidden
+    $proc = Start-Process -FilePath $bin -ArgumentList $arguments -RedirectStandardOutput $paths.LogPath -RedirectStandardError $paths.ErrorLogPath -PassThru -WindowStyle Hidden
     Start-Sleep -Milliseconds 900
     $publicUrl = $null
     if (Test-Path $paths.LogPath) {
