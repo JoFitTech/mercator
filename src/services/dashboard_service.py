@@ -79,18 +79,21 @@ class DashboardService:
         if cached_state and now - cached_state[0] <= self._state_cache_ttl_seconds:
             state_token = cached_state[1]
         else:
-            trade_state = (
-                self.trade_repo.get_max_updated_at()
-                if hasattr(self.trade_repo, "get_max_updated_at")
-                else "none"
-            ) or "none"
-            company_state = (
-                self.company_repo.get_max_updated_at()
-                if hasattr(self.company_repo, "get_max_updated_at")
-                else None
-            )
-            company_state_token = str(company_state) if company_state is not None else "none"
-            state_token = f"{trade_state}|{company_state_token}"
+            if hasattr(self.trade_repo, "get_dashboard_state_token"):
+                state_token = str(self.trade_repo.get_dashboard_state_token())
+            else:
+                trade_state = (
+                    self.trade_repo.get_max_updated_at()
+                    if hasattr(self.trade_repo, "get_max_updated_at")
+                    else "none"
+                ) or "none"
+                company_state = (
+                    self.company_repo.get_max_updated_at()
+                    if hasattr(self.company_repo, "get_max_updated_at")
+                    else None
+                )
+                company_state_token = str(company_state) if company_state is not None else "none"
+                state_token = f"{trade_state}|{company_state_token}"
             self._state_cache = (now, state_token)
         filter_token = tuple(sorted(filters.items()))
         return f"{state_token}|{filter_token}"
@@ -98,6 +101,7 @@ class DashboardService:
     def _build_payload_from_aggregate_queries(self, filters: dict[str, Any]) -> dict[str, Any]:
         snapshot = self.trade_repo.fetch_dashboard_kpi_snapshot(filters=filters)
         sector_dist = self.trade_repo.fetch_dashboard_sector_distribution(filters=filters)
+        market_caps = self.trade_repo.fetch_dashboard_market_cap_distribution(filters=filters)
         buys = self.trade_repo.fetch_dashboard_top_trades("BUY", filters=filters, limit=5)
         sells = self.trade_repo.fetch_dashboard_top_trades("SELL", filters=filters, limit=5)
         buy_sector = sector_dist[sector_dist["direction"] == "BUY"][["sector", "count", "volume"]] if not sector_dist.empty else pd.DataFrame(columns=["sector", "count", "volume"])
@@ -109,6 +113,18 @@ class DashboardService:
             net = buy_net.join(sell_net, how="outer").fillna(0).reset_index()
             net["delta"] = net["buy_count"] - net["sell_count"]
             net = net.sort_values(["delta", "buy_count"], ascending=[False, False])
+        expected_buckets = {
+            "Small Cap (<2B)": 0,
+            "Mid Cap (2B-10B)": 0,
+            "Large Cap (>=10B)": 0,
+            UNKNOWN_PROFILE_LABEL: 0,
+        }
+        if not market_caps.empty and {"bucket", "companies"}.issubset(set(market_caps.columns)):
+            for row in market_caps.to_dict(orient="records"):
+                expected_buckets[str(row.get("bucket"))] = int(row.get("companies") or 0)
+        market_cap_distribution = pd.DataFrame(
+            [{"bucket": bucket, "companies": companies} for bucket, companies in expected_buckets.items()]
+        )
         return {
             "kpi_buy_sell_ratio_count": f"{snapshot['buy_count']}:{snapshot['sell_count']}",
             "kpi_buy_sell_ratio_volume": f"{snapshot['buy_volume']:,.0f}:{snapshot['sell_volume']:,.0f}",
@@ -131,12 +147,7 @@ class DashboardService:
             "total_buy_volume": float(snapshot["buy_volume"]),
             "total_sell_volume": float(snapshot["sell_volume"]),
             "net_sector_signal": net,
-            "market_cap_distribution": pd.DataFrame(
-                {
-                    "bucket": ["Small Cap (<2B)", "Mid Cap (2B-10B)", "Large Cap (>=10B)", UNKNOWN_PROFILE_LABEL],
-                    "companies": [0, 0, 0, 0],
-                }
-            ),
+            "market_cap_distribution": market_cap_distribution,
             "top_buys": buys.reset_index(drop=True),
             "top_sells": sells.reset_index(drop=True),
             "missing_data_summary": {"symbols_with_missing_profile": [], "reasons_by_symbol": {}},

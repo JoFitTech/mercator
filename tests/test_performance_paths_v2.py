@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -96,6 +96,9 @@ def test_api3_cache_miss_calls_fmp_and_writes_cache() -> None:
 
     fmp.fetch_historical_price_eod_full.assert_called_once()
     cache_repo.upsert_symbol_cache.assert_called_once()
+    payload = cache_repo.upsert_symbol_cache.call_args[0][0]
+    assert payload["lookback_from"] == date(2026, 1, 1) - timedelta(days=service.LOOKBACK_DAYS)
+    assert payload["lookback_to"] == date(2026, 1, 1)
 
 
 def test_dashboard_uses_aggregate_repository_path() -> None:
@@ -118,6 +121,9 @@ def test_dashboard_uses_aggregate_repository_path() -> None:
         pd.DataFrame([{"trade_date": "2026-01-01", "accumulated_trade_value_estimated": 20.0}]),
         pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"]),
     ]
+    trade_repo.fetch_dashboard_market_cap_distribution.return_value = pd.DataFrame(
+        [{"bucket": "Small Cap (<2B)", "companies": 1}]
+    )
     company_repo = MagicMock()
     company_repo.get_max_updated_at.return_value = "2026-01-01"
     service = DashboardService(None, None, trade_repo, company_repo)
@@ -126,6 +132,7 @@ def test_dashboard_uses_aggregate_repository_path() -> None:
 
     assert payload["kpi_relevant_trades_count"] == 1
     trade_repo.fetch_dashboard_kpi_snapshot.assert_called_once()
+    trade_repo.fetch_dashboard_market_cap_distribution.assert_called_once()
     trade_repo.fetch_trades_enriched_with_company.assert_not_called()
 
 

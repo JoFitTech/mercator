@@ -168,8 +168,8 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS market_signal_cache (
         symbol VARCHAR(20) NOT NULL,
-        from_date DATE NOT NULL,
-        to_date DATE NOT NULL,
+        lookback_from DATE NOT NULL,
+        lookback_to DATE NOT NULL,
         avg_20d_volume DECIMAL(20,2) NULL,
         avg_20d_dollar_volume DECIMAL(20,2) NULL,
         sma_50 DECIMAL(18,4) NULL,
@@ -178,10 +178,20 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         momentum_6m DECIMAL(12,6) NULL,
         technical_state VARCHAR(32) NOT NULL,
         liquidity_state VARCHAR(32) NOT NULL,
-        refreshed_at DATETIME NOT NULL,
+        source_refreshed_at DATETIME NOT NULL,
+        raw_row_count INT NULL,
+        cache_status VARCHAR(32) NOT NULL DEFAULT 'READY',
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (symbol),
-        INDEX idx_market_signal_cache_refreshed_at (refreshed_at)
+        INDEX idx_market_signal_cache_refreshed_at (source_refreshed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_data_state (
+        state_key VARCHAR(64) NOT NULL,
+        state_version BIGINT NOT NULL DEFAULT 1,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (state_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """

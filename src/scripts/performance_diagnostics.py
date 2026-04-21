@@ -39,6 +39,7 @@ class _SyntheticMySqlClient:
         self.executemany_calls = 0
         self.sql_queries = 0
         self._delay = per_query_delay_ms / 1000.0
+        self.connection_builds = 0
 
     def execute(self, _sql: str, _params: Any = None, *, commit: bool = True) -> int:
         self.execute_calls += 1
@@ -91,6 +92,7 @@ class _SyntheticPagedClient(_SyntheticMySqlClient):
 
     @contextmanager
     def get_connection(self):
+        self.connection_builds += 1
         yield _Conn(self)
 
 
@@ -105,6 +107,11 @@ class _DashTradeRepo:
         self.state_calls += 1
         self.sql_queries += 1
         return datetime(2026, 1, 1, 10, 0, 0)
+
+    def get_dashboard_state_token(self):
+        self.state_calls += 1
+        self.sql_queries += 1
+        return "3|2026-01-01 10:00:00"
 
     def fetch_trades_enriched_with_company(self, limit: int, filters: dict | None = None) -> pd.DataFrame:
         self.fetch_calls += 1
@@ -142,6 +149,10 @@ class _DashTradeRepo:
         if direction == "SELL":
             return pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"])
         return pd.DataFrame([{"trade_date": "2026-01-01", "accumulated_trade_value_estimated": 20.0}])
+
+    def fetch_dashboard_market_cap_distribution(self, filters: dict | None = None) -> pd.DataFrame:
+        self.sql_queries += 1
+        return pd.DataFrame([{"bucket": "Small Cap (<2B)", "companies": 1}])
 
 
 class _DashCompanyRepo:
@@ -259,6 +270,16 @@ def benchmark_companies_page_query_path() -> MetricRow:
     return MetricRow("Companies page", "count + page", elapsed_ms, min(len(rows), count), "n/a", client.sql_queries)
 
 
+def benchmark_connection_pool_reuse() -> MetricRow:
+    client = _SyntheticPagedClient(count_result=1, page_rows=1)
+    repo = CompanyRepository(client)  # type: ignore[arg-type]
+    t0 = time.perf_counter()
+    _ = repo.count_active_companies()
+    _ = repo.count_active_companies()
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    return MetricRow("MySQL", "connection reuse simulation", elapsed_ms, 2, "n/a", client.connection_builds)
+
+
 def benchmark_dashboard_aggregate_path() -> MetricRow:
     trade_repo = _DashTradeRepo()
     company_repo = _DashCompanyRepo()
@@ -304,8 +325,8 @@ def benchmark_api3_cache_hit_miss() -> tuple[MetricRow, MetricRow]:
         "momentum_6m": 0.0,
         "technical_state": "MIXED",
         "liquidity_state": "LOW",
-        "to_date": datetime(2026, 1, 2).date(),
-        "refreshed_at": datetime.now(),
+        "lookback_to": datetime(2026, 1, 2).date(),
+        "source_refreshed_at": datetime.now(),
     }
     hit_service = HistoricalMarketDataService(_Fmp(), cache_repo=_Api3CacheRepo(cached=cache_row))  # type: ignore[arg-type]
     t1 = time.perf_counter()
@@ -383,6 +404,7 @@ def main() -> None:
     metrics.extend(benchmark_dashboard_cache())
     metrics.append(benchmark_trades_page_query_path())
     metrics.append(benchmark_companies_page_query_path())
+    metrics.append(benchmark_connection_pool_reuse())
     metrics.append(benchmark_dashboard_aggregate_path())
     metrics.extend(benchmark_api3_cache_hit_miss())
 
