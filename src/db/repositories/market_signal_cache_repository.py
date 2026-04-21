@@ -26,19 +26,19 @@ class MarketSignalCacheRepository:
     def upsert_symbol_cache(self, payload: dict[str, Any]) -> None:
         sql = """
             INSERT INTO market_signal_cache (
-                symbol, from_date, to_date,
+                symbol, lookback_from, lookback_to,
                 avg_20d_volume, avg_20d_dollar_volume, sma_50, sma_200,
                 momentum_3m, momentum_6m, technical_state, liquidity_state,
-                refreshed_at
+                source_refreshed_at, raw_row_count, cache_status
             ) VALUES (
-                %(symbol)s, %(from_date)s, %(to_date)s,
+                %(symbol)s, %(lookback_from)s, %(lookback_to)s,
                 %(avg_20d_volume)s, %(avg_20d_dollar_volume)s, %(sma_50)s, %(sma_200)s,
                 %(momentum_3m)s, %(momentum_6m)s, %(technical_state)s, %(liquidity_state)s,
-                %(refreshed_at)s
+                %(source_refreshed_at)s, %(raw_row_count)s, %(cache_status)s
             )
             ON DUPLICATE KEY UPDATE
-                from_date = VALUES(from_date),
-                to_date = VALUES(to_date),
+                lookback_from = VALUES(lookback_from),
+                lookback_to = VALUES(lookback_to),
                 avg_20d_volume = VALUES(avg_20d_volume),
                 avg_20d_dollar_volume = VALUES(avg_20d_dollar_volume),
                 sma_50 = VALUES(sma_50),
@@ -47,9 +47,14 @@ class MarketSignalCacheRepository:
                 momentum_6m = VALUES(momentum_6m),
                 technical_state = VALUES(technical_state),
                 liquidity_state = VALUES(liquidity_state),
-                refreshed_at = VALUES(refreshed_at)
+                source_refreshed_at = VALUES(source_refreshed_at),
+                raw_row_count = VALUES(raw_row_count),
+                cache_status = VALUES(cache_status)
         """
-        self._client.execute(sql, payload)
+        write_payload = dict(payload)
+        write_payload.setdefault("raw_row_count", None)
+        write_payload.setdefault("cache_status", "READY")
+        self._client.execute(sql, write_payload)
 
     @staticmethod
     def parse_date(value: Any) -> date | None:

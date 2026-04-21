@@ -111,8 +111,8 @@ class HistoricalMarketDataService:
             self.cache_repo.upsert_symbol_cache(
                 {
                     "symbol": symbol,
-                    "from_date": from_date,
-                    "to_date": reference,
+                    "lookback_from": from_date,
+                    "lookback_to": reference,
                     "avg_20d_volume": signal.avg_20d_volume,
                     "avg_20d_dollar_volume": signal.avg_20d_dollar_volume,
                     "sma_50": signal.sma_50,
@@ -121,18 +121,20 @@ class HistoricalMarketDataService:
                     "momentum_6m": signal.momentum_6m,
                     "technical_state": signal.technical_state,
                     "liquidity_state": signal.liquidity_state,
-                    "refreshed_at": datetime.now(UTC),
+                    "source_refreshed_at": datetime.now(UTC),
+                    "raw_row_count": len(data),
+                    "cache_status": "READY" if data else "EMPTY",
                 }
             )
         return signal
 
     def _is_cache_fresh(self, cached: dict[str, Any], reference: date) -> bool:
-        refreshed = cached.get("refreshed_at")
+        refreshed = cached.get("source_refreshed_at") or cached.get("refreshed_at")
         if not isinstance(refreshed, datetime):
             return False
         if refreshed.tzinfo is None:
             refreshed = refreshed.replace(tzinfo=UTC)
         if datetime.now(UTC) - refreshed > timedelta(hours=self.CACHE_TTL_HOURS):
             return False
-        cached_to_date = cached.get("to_date")
+        cached_to_date = cached.get("lookback_to") or cached.get("to_date")
         return isinstance(cached_to_date, date) and cached_to_date >= reference

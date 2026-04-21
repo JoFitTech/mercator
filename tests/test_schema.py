@@ -22,6 +22,7 @@ def test_mysql_schema_contains_required_tables() -> None:
     assert "create table if not exists market_signal_cache" in ddl_blob
     assert "create table if not exists app_filter_settings" in ddl_blob
     assert "create table if not exists app_runtime_preferences" in ddl_blob
+    assert "create table if not exists app_data_state" in ddl_blob
 
 
 def test_mysql_schema_contains_required_fields() -> None:
@@ -42,6 +43,8 @@ def test_mysql_schema_contains_v2_api3_fields() -> None:
     assert "avg_20d_dollar_volume" in ddl_blob
     assert "momentum_3m" in ddl_blob
     assert "liquidity_state" in ddl_blob
+    assert "lookback_from" in ddl_blob
+    assert "lookback_to" in ddl_blob
 
 
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

@@ -60,7 +60,7 @@ class MySqlClient:
             pool_kwargs = self._settings.mysql_connection_kwargs(include_database=include_database)
             pool = MySQLConnectionPool(
                 pool_name=pool_name,
-                pool_size=6,
+                pool_size=max(1, int(getattr(self._settings, "pool_size", 6) or 6)),
                 pool_reset_session=True,
                 **pool_kwargs,
             )
@@ -362,6 +362,32 @@ class MySqlClient:
                         "ALTER TABLE app_runtime_preferences ADD UNIQUE INDEX uq_app_runtime_preferences_key (preference_key)"
                     )
                     actions.append("app_runtime_preferences: Added Unique Index `uq_app_runtime_preferences_key`.")
+
+                # --- market_signal_cache ---
+                market_signal_cols = [
+                    ("lookback_from", "DATE NOT NULL"),
+                    ("lookback_to", "DATE NOT NULL"),
+                    ("source_refreshed_at", "DATETIME NOT NULL"),
+                    ("raw_row_count", "INT NULL"),
+                    ("cache_status", "VARCHAR(32) NOT NULL DEFAULT 'READY'"),
+                ]
+                for col_name, col_def in market_signal_cols:
+                    if not self._column_exists(cursor, "market_signal_cache", col_name):
+                        cursor.execute(f"ALTER TABLE market_signal_cache ADD COLUMN {col_name} {col_def}")
+                        actions.append(f"market_signal_cache: Added `{col_name}`.")
+                if self._column_exists(cursor, "market_signal_cache", "from_date"):
+                    cursor.execute(
+                        "UPDATE market_signal_cache SET lookback_from = from_date WHERE lookback_from IS NULL"
+                    )
+                if self._column_exists(cursor, "market_signal_cache", "to_date"):
+                    cursor.execute(
+                        "UPDATE market_signal_cache SET lookback_to = to_date WHERE lookback_to IS NULL"
+                    )
+                if self._column_exists(cursor, "market_signal_cache", "refreshed_at"):
+                    cursor.execute(
+                        "UPDATE market_signal_cache SET source_refreshed_at = refreshed_at "
+                        "WHERE source_refreshed_at IS NULL"
+                    )
 
                 # --- app_sync_state ---
                 sync_state_cols = [

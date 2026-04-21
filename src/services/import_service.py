@@ -147,17 +147,14 @@ class ImportService:
                 unique_company_stubs[company_key] = item
 
         # 2. Schritt: Einmaliges Upsert pro Firma
-        company_batch: list[dict[str, Any]] = []
+        company_batch_by_key: dict[str, dict[str, Any]] = {}
         company_lookup_by_key: dict[str, dict[str, Any]] = {}
         for company_key, item in unique_company_stubs.items():
             self._apply_trade_republic_match(item)
             company_stub = self._build_company_stub(item, fetched_at)
             if company_stub:
-                company_batch.append(company_stub)
+                company_batch_by_key[str(company_key)] = company_stub
                 company_lookup_by_key[company_key] = company_stub
-
-        if company_batch:
-            self._persist_company_batch(company_batch)
 
         inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
 
@@ -219,6 +216,7 @@ class ImportService:
                     )
                     profile_cache_hits += 1
                     profile_company_batch.append(cached_company)
+                    company_batch_by_key[company_key_str] = cached_company
                     company_lookup_by_key[company_key_str] = cached_company
                     for t in matching_trades:
                         t["profile_status"] = cached_company.get("profile_status", "FETCHED")
@@ -267,6 +265,7 @@ class ImportService:
 
                 self._apply_trade_republic_match(company)
                 profile_company_batch.append(company)
+                company_batch_by_key[company_key_str] = company
                 company_lookup_by_key[company_key_str] = company
                 
                 for t in matching_trades:
@@ -283,8 +282,8 @@ class ImportService:
                     t["profile_status"] = "FAILED"
                     t["profile_reason"] = "request_failed"
                 continue
-        if profile_company_batch:
-            self._persist_company_batch(profile_company_batch)
+        if company_batch_by_key:
+            self._persist_company_batch(list(company_batch_by_key.values()))
 
         if not symbols_to_enrich:
             LOGGER.info(
@@ -394,6 +393,8 @@ class ImportService:
             self.trade_mysql_repo.upsert_trades(normalized)
             upserted_clean_records = len(normalized)
             self._update_company_trade_stats(normalized)
+            if hasattr(self.trade_mysql_repo, "bump_dashboard_state"):
+                self.trade_mysql_repo.bump_dashboard_state()
         else:
             upserted_clean_records = 0
             LOGGER.warning("Import läuft im Degraded-Mode ohne MySQL-Upsert.")

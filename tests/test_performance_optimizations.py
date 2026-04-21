@@ -26,6 +26,10 @@ class _TradeRepoForDashboard:
         self.state_calls += 1
         return "2026-01-01 00:00:00"
 
+    def get_dashboard_state_token(self):
+        self.state_calls += 1
+        return "2|2026-01-01 00:00:00"
+
     def fetch_trades_enriched_with_company(self, limit: int, filters: dict | None = None):
         self.fetch_calls += 1
         return pd.DataFrame(
@@ -47,6 +51,29 @@ class _TradeRepoForDashboard:
             ]
         )
 
+    def fetch_dashboard_kpi_snapshot(self, filters: dict | None = None):
+        return {
+            "buy_count": 1,
+            "sell_count": 0,
+            "buy_volume": 20.0,
+            "sell_volume": 0.0,
+            "relevant_trades": 1,
+            "affected_companies": 1,
+            "gate_passed_count": 1,
+            "avg_score": 80.0,
+        }
+
+    def fetch_dashboard_sector_distribution(self, filters: dict | None = None):
+        return pd.DataFrame([{"direction": "BUY", "sector": "Technology", "count": 1, "volume": 20.0}])
+
+    def fetch_dashboard_top_trades(self, direction: str, filters: dict | None = None, limit: int = 5):
+        if direction == "SELL":
+            return pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"])
+        return pd.DataFrame([{"trade_date": "2026-01-01", "accumulated_trade_value_estimated": 20.0}])
+
+    def fetch_dashboard_market_cap_distribution(self, filters: dict | None = None):
+        return pd.DataFrame([{"bucket": "Small Cap (<2B)", "companies": 1}])
+
 
 class _CompanyRepoForDashboard:
     def __init__(self) -> None:
@@ -65,10 +92,14 @@ class _RawRepoStub:
 class _TradeMysqlRepoStub:
     def __init__(self) -> None:
         self.rows: list[dict] = []
+        self.bump_calls = 0
 
     def upsert_trades(self, rows: list[dict]) -> int:
         self.rows.extend(rows)
         return len(rows)
+
+    def bump_dashboard_state(self) -> None:
+        self.bump_calls += 1
 
 
 class _CompanyMongoRepoStub:
@@ -148,7 +179,7 @@ def test_dashboard_payload_uses_short_cache() -> None:
 
     assert payload_a["kpi_relevant_trades_count"] >= 0
     assert payload_b["kpi_relevant_trades_count"] >= 0
-    assert trade_repo.fetch_calls == 1
+    assert trade_repo.fetch_calls == 0
     assert trade_repo.state_calls <= 2
     assert company_repo.state_calls <= 2
 
@@ -184,3 +215,4 @@ def test_import_persists_trades_even_if_enrichment_fails(monkeypatch) -> None:
 
     assert summary.upserted_clean_records == 1
     assert len(trade_repo.rows) == 1
+    assert trade_repo.bump_calls == 1

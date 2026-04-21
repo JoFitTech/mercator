@@ -417,6 +417,47 @@ class InsiderTradeRepository:
         with self._client.get_connection() as conn:
             return pd.read_sql(sql, conn, params=params)
 
+    def fetch_dashboard_market_cap_distribution(self, filters: dict[str, Any] | None = None) -> pd.DataFrame:
+        conditions, params = self._build_filter_sql(filters, alias="t")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"""
+            SELECT
+                CASE
+                    WHEN c.market_cap IS NULL THEN 'Unknown / API2 fehlt'
+                    WHEN c.market_cap < 2000000000 THEN 'Small Cap (<2B)'
+                    WHEN c.market_cap < 10000000000 THEN 'Mid Cap (2B-10B)'
+                    ELSE 'Large Cap (>=10B)'
+                END AS bucket,
+                COUNT(DISTINCT t.company_key) AS companies
+            FROM insider_trades t
+            LEFT JOIN companies c ON c.company_key = t.company_key
+            {where_clause}
+            GROUP BY bucket
+        """
+        with self._client.get_connection() as conn:
+            return pd.read_sql(sql, conn, params=params)
+
+    def get_dashboard_state_token(self) -> str:
+        sql = "SELECT state_version, updated_at FROM app_data_state WHERE state_key = %s"
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, ("dashboard",))
+                row = cursor.fetchone()
+                if row:
+                    return f"{row[0]}|{row[1]}"
+        fallback = self.get_max_updated_at() or "none"
+        return f"fallback|{fallback}"
+
+    def bump_dashboard_state(self) -> None:
+        sql = """
+            INSERT INTO app_data_state (state_key, state_version)
+            VALUES ('dashboard', 1)
+            ON DUPLICATE KEY UPDATE
+                state_version = state_version + 1,
+                updated_at = CURRENT_TIMESTAMP
+        """
+        self._client.execute(sql)
+
 class InsiderTradeMySqlRepository(InsiderTradeRepository):
     def fetch_all_symbols(self) -> list[str]:
         sql = "SELECT DISTINCT symbol_at_trade FROM insider_trades WHERE symbol_at_trade IS NOT NULL"
