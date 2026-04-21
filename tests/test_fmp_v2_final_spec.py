@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from src.preprocessing.gate_evaluator import GATE_FAIL, GATE_PASS, GateEvaluator
+from src.preprocessing.gate_evaluator import GATE_FAIL, GATE_PASS, GATE_PENDING, GateEvaluator
 from src.services.accumulation_service import AccumulationService
 from src.services.company_profile_enrichment_service import CompanyProfileEnrichmentService
 from src.services.historical_market_data_service import HistoricalMarketDataService
@@ -28,6 +28,7 @@ def _trade(**overrides):
         "form_type": "4",
         "security_name": "Common Stock",
         "normalized_instrument_type": "STOCK",
+        "acquisition_or_disposition": "A",
     }
     base.update(overrides)
     return base
@@ -49,7 +50,7 @@ def test_form_type_and_minimum_signal_rules() -> None:
 def test_filing_freshness_rules() -> None:
     evaluator = GateEvaluator()
     assert evaluator.evaluate(_trade(filing_age_days=46)).status == GATE_FAIL
-    assert evaluator.evaluate(_trade(filing_age_days=22)).status == GATE_PASS
+    assert evaluator.evaluate(_trade(filing_age_days=22)).status == GATE_PENDING
 
 
 def test_instrument_normalization_etf_allowed_adr_rejected() -> None:

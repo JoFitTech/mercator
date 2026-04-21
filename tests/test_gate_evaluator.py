@@ -3,6 +3,7 @@
 from src.preprocessing.gate_evaluator import (
     GATE_FAIL,
     GATE_PASS,
+    GATE_PENDING,
     GateEvaluator,
 )
 
@@ -66,4 +67,19 @@ def test_gate_evaluator_rejects_inactive_instrument() -> None:
 
 def test_gate_evaluator_rejects_old_filing() -> None:
     decision = GateEvaluator().evaluate({**_valid_trade(), "filing_age_days": 46})
+    assert decision.status == GATE_FAIL
+
+
+def test_gate_evaluator_rejects_disallowed_direction() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "acquisition_or_disposition": "X"})
+    assert decision.status == GATE_FAIL
+
+
+def test_gate_evaluator_sets_pending_for_watchlist_filing_age() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "filing_age_days": 22})
+    assert decision.status == GATE_PENDING
+
+
+def test_gate_evaluator_rejects_excluded_transaction_code_only() -> None:
+    decision = GateEvaluator().evaluate({**_valid_trade(), "transaction_type": "M"})
     assert decision.status == GATE_FAIL

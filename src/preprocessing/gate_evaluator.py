@@ -40,7 +40,9 @@ class GateEvaluator:
         price = float(trade.get("price") or 0)
         form_type = str(trade.get("form_type") or "").strip()
         validation_status = str(trade.get("validation_status") or "VALID").upper()
-        transaction_type = str(trade.get("transaction_type") or "").strip().upper()
+        transaction_type_raw = str(trade.get("transaction_type") or "").strip()
+        transaction_type = transaction_type_raw.upper()
+        transaction_code = transaction_type[:1]
         is_actively_trading = trade.get("is_actively_trading")
         trade_value = float(trade.get("trade_value") or trade.get("trade_value_estimated") or 0)
         filing_age_days = trade.get("filing_age_days")
@@ -72,8 +74,14 @@ class GateEvaluator:
         if form_type != self.rules.required_form_type:
             return GateDecision(status=GATE_FAIL, reason="form_type_not_4")
 
-        if transaction_type.startswith("A-") or transaction_type.startswith("M-"):
+        excluded_types = {value.strip().upper() for value in self.rules.excluded_transaction_types}
+        excluded_codes = {value.split("-", 1)[0] for value in excluded_types if value}
+        if transaction_type in excluded_types or transaction_code in excluded_codes:
             return GateDecision(status=GATE_FAIL, reason="excluded_transaction_type")
+
+        aod = str(trade.get("acquisition_or_disposition") or "").strip().upper()
+        if aod not in {value.upper() for value in self.rules.allowed_acquisition_or_disposition}:
+            return GateDecision(status=GATE_FAIL, reason="acquisition_or_disposition_not_allowed")
 
         # Minimum Signal Size Gate
         if trade_value < self.rules.min_trade_value:
@@ -93,5 +101,8 @@ class GateEvaluator:
             return GateDecision(status=GATE_FAIL, reason="invalid_filing_age")
         if filing_age is not None and filing_age > self.rules.max_filing_age_days_reject:
             return GateDecision(status=GATE_FAIL, reason="filing_too_old")
+
+        if filing_age is not None and filing_age > self.rules.filing_age_watchlist_days:
+            return GateDecision(status=GATE_PENDING, reason="filing_watchlist")
 
         return GateDecision(status=GATE_PASS, reason="pass")
