@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from threading import Lock
 from typing import Any, Iterator
 
-import mysql.connector
 from mysql.connector import Error, MySQLConnection
 from mysql.connector import errorcode
+from mysql.connector.pooling import MySQLConnectionPool
 
 from src.config.settings import MySqlTargetSettings
 from src.db.schema import MYSQL_SCHEMA_STATEMENTS
@@ -18,6 +19,8 @@ class MySqlClient:
 
     def __init__(self, settings: MySqlTargetSettings) -> None:
         self._settings = settings
+        self._pool_lock = Lock()
+        self._pool_by_scope: dict[bool, MySQLConnectionPool] = {}
 
     @property
     def target_name(self) -> str:
@@ -36,9 +39,7 @@ class MySqlClient:
             Eine aktive MySQL-Verbindung.
         """
 
-        conn = mysql.connector.connect(
-            **self._settings.mysql_connection_kwargs(include_database=include_database)
-        )
+        conn = self._get_pool(include_database=include_database).get_connection()
         try:
             yield conn
         finally:
@@ -48,6 +49,23 @@ class MySqlClient:
                 conn.close()
             except Error:
                 pass
+
+    def _get_pool(self, include_database: bool) -> MySQLConnectionPool:
+        with self._pool_lock:
+            existing = self._pool_by_scope.get(include_database)
+            if existing is not None:
+                return existing
+            scope_suffix = "db" if include_database else "server"
+            pool_name = f"mercator_{self._settings.name}_{scope_suffix}"
+            pool_kwargs = self._settings.mysql_connection_kwargs(include_database=include_database)
+            pool = MySQLConnectionPool(
+                pool_name=pool_name,
+                pool_size=6,
+                pool_reset_session=True,
+                **pool_kwargs,
+            )
+            self._pool_by_scope[include_database] = pool
+            return pool
 
     @contextmanager
     def get_connection(self) -> Iterator[MySQLConnection]:

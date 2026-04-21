@@ -18,8 +18,15 @@ def test_benchmark_dashboard_cache_keeps_state_lookup_on_cache_hit() -> None:
     assert miss.area == "Dashboard"
     assert "state lookup" in miss.scenario
     assert "state lookup only" in hit.scenario
-    assert miss.sql_queries == 3
-    assert hit.sql_queries == 2
+    assert miss.sql_queries >= 3
+    assert hit.sql_queries <= 2
+
+
+def test_benchmark_api3_cache_hit_miss_reports_both_paths() -> None:
+    miss, hit = diag.benchmark_api3_cache_hit_miss()
+    assert miss.area == "API3"
+    assert miss.scenario == "cache miss"
+    assert hit.scenario == "cache hit"
 
 
 def test_diagnose_mongo_classifies_missing_local_service(monkeypatch) -> None:

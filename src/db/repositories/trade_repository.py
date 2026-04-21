@@ -336,6 +336,87 @@ class InsiderTradeRepository:
                     return {"min_date": result[0], "max_date": result[1]}
         return {"min_date": None, "max_date": None}
 
+    def fetch_dashboard_kpi_snapshot(self, filters: dict[str, Any] | None = None) -> dict[str, Any]:
+        conditions, params = self._build_filter_sql(filters, alias="t")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"""
+            SELECT
+                SUM(CASE WHEN (t.symbol_at_trade IS NOT NULL AND t.symbol_at_trade != '' AND t.price > 0 AND t.qty > 0 AND t.acquisition_or_disposition IN ('A', 'D', 'BUY', 'SELL')) THEN 1 ELSE 0 END) AS relevant_trades,
+                COUNT(DISTINCT CASE WHEN (t.symbol_at_trade IS NOT NULL AND t.symbol_at_trade != '' AND t.price > 0 AND t.qty > 0 AND t.acquisition_or_disposition IN ('A', 'D', 'BUY', 'SELL')) THEN t.symbol_at_trade END) AS affected_companies,
+                SUM(CASE WHEN t.acquisition_or_disposition IN ('A', 'BUY') THEN 1 ELSE 0 END) AS buy_count,
+                SUM(CASE WHEN t.acquisition_or_disposition IN ('D', 'SELL') THEN 1 ELSE 0 END) AS sell_count,
+                SUM(CASE WHEN t.acquisition_or_disposition IN ('A', 'BUY') THEN COALESCE(t.trade_value_estimated, 0) ELSE 0 END) AS buy_volume,
+                SUM(CASE WHEN t.acquisition_or_disposition IN ('D', 'SELL') THEN COALESCE(t.trade_value_estimated, 0) ELSE 0 END) AS sell_volume,
+                SUM(CASE WHEN UPPER(COALESCE(t.gate_status, '')) = 'PASS' THEN 1 ELSE 0 END) AS gate_passed_count,
+                AVG(t.score) AS avg_score
+            FROM insider_trades t
+            {where_clause}
+        """
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                row = cursor.fetchone() or ()
+        return {
+            "relevant_trades": int(row[0] or 0) if len(row) > 0 else 0,
+            "affected_companies": int(row[1] or 0) if len(row) > 1 else 0,
+            "buy_count": int(row[2] or 0) if len(row) > 2 else 0,
+            "sell_count": int(row[3] or 0) if len(row) > 3 else 0,
+            "buy_volume": float(row[4] or 0.0) if len(row) > 4 else 0.0,
+            "sell_volume": float(row[5] or 0.0) if len(row) > 5 else 0.0,
+            "gate_passed_count": int(row[6] or 0) if len(row) > 6 else 0,
+            "avg_score": float(row[7]) if len(row) > 7 and row[7] is not None else 0.0,
+        }
+
+    def fetch_dashboard_sector_distribution(self, filters: dict[str, Any] | None = None) -> pd.DataFrame:
+        conditions, params = self._build_filter_sql(filters, alias="t")
+        conditions.append("t.acquisition_or_disposition IN ('A', 'BUY', 'D', 'SELL')")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"""
+            SELECT
+                CASE WHEN t.acquisition_or_disposition IN ('A', 'BUY') THEN 'BUY' ELSE 'SELL' END AS direction,
+                COALESCE(NULLIF(TRIM(c.sector), ''), 'Unknown / API2 fehlt') AS sector,
+                COUNT(*) AS count,
+                SUM(COALESCE(t.trade_value_estimated, 0)) AS volume
+            FROM insider_trades t
+            LEFT JOIN companies c ON t.company_key = c.company_key
+            {where_clause}
+            GROUP BY direction, sector
+        """
+        with self._client.get_connection() as conn:
+            return pd.read_sql(sql, conn, params=params)
+
+    def fetch_dashboard_top_trades(self, direction: str, filters: dict[str, Any] | None = None, limit: int = 5) -> pd.DataFrame:
+        direction_token = "A" if direction.upper() == "BUY" else "D"
+        conditions, params = self._build_filter_sql(filters, alias="t")
+        conditions.append("t.acquisition_or_disposition IN (%s, %s)")
+        params.extend([direction_token, direction.upper()])
+        where_clause = f"WHERE {' AND '.join(conditions)}"
+        sql = f"""
+            SELECT
+                t.dedupe_key,
+                t.symbol_at_trade,
+                t.reporting_name,
+                COALESCE(t.trade_value_estimated, 0) AS accumulated_trade_value_estimated,
+                t.transaction_date AS trade_date,
+                t.gate_status,
+                t.profile_status,
+                COALESCE(NULLIF(TRIM(c.sector), ''), 'Unknown / API2 fehlt') AS sector,
+                CASE
+                    WHEN c.market_cap IS NULL THEN 'Unknown / API2 fehlt'
+                    WHEN c.market_cap < 2000000000 THEN 'Small Cap (<2B)'
+                    WHEN c.market_cap < 10000000000 THEN 'Mid Cap (2B-10B)'
+                    ELSE 'Large Cap (>=10B)'
+                END AS market_cap_bucket
+            FROM insider_trades t
+            LEFT JOIN companies c ON t.company_key = c.company_key
+            {where_clause}
+            ORDER BY COALESCE(t.trade_value_estimated, 0) DESC
+            LIMIT %s
+        """
+        params.append(limit)
+        with self._client.get_connection() as conn:
+            return pd.read_sql(sql, conn, params=params)
+
 class InsiderTradeMySqlRepository(InsiderTradeRepository):
     def fetch_all_symbols(self) -> list[str]:
         sql = "SELECT DISTINCT symbol_at_trade FROM insider_trades WHERE symbol_at_trade IS NOT NULL"

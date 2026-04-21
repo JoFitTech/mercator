@@ -33,6 +33,8 @@ class DashboardService:
         self.company_repo = company_repo
         self._payload_cache_ttl_seconds = 45
         self._payload_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._state_cache_ttl_seconds = 10
+        self._state_cache: tuple[float, str] | None = None
 
     def build_dashboard_payload(self, filters: dict | None = None) -> dict[str, Any]:
         """Liefert alle Dashboard-Daten in einem stabilen Payload."""
@@ -46,50 +48,114 @@ class DashboardService:
 
         payload_error_message: str | None = None
         try:
-            trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=20_000, filters=filters)
+            payload = self._build_payload_from_aggregate_queries(filters)
         except Exception as exc:
-            trades_df = pd.DataFrame()
             payload_error_message = str(exc)
+            try:
+                trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=20_000, filters=filters)
+            except Exception as fallback_exc:
+                trades_df = pd.DataFrame()
+                payload_error_message = f"{payload_error_message}; fallback failed: {fallback_exc}"
+            trades_df = self._hydrate_company_fields_from_mongo(trades_df)
+            prepared_df = self._prepare_dataframe(trades_df)
+            core_df = self._build_accumulated_core_df(prepared_df)
+            payload = {
+                **self._compute_dashboard_kpis(core_df, prepared_df),
+                **self._build_sector_pies(core_df),
+                **self._build_net_sector_signal(core_df),
+                **self._build_market_cap_distribution(core_df),
+                **self._build_top_tables(core_df),
+                **self._build_missing_data_summary(core_df),
+                "last_update": self._get_last_update_str(prepared_df),
+            }
 
-        trades_df = self._hydrate_company_fields_from_mongo(trades_df)
-
-        prepared_df = self._prepare_dataframe(trades_df)
-        core_df = self._build_accumulated_core_df(prepared_df)
-
-        kpis = self._compute_dashboard_kpis(core_df, prepared_df)
-        sector_pies = self._build_sector_pies(core_df)
-        net_signal = self._build_net_sector_signal(core_df)
-        market_caps = self._build_market_cap_distribution(core_df)
-        top_tables = self._build_top_tables(core_df)
-        missing_summary = self._build_missing_data_summary(core_df)
-
-        payload: dict[str, Any] = {
-            **kpis,
-            **sector_pies,
-            **net_signal,
-            **market_caps,
-            **top_tables,
-            **missing_summary,
-            "last_update": self._get_last_update_str(prepared_df),
-            "payload_error_message": payload_error_message,
-        }
+        payload["payload_error_message"] = payload_error_message
         self._payload_cache[cache_key] = (now, payload)
         return payload
 
     def _build_cache_key(self, filters: dict[str, Any]) -> str:
-        trade_state = (
-            self.trade_repo.get_max_updated_at()
-            if hasattr(self.trade_repo, "get_max_updated_at")
-            else "none"
-        ) or "none"
-        company_state = (
-            self.company_repo.get_max_updated_at()
-            if hasattr(self.company_repo, "get_max_updated_at")
-            else None
-        )
-        company_state_token = str(company_state) if company_state is not None else "none"
+        cached_state = self._state_cache
+        now = time.time()
+        if cached_state and now - cached_state[0] <= self._state_cache_ttl_seconds:
+            state_token = cached_state[1]
+        else:
+            trade_state = (
+                self.trade_repo.get_max_updated_at()
+                if hasattr(self.trade_repo, "get_max_updated_at")
+                else "none"
+            ) or "none"
+            company_state = (
+                self.company_repo.get_max_updated_at()
+                if hasattr(self.company_repo, "get_max_updated_at")
+                else None
+            )
+            company_state_token = str(company_state) if company_state is not None else "none"
+            state_token = f"{trade_state}|{company_state_token}"
+            self._state_cache = (now, state_token)
         filter_token = tuple(sorted(filters.items()))
-        return f"{trade_state}|{company_state_token}|{filter_token}"
+        return f"{state_token}|{filter_token}"
+
+    def _build_payload_from_aggregate_queries(self, filters: dict[str, Any]) -> dict[str, Any]:
+        snapshot = self.trade_repo.fetch_dashboard_kpi_snapshot(filters=filters)
+        sector_dist = self.trade_repo.fetch_dashboard_sector_distribution(filters=filters)
+        buys = self.trade_repo.fetch_dashboard_top_trades("BUY", filters=filters, limit=5)
+        sells = self.trade_repo.fetch_dashboard_top_trades("SELL", filters=filters, limit=5)
+        buy_sector = sector_dist[sector_dist["direction"] == "BUY"][["sector", "count", "volume"]] if not sector_dist.empty else pd.DataFrame(columns=["sector", "count", "volume"])
+        sell_sector = sector_dist[sector_dist["direction"] == "SELL"][["sector", "count", "volume"]] if not sector_dist.empty else pd.DataFrame(columns=["sector", "count", "volume"])
+        net = pd.DataFrame(columns=["sector", "buy_count", "sell_count", "delta", "buy_volume", "sell_volume"])
+        if not sector_dist.empty:
+            buy_net = buy_sector.rename(columns={"count": "buy_count", "volume": "buy_volume"}).set_index("sector")
+            sell_net = sell_sector.rename(columns={"count": "sell_count", "volume": "sell_volume"}).set_index("sector")
+            net = buy_net.join(sell_net, how="outer").fillna(0).reset_index()
+            net["delta"] = net["buy_count"] - net["sell_count"]
+            net = net.sort_values(["delta", "buy_count"], ascending=[False, False])
+        return {
+            "kpi_buy_sell_ratio_count": f"{snapshot['buy_count']}:{snapshot['sell_count']}",
+            "kpi_buy_sell_ratio_volume": f"{snapshot['buy_volume']:,.0f}:{snapshot['sell_volume']:,.0f}",
+            "kpi_relevant_trades_count": snapshot["relevant_trades"],
+            "kpi_affected_companies_count": snapshot["affected_companies"],
+            "kpi_largest_buy_value": float(buys["accumulated_trade_value_estimated"].max()) if not buys.empty else 0.0,
+            "kpi_largest_sell_value": float(sells["accumulated_trade_value_estimated"].max()) if not sells.empty else 0.0,
+            "kpi_actionable_buys": 0,
+            "kpi_buy_candidates": 0,
+            "kpi_watchlist": 0,
+            "kpi_sell_warnings": 0,
+            "kpi_tr_not_found": 0,
+            "kpi_exchange_resolution_issues": 0,
+            "gate_passed_count": snapshot["gate_passed_count"],
+            "fetched_profiles_count": 0,
+            "missing_profiles_count": 0,
+            "avg_score": snapshot["avg_score"],
+            "sector_distribution_buy": buy_sector,
+            "sector_distribution_sell": sell_sector,
+            "total_buy_volume": float(snapshot["buy_volume"]),
+            "total_sell_volume": float(snapshot["sell_volume"]),
+            "net_sector_signal": net,
+            "market_cap_distribution": pd.DataFrame(
+                {
+                    "bucket": ["Small Cap (<2B)", "Mid Cap (2B-10B)", "Large Cap (>=10B)", UNKNOWN_PROFILE_LABEL],
+                    "companies": [0, 0, 0, 0],
+                }
+            ),
+            "top_buys": buys.reset_index(drop=True),
+            "top_sells": sells.reset_index(drop=True),
+            "missing_data_summary": {"symbols_with_missing_profile": [], "reasons_by_symbol": {}},
+            "last_update": self._max_trade_date_str(buys, sells),
+        }
+
+    @staticmethod
+    def _max_trade_date_str(*frames: pd.DataFrame) -> str | None:
+        dates: list[pd.Timestamp] = []
+        for frame in frames:
+            if frame.empty or "trade_date" not in frame.columns:
+                continue
+            series = pd.to_datetime(frame["trade_date"], errors="coerce").dropna()
+            if not series.empty:
+                dates.append(series.max())
+        if not dates:
+            return None
+        latest = max(dates)
+        return latest.date().strftime("%d.%m.%Y")
 
     def _hydrate_company_fields_from_mongo(self, df: pd.DataFrame) -> pd.DataFrame:
         """Füllt fehlende Company-Felder aus Mongo-Profilen nach, falls MySQL-Stubs vorliegen."""

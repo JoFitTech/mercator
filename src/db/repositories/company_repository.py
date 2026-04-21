@@ -85,6 +85,19 @@ class CompanyRepository:
                 sync_version = VALUES(sync_version),
                 updated_at = VALUES(updated_at)
         """
+        self._upsert_trade_stats_delta_sql = """
+            INSERT INTO company_trade_stats (
+                company_key, trade_count, buy_count, sell_count, last_trade_date, updated_at
+            ) VALUES (
+                %(company_key)s, %(trade_count_delta)s, %(buy_count_delta)s, %(sell_count_delta)s, %(last_trade_date)s, UTC_TIMESTAMP()
+            )
+            ON DUPLICATE KEY UPDATE
+                trade_count = trade_count + VALUES(trade_count),
+                buy_count = buy_count + VALUES(buy_count),
+                sell_count = sell_count + VALUES(sell_count),
+                last_trade_date = GREATEST(COALESCE(last_trade_date, VALUES(last_trade_date)), COALESCE(VALUES(last_trade_date), last_trade_date)),
+                updated_at = UTC_TIMESTAMP()
+        """
 
     @staticmethod
     def _rows_to_dicts(cursor: Any, rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
@@ -174,14 +187,7 @@ class CompanyRepository:
                 COALESCE(ts.trade_count, 0) AS trade_count,
                 ts.last_trade_date
             FROM companies c
-            LEFT JOIN (
-                SELECT
-                    t.company_key,
-                    COUNT(*) AS trade_count,
-                    MAX(t.transaction_date) AS last_trade_date
-                FROM insider_trades t
-                GROUP BY t.company_key
-            ) ts ON ts.company_key = c.company_key
+            LEFT JOIN company_trade_stats ts ON ts.company_key = c.company_key
             WHERE c.is_actively_trading = 1
             ORDER BY COALESCE(ts.trade_count, 0) DESC, c.current_symbol ASC
             LIMIT %s OFFSET %s
@@ -222,14 +228,7 @@ class CompanyRepository:
                 COALESCE(ts.trade_count, 0) AS trade_count,
                 ts.last_trade_date
             FROM companies c
-            LEFT JOIN (
-                SELECT
-                    t.company_key,
-                    COUNT(*) AS trade_count,
-                    MAX(t.transaction_date) AS last_trade_date
-                FROM insider_trades t
-                GROUP BY t.company_key
-            ) ts ON ts.company_key = c.company_key
+            LEFT JOIN company_trade_stats ts ON ts.company_key = c.company_key
             WHERE c.is_actively_trading = 1
         """
         params: list[Any] = []
@@ -244,6 +243,28 @@ class CompanyRepository:
                 cursor.execute(sql, params)
                 rows = cursor.fetchall()
                 return self._rows_to_dicts(cursor, rows)
+
+    def upsert_trade_stats_deltas(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        normalized: list[dict[str, Any]] = []
+        for row in rows:
+            company_key = str(row.get("company_key") or "").strip()
+            if not company_key:
+                continue
+            normalized.append(
+                {
+                    "company_key": company_key,
+                    "trade_count_delta": int(row.get("trade_count_delta", 0) or 0),
+                    "buy_count_delta": int(row.get("buy_count_delta", 0) or 0),
+                    "sell_count_delta": int(row.get("sell_count_delta", 0) or 0),
+                    "last_trade_date": row.get("last_trade_date"),
+                }
+            )
+        if not normalized:
+            return 0
+        self._client.execute_many(self._upsert_trade_stats_delta_sql, normalized)
+        return len(normalized)
 
     def get_companies_by_keys(self, company_keys: list[str]) -> dict[str, dict[str, Any]]:
         if not company_keys:

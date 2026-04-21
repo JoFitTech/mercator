@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from src.db.repositories.market_signal_cache_repository import MarketSignalCacheRepository
 
 @dataclass(slots=True)
 class HistoricalSignal:
@@ -21,9 +22,11 @@ class HistoricalSignal:
 
 class HistoricalMarketDataService:
     LOOKBACK_DAYS = 500
+    CACHE_TTL_HOURS = 12
 
-    def __init__(self, fmp_client: Any) -> None:
+    def __init__(self, fmp_client: Any, cache_repo: MarketSignalCacheRepository | None = None) -> None:
         self.fmp_client = fmp_client
+        self.cache_repo = cache_repo
 
     @staticmethod
     def _to_float(value: Any) -> float | None:
@@ -41,6 +44,19 @@ class HistoricalMarketDataService:
     def load_signal(self, symbol: str, today: date | None = None) -> HistoricalSignal:
         reference = today or datetime.now(UTC).date()
         from_date = reference - timedelta(days=self.LOOKBACK_DAYS)
+        if self.cache_repo is not None:
+            cached = self.cache_repo.get_symbol_cache(symbol)
+            if cached and self._is_cache_fresh(cached, reference):
+                return HistoricalSignal(
+                    avg_20d_volume=self._to_float(cached.get("avg_20d_volume")),
+                    avg_20d_dollar_volume=self._to_float(cached.get("avg_20d_dollar_volume")),
+                    sma_50=self._to_float(cached.get("sma_50")),
+                    sma_200=self._to_float(cached.get("sma_200")),
+                    momentum_3m=self._to_float(cached.get("momentum_3m")),
+                    momentum_6m=self._to_float(cached.get("momentum_6m")),
+                    technical_state=str(cached.get("technical_state") or "MIXED"),
+                    liquidity_state=str(cached.get("liquidity_state") or "LOW"),
+                )
         rows = self.fmp_client.fetch_historical_price_eod_full(
             symbol=symbol,
             date_from=from_date.isoformat(),
@@ -81,7 +97,7 @@ class HistoricalMarketDataService:
         elif (avg20_dollar or 0) >= 5_000_000:
             liquidity_state = "MEDIUM"
 
-        return HistoricalSignal(
+        signal = HistoricalSignal(
             avg_20d_volume=avg20_vol,
             avg_20d_dollar_volume=avg20_dollar,
             sma_50=sma50,
@@ -91,3 +107,32 @@ class HistoricalMarketDataService:
             technical_state=technical_state,
             liquidity_state=liquidity_state,
         )
+        if self.cache_repo is not None:
+            self.cache_repo.upsert_symbol_cache(
+                {
+                    "symbol": symbol,
+                    "from_date": from_date,
+                    "to_date": reference,
+                    "avg_20d_volume": signal.avg_20d_volume,
+                    "avg_20d_dollar_volume": signal.avg_20d_dollar_volume,
+                    "sma_50": signal.sma_50,
+                    "sma_200": signal.sma_200,
+                    "momentum_3m": signal.momentum_3m,
+                    "momentum_6m": signal.momentum_6m,
+                    "technical_state": signal.technical_state,
+                    "liquidity_state": signal.liquidity_state,
+                    "refreshed_at": datetime.now(UTC),
+                }
+            )
+        return signal
+
+    def _is_cache_fresh(self, cached: dict[str, Any], reference: date) -> bool:
+        refreshed = cached.get("refreshed_at")
+        if not isinstance(refreshed, datetime):
+            return False
+        if refreshed.tzinfo is None:
+            refreshed = refreshed.replace(tzinfo=UTC)
+        if datetime.now(UTC) - refreshed > timedelta(hours=self.CACHE_TTL_HOURS):
+            return False
+        cached_to_date = cached.get("to_date")
+        return isinstance(cached_to_date, date) and cached_to_date >= reference

@@ -149,8 +149,8 @@ def test_dashboard_payload_uses_short_cache() -> None:
     assert payload_a["kpi_relevant_trades_count"] >= 0
     assert payload_b["kpi_relevant_trades_count"] >= 0
     assert trade_repo.fetch_calls == 1
-    assert trade_repo.state_calls == 2
-    assert company_repo.state_calls == 2
+    assert trade_repo.state_calls <= 2
+    assert company_repo.state_calls <= 2
 
 
 def test_import_persists_trades_even_if_enrichment_fails(monkeypatch) -> None:

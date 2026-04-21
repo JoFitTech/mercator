@@ -14,6 +14,7 @@ from src.data_sources.polygon_client import PolygonClient
 from src.services.company_enrichment_service import CompanyEnrichmentService
 from src.services.company_profile_enrichment_service import CompanyProfileEnrichmentService
 from src.services.historical_market_data_service import HistoricalMarketDataService
+from src.db.repositories.market_signal_cache_repository import MarketSignalCacheRepository
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.repositories.company_repository import CompanyMySqlRepository
 from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
@@ -65,6 +66,7 @@ class ImportService:
         tr_matching_service: TradeRepublicUniverseMatchingService | None = None,
         enrichment_service: CompanyEnrichmentService | None = None,
         scoring_service: ScoringService | None = None,
+        historical_service: HistoricalMarketDataService | None = None,
     ) -> None:
         self.fmp_client = fmp_client
         self.gate_evaluator = gate_evaluator
@@ -79,7 +81,13 @@ class ImportService:
         self.tr_matching_service = tr_matching_service
         self.enrichment_service = enrichment_service or CompanyEnrichmentService(fmp_client)
         self.profile_service = CompanyProfileEnrichmentService(fmp_client)
-        self.historical_service = HistoricalMarketDataService(fmp_client)
+        if historical_service is not None:
+            self.historical_service = historical_service
+        elif trade_mysql_repo is not None and hasattr(trade_mysql_repo, "_client"):
+            cache_repo = MarketSignalCacheRepository(trade_mysql_repo._client)  # type: ignore[attr-defined]
+            self.historical_service = HistoricalMarketDataService(fmp_client, cache_repo=cache_repo)
+        else:
+            self.historical_service = HistoricalMarketDataService(fmp_client)
         self.scoring_service = scoring_service or ScoringService()
 
     def run_hourly_import(
@@ -185,6 +193,7 @@ class ImportService:
         symbols_with_profile_success: set[str] = set()
 
         # Führe Enrichment durch
+        profile_company_batch: list[dict[str, Any]] = []
         for symbol in symbols_to_enrich:
             matching_trades = trades_by_symbol.get(symbol, [])
             if not matching_trades:
@@ -209,7 +218,7 @@ class ImportService:
                         fetched_at=fetched_at,
                     )
                     profile_cache_hits += 1
-                    self._persist_company_batch([cached_company])
+                    profile_company_batch.append(cached_company)
                     company_lookup_by_key[company_key_str] = cached_company
                     for t in matching_trades:
                         t["profile_status"] = cached_company.get("profile_status", "FETCHED")
@@ -257,7 +266,7 @@ class ImportService:
                     company["profile_reason"] = "api_fetch" if company["profile_status"] == "FETCHED" else "unresolved_sector"
 
                 self._apply_trade_republic_match(company)
-                self._persist_company_batch([company])
+                profile_company_batch.append(company)
                 company_lookup_by_key[company_key_str] = company
                 
                 for t in matching_trades:
@@ -274,6 +283,8 @@ class ImportService:
                     t["profile_status"] = "FAILED"
                     t["profile_reason"] = "request_failed"
                 continue
+        if profile_company_batch:
+            self._persist_company_batch(profile_company_batch)
 
         if not symbols_to_enrich:
             LOGGER.info(
@@ -382,6 +393,7 @@ class ImportService:
         if self.trade_mysql_repo is not None:
             self.trade_mysql_repo.upsert_trades(normalized)
             upserted_clean_records = len(normalized)
+            self._update_company_trade_stats(normalized)
         else:
             upserted_clean_records = 0
             LOGGER.warning("Import läuft im Degraded-Mode ohne MySQL-Upsert.")
@@ -606,14 +618,41 @@ class ImportService:
         }
 
     def _persist_company_batch(self, companies: list[dict[str, Any]]) -> None:
-        for company in companies:
-            self.company_mongo_repo.upsert_profile(company)
+        if hasattr(self.company_mongo_repo, "upsert_profiles"):
+            self.company_mongo_repo.upsert_profiles(companies)
+        else:
+            for company in companies:
+                self.company_mongo_repo.upsert_profile(company)
         if self.company_mysql_repo is not None:
             if hasattr(self.company_mysql_repo, "upsert_companies"):
                 self.company_mysql_repo.upsert_companies(companies)
             else:
                 for company in companies:
                     self.company_mysql_repo.upsert_company(company)
+
+    def _update_company_trade_stats(self, trades: list[dict[str, Any]]) -> None:
+        if self.company_mysql_repo is None or not hasattr(self.company_mysql_repo, "upsert_trade_stats_deltas"):
+            return
+        deltas: dict[str, dict[str, Any]] = {}
+        for trade in trades:
+            company_key = str(trade.get("company_key") or "").strip()
+            if not company_key:
+                continue
+            agg = deltas.setdefault(
+                company_key,
+                {"company_key": company_key, "trade_count_delta": 0, "buy_count_delta": 0, "sell_count_delta": 0, "last_trade_date": None},
+            )
+            agg["trade_count_delta"] += 1
+            direction = str(trade.get("acquisition_or_disposition") or "").strip().upper()
+            if direction in {"A", "BUY"}:
+                agg["buy_count_delta"] += 1
+            elif direction in {"D", "SELL"}:
+                agg["sell_count_delta"] += 1
+            trade_date = trade.get("transaction_date")
+            if trade_date and (agg["last_trade_date"] is None or trade_date > agg["last_trade_date"]):
+                agg["last_trade_date"] = trade_date
+        if deltas:
+            self.company_mysql_repo.upsert_trade_stats_deltas(list(deltas.values()))
 
     def _apply_trade_republic_match(self, record: dict[str, Any]) -> None:
         if self.tr_matching_service is None:
