@@ -122,9 +122,18 @@ class TestFetchTradesAllFilters:
         c = self._run({"min_score": 0})
         assert "score" not in c["sql"]
 
+    def test_min_value_positive(self):
+        c = self._run({"min_value": 100000})
+        assert "trade_value_estimated >= %s" in c["sql"]
+        assert 100000 in c["params"]
+
     def test_trade_republic_universe_status_filter(self):
         c = self._run({"trade_republic_universe_status": "IN_UNIVERSE"})
         assert "trade_republic_universe_status = %s" in c["sql"]
+
+    def test_trade_republic_universe_status_all_is_ignored(self):
+        c = self._run({"trade_republic_universe_status": "ALL"})
+        assert "trade_republic_universe_status = %s" not in c["sql"]
 
     def test_date_from_and_to(self):
         c = self._run({"date_from": "2024-01-01", "date_to": "2024-12-31"})

@@ -285,16 +285,17 @@ class AnalysisService:
         offset: int,
         min_value: float = 0,
     ) -> tuple[pd.DataFrame, int]:
-        total_count = self.trade_repo.count_trades(filters=filters)
-        df = self.trade_repo.fetch_trades_page(filters=filters, limit=limit, offset=offset)
-        df = self._ensure_trade_columns(df)
-        if df.empty:
-            return df, total_count
+        effective_filters = dict(filters or {})
         if min_value > 0:
-            df = df[df["trade_value_estimated"] >= min_value]
-        tr_filter = str((filters or {}).get("trade_republic_universe_status") or "").strip().upper()
-        if tr_filter and tr_filter != "ALL":
-            df = df[df["trade_republic_universe_status"] == tr_filter]
+            effective_filters["min_value"] = min_value
+
+        total_count = self.trade_repo.count_trades(filters=effective_filters)
+        if limit > 0 and total_count > 0 and offset >= total_count:
+            last_page = max(1, (total_count + limit - 1) // limit)
+            offset = (last_page - 1) * limit
+
+        df = self.trade_repo.fetch_trades_page(filters=effective_filters, limit=limit, offset=offset)
+        df = self._ensure_trade_columns(df)
         return df, total_count
 
     def get_ticker_detail(self, symbol: str, accumulate: bool = True) -> AnalysisResult:

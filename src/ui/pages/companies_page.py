@@ -48,6 +48,11 @@ def _format_market_cap(value: object) -> str:
         return "Nicht verfügbar"
 
 
+def _clamp_page(current_page: int, total_rows: int, page_size: int) -> tuple[int, int]:
+    total_pages = max(1, (int(total_rows) + int(page_size) - 1) // int(page_size))
+    return min(max(1, int(current_page)), total_pages), total_pages
+
+
 def render_companies_page(repository: CompanyMySqlRepository | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Unternehmens-Übersicht."""
     render_page_header("Unternehmen", "Übersicht aller Unternehmen mit registrierten Insider-Aktivitäten.")
@@ -65,7 +70,6 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
     p1, p2 = st.columns([1, 1])
     page_size = p1.selectbox("Seitengröße", options=PAGE_SIZES, index=1, key="companies_page_size")
     current_page = max(1, int(p2.number_input("Seite", min_value=1, value=1, step=1, key="companies_current_page")))
-    offset = (current_page - 1) * int(page_size)
     summarize_filters("Aktive Filter", {"Suche": search_term})
 
     # 2. Serverseitig paginierte Daten laden
@@ -76,6 +80,11 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
                 context_label="Unternehmensdaten",
                 fallback=0,
             )
+            valid_page, total_pages = _clamp_page(current_page, int(total_companies), int(page_size))
+            if valid_page != current_page:
+                st.session_state["companies_current_page"] = int(valid_page)
+                current_page = int(valid_page)
+            offset = (current_page - 1) * int(page_size)
             companies, error = safe_service_call(
                 lambda: repository.list_active_companies_page(limit=int(page_size), offset=offset, search_term=search_term or None),
                 context_label="Unternehmensdaten",
@@ -96,6 +105,11 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
                     or search_term.lower() in str(row.get("current_symbol") or "").lower()
                 ]
             total_companies = len(companies_all)
+            valid_page, total_pages = _clamp_page(current_page, int(total_companies), int(page_size))
+            if valid_page != current_page:
+                st.session_state["companies_current_page"] = int(valid_page)
+                current_page = int(valid_page)
+            offset = (current_page - 1) * int(page_size)
             companies = companies_all[offset: offset + int(page_size)]
         if error is not None or count_error is not None:
             st.warning("Unternehmen konnten nicht geladen werden. Bitte später erneut versuchen.")
@@ -112,7 +126,6 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
         render_empty_state("Keine Unternehmen mit Trades gefunden.")
         return
 
-    total_pages = max(1, (int(total_companies) + int(page_size) - 1) // int(page_size))
     st.caption(f"Seite {current_page} von {total_pages} · Gesamt {total_companies} Unternehmen")
 
     # 3. KPIs
