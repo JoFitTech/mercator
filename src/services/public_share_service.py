@@ -25,6 +25,7 @@ LOGGER = get_logger(__name__)
 TRY_CLOUDFLARE_URL_PATTERN = re.compile(r"https://[a-zA-Z0-9.-]+\.trycloudflare\.com")
 _MAX_LOG_LINES = 40
 _HEALTHCHECK_INTERVAL_SECONDS = 15
+_DEFAULT_STARTUP_GRACE_SECONDS = 15
 
 
 class TunnelStatus(str, Enum):
@@ -53,6 +54,9 @@ class TunnelSession:
     last_process_alive: bool | None = None
     last_local_healthcheck_ok: bool | None = None
     last_public_healthcheck_ok: bool | None = None
+    startup_grace_until: datetime | None = None
+    last_public_check_detail: str | None = None
+    last_public_check_is_temporary: bool | None = None
 
 
 class TunnelProvider(Protocol):
@@ -72,10 +76,12 @@ class CloudflareQuickTunnelProvider:
         cloudflared_bin: str = "cloudflared",
         startup_timeout_seconds: int = 20,
         healthcheck_timeout_seconds: float = 2.0,
+        startup_grace_seconds: int = _DEFAULT_STARTUP_GRACE_SECONDS,
     ):
         self.cloudflared_bin = cloudflared_bin
         self.startup_timeout_seconds = startup_timeout_seconds
         self.healthcheck_timeout_seconds = healthcheck_timeout_seconds
+        self.startup_grace_seconds = max(0, startup_grace_seconds)
         self._last_public_url_error: str | None = None
 
     def is_binary_available(self) -> bool:
@@ -238,6 +244,7 @@ class CloudflareQuickTunnelProvider:
         reader_thread.join(timeout=0.2)
 
         if found_url and process.poll() is None:
+            startup_grace_until = started_at + timedelta(seconds=self.startup_grace_seconds)
             return TunnelSession(
                 provider="cloudflare",
                 local_url=local_url,
@@ -247,6 +254,7 @@ class CloudflareQuickTunnelProvider:
                 status=TunnelStatus.RUNNING,
                 raw_log_tail=list(log_tail),
                 process=process,
+                startup_grace_until=startup_grace_until,
             )
 
         error_message = "Tunnelstart fehlgeschlagen: keine öffentliche URL erhalten."
@@ -277,6 +285,7 @@ class CloudflareQuickTunnelProvider:
         if not session.public_url:
             return TunnelStatus.STOPPED if session.status == TunnelStatus.STOPPED else session.status
 
+        now = datetime.now(timezone.utc)
         process_alive = self._is_session_process_alive(session)
         session.last_process_alive = process_alive
         if not process_alive:
@@ -284,20 +293,31 @@ class CloudflareQuickTunnelProvider:
             session.error_message = "Tunnelprozess ist beendet. Eine neue öffentliche URL ist erforderlich."
             return TunnelStatus.STALE
 
-        if session.last_healthcheck_at and datetime.now(timezone.utc) - session.last_healthcheck_at < timedelta(
+        grace_active = self._is_startup_grace_active(session, now)
+
+        if session.last_healthcheck_at and now - session.last_healthcheck_at < timedelta(
             seconds=_HEALTHCHECK_INTERVAL_SECONDS
         ):
             if session.last_public_healthcheck_ok is False:
+                if grace_active and session.last_public_check_is_temporary and session.last_local_healthcheck_ok:
+                    session.stale_reason = None
+                    session.error_message = self._format_startup_grace_message(
+                        session.last_public_check_detail
+                    )
+                    return TunnelStatus.STARTING
                 return TunnelStatus.STALE
             return TunnelStatus.RUNNING if session.last_healthcheck_ok else TunnelStatus.WARNING
 
         local_healthy = self._is_local_url_healthy(session.local_url)
         public_healthy = self._is_public_url_reachable(session.public_url)
         public_error = self._last_public_url_error
-        session.last_healthcheck_at = datetime.now(timezone.utc)
+        public_error_is_temporary = self._is_temporary_public_resolution_error(public_error)
+        session.last_healthcheck_at = now
         session.last_local_healthcheck_ok = local_healthy
         session.last_public_healthcheck_ok = public_healthy
         session.last_healthcheck_ok = local_healthy and public_healthy
+        session.last_public_check_detail = public_error
+        session.last_public_check_is_temporary = public_error_is_temporary
 
         if not local_healthy:
             session.error_message = "Tunnelprozess läuft, aber die lokale Streamlit-App ist derzeit nicht erreichbar."
@@ -305,6 +325,10 @@ class CloudflareQuickTunnelProvider:
             return TunnelStatus.WARNING
 
         if not public_healthy:
+            if grace_active and public_error_is_temporary:
+                session.error_message = self._format_startup_grace_message(public_error)
+                session.stale_reason = None
+                return TunnelStatus.STARTING
             session.error_message = public_error or "Öffentliche Tunnel-URL ist nicht erreichbar. Neue URL erforderlich."
             session.stale_reason = session.error_message
             return TunnelStatus.STALE
@@ -383,6 +407,32 @@ class CloudflareQuickTunnelProvider:
         reachable, detail = self._check_public_url(url)
         self._last_public_url_error = detail
         return reachable
+
+    @staticmethod
+    def _is_temporary_public_resolution_error(detail: str | None) -> bool:
+        if not detail:
+            return False
+        normalized = detail.lower()
+        return (
+            "name or service not known" in normalized
+            or "temporary failure in name resolution" in normalized
+            or "nodename nor servname provided" in normalized
+            or "no address associated with hostname" in normalized
+            or "getaddrinfo failed" in normalized
+        )
+
+    @staticmethod
+    def _is_startup_grace_active(session: TunnelSession, now: datetime) -> bool:
+        return bool(session.startup_grace_until and now < session.startup_grace_until)
+
+    @staticmethod
+    def _format_startup_grace_message(public_error: str | None) -> str:
+        if public_error:
+            return (
+                "Tunnel wird gestartet, öffentliche URL propagiert noch. "
+                f"Temporärer Check-Fehler: {public_error}"
+            )
+        return "Tunnel wird gestartet, öffentliche URL propagiert noch."
 
     @staticmethod
     def _is_session_process_alive(session: TunnelSession) -> bool:

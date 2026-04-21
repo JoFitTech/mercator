@@ -713,6 +713,7 @@ class PublicShareConfig:
     local_url: str = "http://localhost:8501"
     cloudflared_bin: str = "cloudflared"
     startup_timeout_seconds: int = 20
+    startup_grace_seconds: int = 15
     healthcheck_timeout_seconds: float = 2.0
 
 
@@ -804,6 +805,7 @@ def load_settings() -> AppSettings:
             local_url=_read_string_env("PUBLIC_SHARE_LOCAL_URL", default="http://localhost:8501"),
             cloudflared_bin=_read_string_env("CLOUDFLARED_BIN", default="cloudflared"),
             startup_timeout_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS", default=20),
+            startup_grace_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_GRACE_SECONDS", default=15),
             healthcheck_timeout_seconds=_read_float_env("PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS", default=2.0),
         ),
         mongo_targets=mongo_targets,
