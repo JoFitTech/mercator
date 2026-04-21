@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from src.config import settings as settings_module
-from src.config.settings import Settings, SettingsError, load_settings, validate_fmp_api_key
+from src.config.settings import (
+    MongoConfig,
+    Settings,
+    SettingsError,
+    load_settings,
+    validate_fmp_api_key,
+)
 
 
 def test_settings_from_env_reads_targets(monkeypatch) -> None:
@@ -168,6 +174,56 @@ def test_load_settings_reads_review_mode_flags(monkeypatch) -> None:
     assert settings.disable_import is True
     assert settings.disable_admin_delete is True
     assert settings.ui_test_mode is True
+
+
+def test_mongo_config_trims_whitespace_in_uri(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv(
+        "UNI_MONGO_URI",
+        "  mongodb://user:pw@mongo.uni.example:27017/?authSource=admin  ",
+    )
+    monkeypatch.setenv("UNI_MONGO_DATABASE", "uni")
+
+    config = MongoConfig.from_env()
+
+    assert config.uri == "mongodb://user:pw@mongo.uni.example:27017/?authSource=admin"
+    assert config.database == "uni"
+
+
+def test_mongo_config_rejects_uri_with_line_break(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv(
+        "UNI_MONGO_URI",
+        "mongodb://user:pw@mongo.uni.example:27017/\n?authSource=admin",
+    )
+    monkeypatch.setenv("UNI_MONGO_DATABASE", "uni")
+
+    with pytest.raises(SettingsError, match="line break"):
+        MongoConfig.from_env()
+
+
+def test_mongo_config_rejects_database_mismatch_between_uri_and_env(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv(
+        "UNI_MONGO_URI",
+        "mongodb://user:pw@mongo.uni.example:27017/admin?authSource=admin",
+    )
+    monkeypatch.setenv("UNI_MONGO_DATABASE", "uni")
+
+    with pytest.raises(SettingsError, match="database mismatch"):
+        MongoConfig.from_env()
+
+
+def test_mongo_config_requires_uni_database_for_uni_target(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv(
+        "UNI_MONGO_URI",
+        "mongodb://user:pw@mongo.uni.example:27017/?authSource=admin",
+    )
+    monkeypatch.setenv("UNI_MONGO_DATABASE", "   ")
+
+    with pytest.raises(SettingsError, match="UNI_MONGO_DATABASE"):
+        MongoConfig.from_env()
 
 
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

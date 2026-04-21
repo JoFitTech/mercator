@@ -9,8 +9,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
+from pymongo.errors import InvalidURI
+from pymongo.uri_parser import parse_uri
 from src.utils.logging_utils import get_logger
 
 load_dotenv()
@@ -53,6 +56,109 @@ FMP_API_KEY_PLACEHOLDERS = {
 
 class SettingsError(ValueError):
     """Fehlerklasse für unvollständige oder ungültige Settings."""
+
+
+def _mongo_uni_configuration_hint() -> str:
+    return (
+        "Korrektes Beispiel: "
+        "UNI_MONGO_URI=mongodb://<user>:<urlencoded_password>@<host>:27017/?authSource=admin "
+        "und UNI_MONGO_DATABASE=uni. "
+        "Wichtig: authSource=admin ist nur die Authentifizierungsdatenbank, nicht die Zieldatenbank."
+    )
+
+
+def _normalize_mongo_uri(raw_uri: str, env_name: str) -> str:
+    """Normalisiert und validiert MongoDB-URIs gegen häufige Konfigurationsfehler."""
+
+    normalized = raw_uri.strip()
+    if not normalized:
+        raise SettingsError(f"Environment variable '{env_name}' must not be empty.")
+    if "\n" in normalized or "\r" in normalized:
+        raise SettingsError(
+            f"Environment variable '{env_name}' contains a line break. "
+            "Please keep the URI in a single line. "
+            f"{_mongo_uni_configuration_hint()}"
+        )
+    if not (
+        normalized.startswith("mongodb://")
+        or normalized.startswith("mongodb+srv://")
+    ):
+        raise SettingsError(
+            f"Environment variable '{env_name}' must start with 'mongodb://' or 'mongodb+srv://'."
+        )
+    return normalized
+
+
+def _parse_mongo_uri_database(uri: str, env_name: str) -> str | None:
+    """Liest optionalen Datenbankpfad aus einem Mongo-URI."""
+
+    try:
+        parsed = urlparse(uri)
+    except ValueError as exc:
+        raise SettingsError(
+            f"Environment variable '{env_name}' contains an invalid MongoDB URI."
+        ) from exc
+
+    if parsed.scheme not in {"mongodb", "mongodb+srv"}:
+        raise SettingsError(
+            f"Environment variable '{env_name}' must use scheme mongodb:// or mongodb+srv://."
+        )
+
+    path = parsed.path.strip("/")
+    if not path:
+        return None
+    if "/" in path:
+        raise SettingsError(
+            f"Environment variable '{env_name}' contains an invalid MongoDB database path '{parsed.path}'."
+        )
+    return path
+
+
+def _validate_mongo_target_config(
+    *,
+    target_name: str,
+    uri_env_name: str,
+    raw_uri: str,
+    database_env_name: str,
+    raw_database: str,
+) -> tuple[str, str]:
+    """Validiert URI und Ziel-Datenbank für ein Mongo-Target."""
+
+    uri = _normalize_mongo_uri(raw_uri, uri_env_name)
+    database = raw_database.strip()
+
+    if target_name == "uni" and not database:
+        raise SettingsError(
+            f"Environment variable '{database_env_name}' is required when MONGO_ACTIVE_TARGET=uni. "
+            "Do not rely on URI path or defaults for the target database. "
+            f"{_mongo_uni_configuration_hint()}"
+        )
+
+    if not database:
+        raise SettingsError(
+            f"Environment variable '{database_env_name}' must not be empty for Mongo target '{target_name}'."
+        )
+
+    uri_database = _parse_mongo_uri_database(uri, uri_env_name)
+    if uri_database and uri_database != database:
+        raise SettingsError(
+            f"MongoDB database mismatch: URI '{uri_env_name}' points to database '{uri_database}', "
+            f"but '{database_env_name}' is '{database}'. "
+            "Use either no database path in URI or the same database in both places. "
+            f"{_mongo_uni_configuration_hint()}"
+        )
+
+    try:
+        # Validiert die URI-Struktur inkl. URL-Encoding in Userinfo.
+        parse_uri(uri)
+    except InvalidURI as exc:
+        raise SettingsError(
+            f"Environment variable '{uri_env_name}' contains an invalid MongoDB URI: {exc}. "
+            "Check special characters in username/password and URL-encode reserved characters. "
+            f"{_mongo_uni_configuration_hint()}"
+        ) from exc
+
+    return uri, database
 
 
 def _read_required_string_env(name: str) -> str:
@@ -447,21 +553,32 @@ class MongoConfig:
         """
 
         active_target = _read_string_env("MONGO_ACTIVE_TARGET", default="local").lower()
+        if active_target not in {"local", "uni"}:
+            raise SettingsError(
+                f"Environment variable 'MONGO_ACTIVE_TARGET' must be one of: local, uni (got '{active_target}')."
+            )
 
         if active_target == "uni":
-            uri = _read_string_env(
+            raw_uri = _read_string_env(
                 "UNI_MONGO_URI", default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/")
             )
-            database = _read_string_env(
-                "UNI_MONGO_DATABASE", default=_read_string_env("MONGO_DATABASE", default="mercator")
+            raw_database = _read_string_env(
+                "UNI_MONGO_DATABASE", default=""
             )
         else:
-            uri = _read_string_env(
+            raw_uri = _read_string_env(
                 "LOCAL_MONGO_URI", default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/")
             )
-            database = _read_string_env(
+            raw_database = _read_string_env(
                 "LOCAL_MONGO_DATABASE", default=_read_string_env("MONGO_DATABASE", default="mercator")
             )
+        uri, database = _validate_mongo_target_config(
+            target_name=active_target,
+            uri_env_name="UNI_MONGO_URI" if active_target == "uni" else "LOCAL_MONGO_URI",
+            raw_uri=raw_uri,
+            database_env_name="UNI_MONGO_DATABASE" if active_target == "uni" else "LOCAL_MONGO_DATABASE",
+            raw_database=raw_database,
+        )
 
         direct_connection_raw = _read_string_env("MONGO_DIRECT_CONNECTION", default="")
         direct_connection: bool | None = None

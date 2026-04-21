@@ -271,6 +271,8 @@ def render_system_status_sidebar(db_status, mysql_res):
             mongo_color = "green" if db_status.mongo.is_connected else "red"
             mongo_label = "MongoDB: Online" if db_status.mongo.is_connected else "MongoDB: Offline"
             st.markdown(f":{mongo_color}[{mongo_label}]")
+            if not db_status.mongo.is_connected and db_status.mongo.message:
+                st.caption(f"Grund: {db_status.mongo.message}")
 
             mode_label = "Betriebsmodus: Schreiben aktiv" if db_status.is_write_mode_available else "Betriebsmodus: Lesemodus"
             st.caption(mode_label)

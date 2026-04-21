@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from pymongo.errors import ConfigurationError, InvalidURI, OperationFailure, ServerSelectionTimeoutError
+
 from src.config.settings import Settings
 from src.db.mongo_client import MongoClientWrapper
 from src.db.mysql_target_resolver import MySqlResolutionResult, resolve_active_mysql_target
@@ -154,8 +156,33 @@ class DatabaseStatusService:
             return MongoStatus(is_connected=True, message="MongoDB-Verbindung erfolgreich.")
         except Exception as exc:
             LOGGER.error("db_check mongo failed error=%s", exc)
-            return MongoStatus(
-                is_connected=False,
-                message=f"MongoDB aktuell nicht erreichbar: {exc}",
-            )
+            return MongoStatus(is_connected=False, message=self._classify_mongo_error(mongo_client, exc))
 
+    def _classify_mongo_error(self, mongo_client: MongoClientWrapper, exc: Exception) -> str:
+        """Klassifiziert Mongo-Fehler für kurze, brauchbare UI-Meldungen."""
+
+        if isinstance(exc, (InvalidURI, ConfigurationError, ValueError)):
+            return "Mongo URI ungültig"
+
+        if isinstance(exc, ServerSelectionTimeoutError):
+            return "Mongo Host oder Port nicht erreichbar"
+
+        if isinstance(exc, OperationFailure):
+            message = str(exc).lower()
+            if exc.code in {18, 8000} or "authentication failed" in message or "auth failed" in message:
+                return "Mongo Authentifizierung fehlgeschlagen"
+            if exc.code == 13 or "not authorized" in message or "unauthorized" in message:
+                return (
+                    "Mongo verbunden, aber keine Berechtigung für Datenbank "
+                    f"'{mongo_client.config.database}'"
+                )
+
+        lowered = str(exc).lower()
+        if "authentication failed" in lowered or "auth failed" in lowered:
+            return "Mongo Authentifizierung fehlgeschlagen"
+        if "not authorized" in lowered or "unauthorized" in lowered:
+            return (
+                "Mongo verbunden, aber keine Berechtigung für Datenbank "
+                f"'{mongo_client.config.database}'"
+            )
+        return "Mongo Unbekannter Fehler"
