@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import io
 from pathlib import Path
 from queue import Queue
@@ -260,6 +260,68 @@ def test_get_status_marks_stale_when_public_url_dead_but_local_healthy() -> None
     assert session.last_local_healthcheck_ok is True
     assert session.last_public_healthcheck_ok is False
     assert "Öffentliche URL" in (session.error_message or "")
+
+
+def test_get_status_returns_starting_for_temporary_dns_error_during_grace_period() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.startup_grace_until = datetime.now(timezone.utc) + timedelta(seconds=20)
+
+    class _AliveProcess:
+        def poll(self):
+            return None
+
+    session.process = _AliveProcess()  # type: ignore[assignment]
+    provider._is_local_url_healthy = lambda _: True  # type: ignore[method-assign]
+    provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
+        False,
+        "Öffentliche URL nicht erreichbar: [Errno -2] Name or service not known.",
+    )
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.STARTING
+    assert session.stale_reason is None
+    assert session.error_message is not None
+    assert "propagiert" in session.error_message
+
+
+def test_get_status_marks_stale_for_temporary_dns_error_after_grace_period() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.startup_grace_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    class _AliveProcess:
+        def poll(self):
+            return None
+
+    session.process = _AliveProcess()  # type: ignore[assignment]
+    provider._is_local_url_healthy = lambda _: True  # type: ignore[method-assign]
+    provider._check_public_url = lambda _url: (  # type: ignore[method-assign]
+        False,
+        "Öffentliche URL nicht erreichbar: [Errno -2] Name or service not known.",
+    )
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.STALE
+    assert session.stale_reason is not None
+
+
+def test_get_status_process_dead_is_stale_even_within_grace_period() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.startup_grace_until = datetime.now(timezone.utc) + timedelta(seconds=30)
+
+    class _DeadProcess:
+        def poll(self):
+            return 1
+
+    session.process = _DeadProcess()  # type: ignore[assignment]
+
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.STALE
 
 
 def test_get_status_detects_cloudflare_1033_as_stale(monkeypatch) -> None:

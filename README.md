@@ -203,6 +203,7 @@ Installationshilfe (Cloudflare):
 - `PUBLIC_SHARE_LOCAL_URL=http://localhost:8501` (optional)
 - `CLOUDFLARED_BIN=cloudflared` (optional, z. B. absoluter Pfad)
 - `PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS=20` (optional)
+- `PUBLIC_SHARE_STARTUP_GRACE_SECONDS=15` (optional, toleriert DNS/Edge-Propagation direkt nach Tunnelstart)
 - `PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS=2.0` (optional, kurzer Reachability-Check)
 
 ### Lokale Nutzung

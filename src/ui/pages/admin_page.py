@@ -42,6 +42,7 @@ def _get_public_share_manager(settings: AppSettings) -> TunnelManager:
     provider = CloudflareQuickTunnelProvider(
         cloudflared_bin=settings.public_share.cloudflared_bin,
         startup_timeout_seconds=settings.public_share.startup_timeout_seconds,
+        startup_grace_seconds=settings.public_share.startup_grace_seconds,
         healthcheck_timeout_seconds=settings.public_share.healthcheck_timeout_seconds,
     )
     manager = TunnelManager(
