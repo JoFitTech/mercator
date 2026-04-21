@@ -728,6 +728,124 @@ class TunnelManager:
         return self.session
 
 
+@dataclass
+class HostTunnelRuntimeState:
+    execution_mode: str
+    provider: str
+    local_url: str
+    public_url: str | None
+    pid: int | None
+    status: TunnelStatus
+    started_at: datetime | None
+    last_error: str | None
+    last_exit_code: int | None
+    extra_args: tuple[str, ...]
+    process_alive: bool
+    log_tail: list[str]
+    stale_reason: str | None = None
+
+
+def _safe_read_json(path: Path) -> dict[str, object] | None:
+    try:
+        if not path.exists():
+            return None
+        import json
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _read_text_lines(path: Path, max_lines: int = 20) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        return lines[-max_lines:]
+    except Exception:
+        return []
+
+
+def _parse_host_pid(path: Path) -> int | None:
+    if not path.exists():
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+        return int(raw) if raw else None
+    except Exception:
+        return None
+
+
+def _is_pid_alive(pid: int | None) -> bool:
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+
+def read_host_tunnel_runtime_state(
+    *,
+    status_file: str,
+    log_file: str,
+    pid_file: str,
+    default_provider: str,
+    default_local_url: str,
+) -> HostTunnelRuntimeState:
+    status_path = Path(status_file)
+    log_path = Path(log_file)
+    pid_path = Path(pid_file)
+    payload = _safe_read_json(status_path) or {}
+    payload_status = str(payload.get("status", "STOPPED")).upper()
+    try:
+        status = TunnelStatus(payload_status)
+    except ValueError:
+        status = TunnelStatus.STOPPED
+
+    pid_from_status = payload.get("pid")
+    pid = int(pid_from_status) if isinstance(pid_from_status, int) else _parse_host_pid(pid_path)
+    process_alive = _is_pid_alive(pid)
+    stale_reason = None
+    if pid is not None and not process_alive:
+        stale_reason = "PID-Datei vorhanden, aber Prozess läuft nicht."
+        if status in {TunnelStatus.RUNNING, TunnelStatus.STARTING, TunnelStatus.WARNING}:
+            status = TunnelStatus.STALE
+
+    started_at = None
+    raw_started_at = payload.get("started_at")
+    if isinstance(raw_started_at, str):
+        try:
+            started_at = datetime.fromisoformat(raw_started_at.replace("Z", "+00:00"))
+        except Exception:
+            started_at = None
+
+    extra_args_payload = payload.get("extra_args")
+    extra_args: tuple[str, ...] = ()
+    if isinstance(extra_args_payload, list):
+        extra_args = tuple(str(item) for item in extra_args_payload if str(item).strip())
+
+    return HostTunnelRuntimeState(
+        execution_mode="host",
+        provider=str(payload.get("provider", default_provider)),
+        local_url=str(payload.get("local_url", default_local_url)),
+        public_url=str(payload["public_url"]) if payload.get("public_url") else None,
+        pid=pid,
+        status=status if process_alive or status in {TunnelStatus.STOPPED, TunnelStatus.ERROR, TunnelStatus.STALE} else TunnelStatus.STALE,
+        started_at=started_at,
+        last_error=str(payload.get("last_error")) if payload.get("last_error") else None,
+        last_exit_code=int(payload["last_exit_code"]) if isinstance(payload.get("last_exit_code"), int) else None,
+        extra_args=extra_args,
+        process_alive=process_alive,
+        log_tail=_read_text_lines(log_path, max_lines=15),
+        stale_reason=stale_reason,
+    )
+
+
 def sync_public_share_sidebar_state(manager: TunnelManager | None) -> None:
     session = manager.get_session() if manager else None
     is_running = bool(session and session.status == TunnelStatus.RUNNING and session.public_url)

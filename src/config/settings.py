@@ -711,12 +711,16 @@ class PublicShareConfig:
 
     enabled: bool = False
     provider: str = "cloudflare"
+    execution_mode: str = "host"
     local_url: str = "http://localhost:8501"
     cloudflared_bin: str = "cloudflared"
     startup_timeout_seconds: int = 20
     startup_grace_seconds: int = 15
     healthcheck_timeout_seconds: float = 2.0
     cloudflared_extra_args: tuple[str, ...] = ()
+    status_file: str = ".mercator/public-share/status.json"
+    log_file: str = ".mercator/public-share/cloudflared.log"
+    pid_file: str = ".mercator/public-share/pid.txt"
 
 
 @dataclass(frozen=True)
@@ -766,6 +770,9 @@ def load_settings() -> AppSettings:
             public_share_extra_args_raw,
         )
         public_share_extra_args = ()
+    execution_mode_raw = _read_string_env("PUBLIC_SHARE_EXECUTION_MODE", default="host").lower()
+    execution_mode = execution_mode_raw if execution_mode_raw in {"host", "container"} else "host"
+
     app_settings = AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
         app_title=os.getenv("APP_TITLE", "Mercator"),
@@ -813,12 +820,16 @@ def load_settings() -> AppSettings:
         public_share=PublicShareConfig(
             enabled=_read_bool_env("ENABLE_PUBLIC_SHARE", default=False),
             provider=_read_string_env("PUBLIC_SHARE_PROVIDER", default="cloudflare").lower(),
+            execution_mode=execution_mode,
             local_url=_read_string_env("PUBLIC_SHARE_LOCAL_URL", default="http://localhost:8501"),
             cloudflared_bin=_read_string_env("CLOUDFLARED_BIN", default="cloudflared"),
             startup_timeout_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS", default=20),
             startup_grace_seconds=_read_int_env("PUBLIC_SHARE_STARTUP_GRACE_SECONDS", default=15),
             healthcheck_timeout_seconds=_read_float_env("PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS", default=2.0),
             cloudflared_extra_args=public_share_extra_args,
+            status_file=_read_string_env("PUBLIC_SHARE_STATUS_FILE", default=".mercator/public-share/status.json"),
+            log_file=_read_string_env("PUBLIC_SHARE_LOG_FILE", default=".mercator/public-share/cloudflared.log"),
+            pid_file=_read_string_env("PUBLIC_SHARE_PID_FILE", default=".mercator/public-share/pid.txt"),
         ),
         mongo_targets=mongo_targets,
     )

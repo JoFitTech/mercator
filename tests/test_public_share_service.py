@@ -10,9 +10,11 @@ from urllib import error as url_error
 
 from src.services.public_share_service import (
     CloudflareQuickTunnelProvider,
+    HostTunnelRuntimeState,
     TunnelManager,
     TunnelSession,
     TunnelStatus,
+    read_host_tunnel_runtime_state,
     sync_public_share_sidebar_state,
 )
 
@@ -734,3 +736,71 @@ def test_sync_public_share_sidebar_state_for_warning_session_is_not_active(monke
     assert fake_state["public_share_url"] is None
     assert fake_state["public_share_status"] == TunnelStatus.WARNING.value
     assert fake_state["public_share_active"] is False
+
+
+def test_read_host_tunnel_runtime_state_valid_files(tmp_path) -> None:
+    status_file = tmp_path / "status.json"
+    pid_file = tmp_path / "pid.txt"
+    log_file = tmp_path / "cloudflared.log"
+    status_file.write_text(
+        '{"execution_mode":"host","provider":"cloudflare","local_url":"http://localhost:8501","public_url":"https://abc.trycloudflare.com","pid":1,"started_at":"2026-04-20T10:00:00Z","status":"RUNNING","last_error":null,"last_exit_code":null,"extra_args":["--protocol","http2"]}',
+        encoding="utf-8",
+    )
+    pid_file.write_text("1", encoding="utf-8")
+    log_file.write_text("line1\nline2\n", encoding="utf-8")
+
+    state = read_host_tunnel_runtime_state(
+        status_file=str(status_file),
+        log_file=str(log_file),
+        pid_file=str(pid_file),
+        default_provider="cloudflare",
+        default_local_url="http://localhost:8501",
+    )
+
+    assert isinstance(state, HostTunnelRuntimeState)
+    assert state.provider == "cloudflare"
+    assert state.status in {TunnelStatus.RUNNING, TunnelStatus.STALE}
+    assert state.extra_args == ("--protocol", "http2")
+    assert state.log_tail[-1] == "line2"
+
+
+def test_read_host_tunnel_runtime_state_missing_status_file(tmp_path) -> None:
+    state = read_host_tunnel_runtime_state(
+        status_file=str(tmp_path / "missing.json"),
+        log_file=str(tmp_path / "missing.log"),
+        pid_file=str(tmp_path / "missing.pid"),
+        default_provider="cloudflare",
+        default_local_url="http://localhost:8501",
+    )
+    assert state.status == TunnelStatus.STOPPED
+    assert state.public_url is None
+
+
+def test_read_host_tunnel_runtime_state_invalid_json(tmp_path) -> None:
+    status_file = tmp_path / "status.json"
+    status_file.write_text("{broken", encoding="utf-8")
+    state = read_host_tunnel_runtime_state(
+        status_file=str(status_file),
+        log_file=str(tmp_path / "missing.log"),
+        pid_file=str(tmp_path / "missing.pid"),
+        default_provider="cloudflare",
+        default_local_url="http://localhost:8501",
+    )
+    assert state.status == TunnelStatus.STOPPED
+
+
+def test_read_host_tunnel_runtime_state_stale_pid_file(tmp_path) -> None:
+    status_file = tmp_path / "status.json"
+    pid_file = tmp_path / "pid.txt"
+    status_file.write_text('{"status":"RUNNING","pid":999999}', encoding="utf-8")
+    pid_file.write_text("999999", encoding="utf-8")
+
+    state = read_host_tunnel_runtime_state(
+        status_file=str(status_file),
+        log_file=str(tmp_path / "missing.log"),
+        pid_file=str(pid_file),
+        default_provider="cloudflare",
+        default_local_url="http://localhost:8501",
+    )
+    assert state.status == TunnelStatus.STALE
+    assert state.stale_reason is not None

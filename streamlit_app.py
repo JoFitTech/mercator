@@ -54,16 +54,25 @@ def main():
     nav_target = render_navigation_topbar()
     nav_target = ensure_valid_nav_target()
     st.session_state["public_share_enabled"] = bool(settings.public_share.enabled)
-    if settings.public_share.enabled and not isinstance(st.session_state.get("public_share_manager"), TunnelManager):
+    st.session_state["public_share_execution_mode"] = settings.public_share.execution_mode
+    if (
+        settings.public_share.enabled
+        and settings.public_share.execution_mode == "container"
+        and not isinstance(st.session_state.get("public_share_manager"), TunnelManager)
+    ):
         st.session_state["public_share_manager"] = TunnelManager(
             provider=CloudflareQuickTunnelProvider(
                 cloudflared_bin=settings.public_share.cloudflared_bin,
                 startup_timeout_seconds=settings.public_share.startup_timeout_seconds,
                 healthcheck_timeout_seconds=settings.public_share.healthcheck_timeout_seconds,
+                startup_grace_seconds=settings.public_share.startup_grace_seconds,
+                cloudflared_extra_args=settings.public_share.cloudflared_extra_args,
             ),
             provider_name=settings.public_share.provider,
             default_local_url=settings.public_share.local_url,
         )
+    elif settings.public_share.execution_mode == "host":
+        st.session_state.pop("public_share_manager", None)
 
     public_share_manager = st.session_state.get("public_share_manager")
     sync_public_share_sidebar_state(

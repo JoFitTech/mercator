@@ -185,6 +185,9 @@ Optionale Import-/Gate-Parameter:
 ## Öffentliche Freigabe (lokale Demo/Test-Shares)
 - Zweck: kurzfristige, öffentliche Freigabe einer **lokal laufenden** Streamlit-Instanz für Demo- und Testzwecke.
 - Standardprovider: **Cloudflare Quick Tunnel** via `cloudflared`.
+- **Execution Mode**:
+  - `host` (**empfohlen**): cloudflared läuft auf dem Host, robust gegen Container→Edge-Netzpfadprobleme.
+  - `container` (Fallback): cloudflared läuft wie bisher im App-Container.
 - UI-Orte:
   - Sidebar (unter „Verwaltung & Hilfe“): Status + Start/Stop (primäre Aktion) + Öffnen + Sprung in Admin.
   - Admin-Bereich, Tab **„Öffentliche Freigabe“**: Diagnose, Log-Tail, Detailinfos.
@@ -200,19 +203,29 @@ Installationshilfe (Cloudflare):
 ### Relevante ENV-Variablen
 - `ENABLE_PUBLIC_SHARE=true|false` (Default: `false`)
 - `PUBLIC_SHARE_PROVIDER=cloudflare` (aktuell vollständig implementiert)
+- `PUBLIC_SHARE_EXECUTION_MODE=host|container` (Default: `host`)
 - `PUBLIC_SHARE_LOCAL_URL=http://localhost:8501` (optional)
 - `CLOUDFLARED_BIN=cloudflared` (optional, z. B. absoluter Pfad)
 - `PUBLIC_SHARE_STARTUP_TIMEOUT_SECONDS=20` (optional)
 - `PUBLIC_SHARE_STARTUP_GRACE_SECONDS=15` (optional, toleriert DNS/Edge-Propagation direkt nach Tunnelstart)
 - `PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS=2.0` (optional, kurzer Reachability-Check)
+- `PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS` (optional, z. B. `--protocol http2 --edge-ip-version 4`)
+- `PUBLIC_SHARE_STATUS_FILE`, `PUBLIC_SHARE_LOG_FILE`, `PUBLIC_SHARE_PID_FILE` (Dateien für Host/Container-Diagnostik)
 
 ### Lokale Nutzung
 1. App lokal starten.
-2. Entweder in der Sidebar direkt **Freigabe starten** klicken oder im Admin-Tab starten.
+2. Host-Modus (empfohlen):
+   - `.\mercator.ps1 share-start`
+   - `.\mercator.ps1 share-status`
+   - `.\mercator.ps1 share-logs`
+   - `.\mercator.ps1 share-stop`
+3. Container-Modus:
+   - weiterhin über Sidebar/Admin start/stop steuerbar.
 3. Öffentliche URL teilen (im Admin-Feld Copy-freundlich markierbar; Öffnen-Button in Sidebar/Admin).
 4. Nach Demo/Test **Freigabe stoppen** (Sidebar oder Admin).
 
 ### Troubleshooting
+- **HTTP 530 / 1033 trotz laufendem Streamlit**: typischerweise Container→Cloudflare-Edge-Netzproblem (QUIC/HTTP2 in restriktiven Netzen). Wechsel auf `PUBLIC_SHARE_EXECUTION_MODE=host`.
 - **`cloudflared` fehlt**: Status wird auf Fehler gesetzt; `CLOUDFLARED_BIN` prüfen.
 - **Keine URL erhalten**: Start läuft in Timeout und beendet den Prozess sauber.
 - **Tunnel stale**: Prozess wurde beendet oder Session veraltet; erneut starten.
