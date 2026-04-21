@@ -208,6 +208,25 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
+    CREATE TABLE IF NOT EXISTS app_sync_state (
+        state_key VARCHAR(64) NOT NULL,
+        pending_uni_sync BOOLEAN NOT NULL DEFAULT FALSE,
+        sync_in_progress BOOLEAN NOT NULL DEFAULT FALSE,
+        last_start_mode VARCHAR(32) NULL,
+        last_requested_target VARCHAR(16) NULL,
+        last_active_target VARCHAR(16) NULL,
+        last_sync_direction VARCHAR(32) NULL,
+        last_sync_status VARCHAR(32) NULL,
+        last_sync_error TEXT NULL,
+        last_sync_started_at DATETIME NULL,
+        last_sync_finished_at DATETIME NULL,
+        last_successful_uni_sync_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (state_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
     CREATE TABLE IF NOT EXISTS app_api_usage (
         day_key DATE NOT NULL,
         provider VARCHAR(32) NOT NULL,

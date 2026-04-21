@@ -137,6 +137,20 @@ def test_clear_mysql_companies_blocked_in_review_mode() -> None:
     assert "deaktiviert" in message.lower()
 
 
+def test_clear_mysql_companies_blocked_when_pending_startup_sync(monkeypatch) -> None:
+    service = AdminDashboardService(
+        settings=_build_settings(),
+        mysql_client=_MySqlClientStub(ref_count=0),
+        mongo_available=False,
+    )
+    monkeypatch.setattr(service, "_pending_sync_blocks_deletes", lambda: True)
+
+    success, message = service.clear_mysql_companies()
+
+    assert success is False
+    assert "pending" in message.lower()
+
+
 def _build_tunnel_session() -> TunnelSession:
     from datetime import datetime, timezone
 

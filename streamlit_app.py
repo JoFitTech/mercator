@@ -13,6 +13,7 @@ from src.app.navigation import (
     render_system_status_sidebar,
 )
 from src.app.auto_import import handle_auto_import, render_import_status_toast
+from src.app.startup_sync import handle_startup_sync, render_startup_sync_toast_or_banner
 from src.services.public_share_service import CloudflareQuickTunnelProvider, TunnelManager, sync_public_share_sidebar_state
 from src.ui.components.page_scaffold import render_error_state
 
@@ -45,6 +46,12 @@ def main():
     # 1. Bootstrap (Config, Layout, Theme, Services)
     # Requirement 1: Radikal entschlackt, nur noch Bootstrap & Initialisierung.
     settings, db_status, mysql_res, factory = bootstrap_app()
+    startup_sync_outcome = handle_startup_sync(
+        settings=settings,
+        db_status=db_status,
+        mysql_res=mysql_res,
+    )
+    render_startup_sync_toast_or_banner(startup_sync_outcome)
     infra_mode = build_infrastructure_mode(db_status)
     st.session_state["infra_mode"] = infra_mode
     
