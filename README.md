@@ -447,3 +447,7 @@ Danach kannst du den Status prüfen oder die App öffnen:
 
 ## TODO / offene Punkte
 - Zentrale Liste: `docs/todos_offene_fragen.md`.
+
+
+## FMP API Spec
+Die verbindliche finale Spezifikation liegt in `docs/fmp_api_spec_v2_final.md`.
