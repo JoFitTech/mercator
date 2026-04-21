@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from src.config.settings import AppSettings
 from src.db.mongo_client import MongoClientWrapper
@@ -12,7 +13,12 @@ from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
 from src.services.database_status_service import DatabaseStatus
 from src.services.import_service import ImportService, ImportSummary
-from src.services.public_share_service import CloudflareQuickTunnelProvider, TunnelManager, TunnelStatus
+from src.services.public_share_service import (
+    CloudflareQuickTunnelProvider,
+    TunnelManager,
+    TunnelStatus,
+    read_host_tunnel_runtime_state,
+)
 from src.ui.components.page_scaffold import render_page_header
 from src.utils.logging_utils import get_logger
 
@@ -37,7 +43,15 @@ def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
 def _public_share_error_feedback(session) -> tuple[str, str]:
     message = "Tunnel meldet einen Fehler."
     level = "error"
-    if session.last_process_alive is True and session.last_public_healthcheck_ok is False:
+    hard_public_failure = session.last_public_check_type in {"cloudflare_1033", "cloudflare_530"}
+    container_only_public_warning = (
+        session.last_process_alive is True
+        and session.last_local_healthcheck_ok is True
+        and session.last_public_healthcheck_ok is False
+        and not hard_public_failure
+    )
+
+    if container_only_public_warning:
         message = "Tunnelprozess lebt, aber Public-Health aus Container fehlgeschlagen."
         level = "warning"
     if session.last_process_alive is False:
@@ -74,6 +88,11 @@ def _get_public_share_manager(settings: AppSettings) -> TunnelManager:
     )
     st.session_state[PUBLIC_SHARE_MANAGER_STATE_KEY] = manager
     return manager
+
+
+def _resolve_share_file_path(project_root: Path, raw_path: str) -> Path:
+    path = Path(raw_path)
+    return path if path.is_absolute() else project_root / path
 
 
 def _build_import_success_message(summary: ImportSummary, force_profile_refresh: bool) -> str:
@@ -777,13 +796,72 @@ def render_admin_page(
         if not settings.public_share.enabled:
             st.caption("Die Funktion ist über ENABLE_PUBLIC_SHARE=false deaktiviert.")
         else:
-            manager = _get_public_share_manager(settings)
-            session = manager.get_session()
-            provider = manager.provider
+            execution_mode = settings.public_share.execution_mode
+            manager = _get_public_share_manager(settings) if execution_mode == "container" else None
+            session = manager.get_session() if manager else None
+            provider = manager.provider if manager else None
 
             st.warning(
                 "Nur für lokale Demo/Test-Freigaben nutzen. Die öffentliche URL ist extern erreichbar."
             )
+            st.caption(f"Execution Mode: {execution_mode}")
+
+            if execution_mode == "host":
+                status_file = _resolve_share_file_path(settings.project_root, settings.public_share.status_file)
+                log_file = _resolve_share_file_path(settings.project_root, settings.public_share.log_file)
+                pid_file = _resolve_share_file_path(settings.project_root, settings.public_share.pid_file)
+                host_state = read_host_tunnel_runtime_state(
+                    status_file=str(status_file),
+                    log_file=str(log_file),
+                    pid_file=str(pid_file),
+                    default_provider=settings.public_share.provider,
+                    default_local_url=settings.public_share.local_url,
+                )
+
+                with st.container(border=True):
+                    st.info("Host-Modus: cloudflared läuft außerhalb des Containers.")
+                    st.code(
+                        ".\\mercator.ps1 share-start\n.\\mercator.ps1 share-stop\n.\\mercator.ps1 share-status\n.\\mercator.ps1 share-logs",
+                        language="powershell",
+                    )
+                    cols = st.columns(2)
+                    with cols[0]:
+                        st.text_input("Provider", value=host_state.provider, disabled=True)
+                        st.text_input("Lokale Ziel-URL", value=host_state.local_url, disabled=True)
+                        st.text_input("Status", value=host_state.status.value, disabled=True)
+                        st.text_input("Prozess lebt", value="Ja" if host_state.process_alive else "Nein", disabled=True)
+                        st.text_input("PID", value=str(host_state.pid) if host_state.pid is not None else "-", disabled=True)
+                    with cols[1]:
+                        started_at = (
+                            host_state.started_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                            if host_state.started_at
+                            else "-"
+                        )
+                        st.text_input("Startzeit", value=started_at, disabled=True)
+                        st.text_input("Öffentliche URL", value=host_state.public_url or "-", disabled=True)
+                        st.text_input(
+                            "Exit-Code",
+                            value=str(host_state.last_exit_code) if host_state.last_exit_code is not None else "-",
+                            disabled=True,
+                        )
+                        st.text_input("Letzter Fehler", value=host_state.last_error or "-", disabled=True)
+                        st.text_input("Extra-Args", value=" ".join(host_state.extra_args) or "-", disabled=True)
+
+                can_open_host = bool(host_state.public_url and host_state.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING})
+                st.link_button(
+                    "Öffentliche URL öffnen",
+                    host_state.public_url if can_open_host and host_state.public_url else "http://localhost",
+                    disabled=not can_open_host,
+                    use_container_width=True,
+                )
+                st.markdown("##### Letzter Log-Ausschnitt")
+                if host_state.log_tail:
+                    st.code("\n".join(host_state.log_tail), language="text")
+                else:
+                    st.caption("Noch keine Tunnel-Logs verfügbar.")
+                if host_state.stale_reason:
+                    _show_admin_feedback("warning", "Host-Tunnel ist stale.", host_state.stale_reason)
+                return
 
             with st.container(border=True):
                 c1, c2 = st.columns([1.2, 1], vertical_alignment="bottom")

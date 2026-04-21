@@ -205,7 +205,17 @@ def _render_topbar_brand() -> None:
 def _render_public_share_sidebar_controls() -> None:
     manager = st.session_state.get("public_share_manager")
     enabled = bool(st.session_state.get("public_share_enabled"))
-    if not enabled or not isinstance(manager, TunnelManager):
+    execution_mode = str(st.session_state.get("public_share_execution_mode", "container"))
+    if not enabled:
+        return
+    if execution_mode == "host":
+        with st.expander("Öffentliche Freigabe (Tools)", expanded=False):
+            st.caption("Host-Modus aktiv: Steuerung erfolgt über PowerShell.")
+            st.code(".\\mercator.ps1 share-start\n.\\mercator.ps1 share-status", language="powershell")
+            if st.button("Im Admin verwalten", key="sidebar_public_share_admin_host", use_container_width=True):
+                _set_nav_target("Admin")
+        return
+    if not isinstance(manager, TunnelManager):
         return
 
     session = manager.get_session()

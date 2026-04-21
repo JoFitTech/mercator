@@ -6,7 +6,12 @@ from contextlib import contextmanager
 
 from src.config.settings import AppSettings, EnrichmentConfig, FmpConfig, GateConfig, MongoConfig, MySqlTargetSettings, Settings
 from src.services.public_share_service import TunnelSession, TunnelStatus
-from src.ui.pages.admin_page import AdminDashboardService, _public_share_error_feedback
+from src.ui.pages.admin_page import (
+    AdminDashboardService,
+    _public_share_error_feedback,
+    _public_share_status_message,
+    _resolve_share_file_path,
+)
 
 
 class _CursorStub:
@@ -172,6 +177,19 @@ def test_public_share_error_feedback_prioritizes_cloudflare_1033() -> None:
     assert "1033" in message
 
 
+def test_public_share_error_feedback_prioritizes_cloudflare_530_as_error() -> None:
+    session = _build_tunnel_session()
+    session.last_process_alive = True
+    session.last_local_healthcheck_ok = True
+    session.last_public_healthcheck_ok = False
+    session.last_public_check_type = "cloudflare_530"
+
+    level, message = _public_share_error_feedback(session)
+
+    assert level == "error"
+    assert "530" in message
+
+
 def test_public_share_error_feedback_process_dead_is_error() -> None:
     session = _build_tunnel_session()
     session.last_process_alive = False
@@ -193,3 +211,15 @@ def test_public_share_error_feedback_local_app_failure_is_error() -> None:
 
     assert level == "error"
     assert "Lokale App" in message
+
+
+def test_public_share_status_message_for_warning() -> None:
+    level, message = _public_share_status_message(TunnelStatus.WARNING)
+    assert level == "warning"
+    assert "Warnungen" in message
+
+
+def test_resolve_share_file_path_relative() -> None:
+    base = __import__("pathlib").Path("/tmp/repo")
+    resolved = _resolve_share_file_path(base, ".mercator/public-share/status.json")
+    assert str(resolved).endswith(".mercator/public-share/status.json")

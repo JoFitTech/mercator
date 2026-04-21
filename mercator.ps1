@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status", "logs", "init-db", "open", "cleanup", "doctor", "e2e-install", "e2e-smoke", "e2e")]
+    [ValidateSet("start", "stop", "restart", "status", "logs", "init-db", "open", "cleanup", "doctor", "e2e-install", "e2e-smoke", "e2e", "share-start", "share-stop", "share-status", "share-logs")]
     [string]$Action = "status",
     [string]$Service = "app"
 )
@@ -87,6 +87,72 @@ function Get-DotEnvValue {
     if ($value.StartsWith('"') -and $value.EndsWith('"')) { $value = $value.Trim('"') }
     if ($value.StartsWith("'") -and $value.EndsWith("'")) { $value = $value.Trim("'") }
     return $value
+}
+
+function Get-ConfigValue {
+    param(
+        [Parameter(Mandatory=$true)][string]$Key,
+        [string]$Default = ""
+    )
+    $envValue = [Environment]::GetEnvironmentVariable($Key)
+    if ($envValue -and $envValue.Trim()) { return $envValue.Trim() }
+    $dotEnvValue = Get-DotEnvValue -Key $Key
+    if ($dotEnvValue -and $dotEnvValue.Trim()) { return $dotEnvValue.Trim() }
+    return $Default
+}
+
+function Resolve-RepoPath {
+    param([Parameter(Mandatory=$true)][string]$RawPath)
+    if (-not $RawPath) { return $null }
+    if ([System.IO.Path]::IsPathRooted($RawPath)) { return $RawPath }
+    return Join-Path $PSScriptRoot $RawPath
+}
+
+function Ensure-PublicSharePaths {
+    $statusPath = Resolve-RepoPath (Get-ConfigValue "PUBLIC_SHARE_STATUS_FILE" ".mercator/public-share/status.json")
+    $logPath = Resolve-RepoPath (Get-ConfigValue "PUBLIC_SHARE_LOG_FILE" ".mercator/public-share/cloudflared.log")
+    $pidPath = Resolve-RepoPath (Get-ConfigValue "PUBLIC_SHARE_PID_FILE" ".mercator/public-share/pid.txt")
+    $dir = Split-Path -Parent $statusPath
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $logDir = Split-Path -Parent $logPath
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+    return @{ StatusPath = $statusPath; LogPath = $logPath; PidPath = $pidPath }
+}
+
+function Write-PublicShareStatus {
+    param(
+        [Parameter(Mandatory=$true)][hashtable]$Paths,
+        [Parameter(Mandatory=$true)][hashtable]$Status
+    )
+    $json = $Status | ConvertTo-Json -Depth 6
+    Set-Content -Path $Paths.StatusPath -Value $json -Encoding UTF8
+}
+
+function Get-PublicSharePid {
+    param([Parameter(Mandatory=$true)][string]$PidPath)
+    if (-not (Test-Path $PidPath)) { return $null }
+    try {
+        $raw = (Get-Content -Path $PidPath -Raw).Trim()
+        if (-not $raw) { return $null }
+        return [int]$raw
+    } catch {
+        return $null
+    }
+}
+
+function Get-CloudflaredBinaryPath {
+    $configured = Get-ConfigValue "CLOUDFLARED_BIN" "cloudflared"
+    $candidate = Get-Command $configured -ErrorAction SilentlyContinue
+    if ($candidate) { return $candidate.Source }
+    $exeCandidate = Join-Path $PSScriptRoot "cloudflared.exe"
+    if (Test-Path $exeCandidate) { return $exeCandidate }
+    throw "cloudflared wurde nicht gefunden. Bitte cloudflared installieren oder CLOUDFLARED_BIN setzen."
+}
+
+function Get-CloudflaredExtraArgs {
+    $raw = Get-ConfigValue "PUBLIC_SHARE_CLOUDFLARED_EXTRA_ARGS" ""
+    if (-not $raw) { return @() }
+    return @($raw -split "\s+" | Where-Object { $_ -and $_.Trim() })
 }
 
 function Get-MongoHostPortFromUri {
@@ -271,6 +337,141 @@ function Invoke-PythonModule {
     }
 }
 
+function Invoke-ShareStart {
+    $paths = Ensure-PublicSharePaths
+    $executionMode = (Get-ConfigValue "PUBLIC_SHARE_EXECUTION_MODE" "host").ToLowerInvariant()
+    if ($executionMode -ne "host") {
+        throw "share-start ist nur für PUBLIC_SHARE_EXECUTION_MODE=host verfügbar (aktuell: $executionMode)."
+    }
+    $localUrl = Get-ConfigValue "PUBLIC_SHARE_LOCAL_URL" (Get-AppUrl)
+    try {
+        $health = Invoke-WebRequest -Uri $localUrl -Method Get -TimeoutSec 4 -UseBasicParsing
+        if (-not $health.StatusCode) { throw "Lokale App antwortet nicht." }
+    } catch {
+        throw "Lokale App unter $localUrl nicht erreichbar. Bitte zuerst .\mercator.ps1 start ausführen."
+    }
+
+    $existingPid = Get-PublicSharePid -PidPath $paths.PidPath
+    if ($existingPid) {
+        $existingProcess = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
+        if ($existingProcess) {
+            Write-Host "Host-Tunnel läuft bereits mit PID $existingPid. Wiederverwendung." -ForegroundColor Yellow
+            Invoke-ShareStatus
+            return
+        }
+        Remove-Item $paths.PidPath -ErrorAction SilentlyContinue
+    }
+
+    $bin = Get-CloudflaredBinaryPath
+    $extraArgs = Get-CloudflaredExtraArgs
+    $arguments = @("tunnel", "--url", $localUrl) + $extraArgs
+    Set-Content -Path $paths.LogPath -Value "" -Encoding UTF8
+
+    $proc = Start-Process -FilePath $bin -ArgumentList $arguments -RedirectStandardOutput $paths.LogPath -RedirectStandardError $paths.LogPath -PassThru -WindowStyle Hidden
+    Start-Sleep -Milliseconds 900
+    $publicUrl = $null
+    if (Test-Path $paths.LogPath) {
+        $logRaw = Get-Content -Path $paths.LogPath -Raw -ErrorAction SilentlyContinue
+        $match = [regex]::Match(($logRaw | Out-String), "https://[a-zA-Z0-9.-]+\.trycloudflare\.com")
+        if ($match.Success) { $publicUrl = $match.Value }
+    }
+
+    $status = if ($proc.HasExited) { "ERROR" } elseif ($publicUrl) { "RUNNING" } else { "STARTING" }
+    $lastExitCode = if ($proc.HasExited) { $proc.ExitCode } else { $null }
+    $lastError = if ($proc.HasExited) { "cloudflared wurde beendet." } else { $null }
+    $statusPayload = @{
+        execution_mode = "host"
+        provider = (Get-ConfigValue "PUBLIC_SHARE_PROVIDER" "cloudflare")
+        local_url = $localUrl
+        public_url = $publicUrl
+        pid = $proc.Id
+        started_at = (Get-Date).ToUniversalTime().ToString("o")
+        status = $status
+        last_error = $lastError
+        last_exit_code = $lastExitCode
+        extra_args = $extraArgs
+    }
+    Write-PublicShareStatus -Paths $paths -Status $statusPayload
+    Set-Content -Path $paths.PidPath -Value "$($proc.Id)" -Encoding UTF8
+    Write-Host "Host-Tunnel gestartet (PID $($proc.Id))." -ForegroundColor Green
+    if ($publicUrl) { Write-Host "Public URL: $publicUrl" -ForegroundColor Green }
+}
+
+function Invoke-ShareStop {
+    $paths = Ensure-PublicSharePaths
+    $pid = Get-PublicSharePid -PidPath $paths.PidPath
+    $lastExitCode = $null
+    if ($pid) {
+        $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        if ($process) {
+            Stop-Process -Id $pid -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 350
+            $alive = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            if ($alive) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    Remove-Item $paths.PidPath -ErrorAction SilentlyContinue
+    $payload = @{
+        execution_mode = "host"
+        provider = (Get-ConfigValue "PUBLIC_SHARE_PROVIDER" "cloudflare")
+        local_url = Get-ConfigValue "PUBLIC_SHARE_LOCAL_URL" "http://localhost:8501"
+        public_url = $null
+        pid = $null
+        started_at = (Get-Date).ToUniversalTime().ToString("o")
+        status = "STOPPED"
+        last_error = $null
+        last_exit_code = $lastExitCode
+        extra_args = Get-CloudflaredExtraArgs
+    }
+    Write-PublicShareStatus -Paths $paths -Status $payload
+    Write-Host "Host-Tunnel gestoppt." -ForegroundColor Yellow
+}
+
+function Invoke-ShareStatus {
+    $paths = Ensure-PublicSharePaths
+    if (-not (Test-Path $paths.StatusPath)) {
+        Write-Host "Kein Public-Share-Status gefunden." -ForegroundColor Yellow
+        return
+    }
+    $status = Get-Content -Path $paths.StatusPath -Raw | ConvertFrom-Json
+    $pid = Get-PublicSharePid -PidPath $paths.PidPath
+    $alive = $false
+    if ($pid) { $alive = [bool](Get-Process -Id $pid -ErrorAction SilentlyContinue) }
+    if ($pid -and -not $alive) {
+        $status.status = "STALE"
+        $status.last_error = "PID-Datei verweist auf keinen laufenden Prozess."
+        $status.pid = $null
+        Remove-Item $paths.PidPath -ErrorAction SilentlyContinue
+        Write-PublicShareStatus -Paths $paths -Status @{
+            execution_mode = $status.execution_mode
+            provider = $status.provider
+            local_url = $status.local_url
+            public_url = $status.public_url
+            pid = $null
+            started_at = $status.started_at
+            status = "STALE"
+            last_error = $status.last_error
+            last_exit_code = $status.last_exit_code
+            extra_args = $status.extra_args
+        }
+    }
+    Write-Host "Execution Mode: $($status.execution_mode)"
+    Write-Host "Status: $($status.status)"
+    Write-Host "Local URL: $($status.local_url)"
+    Write-Host "Public URL: $($status.public_url)"
+    Write-Host "PID: $(if($pid){$pid}else{'-'})"
+    if ($status.last_error) { Write-Host "Fehler: $($status.last_error)" -ForegroundColor Red }
+}
+
+function Invoke-ShareLogs {
+    $paths = Ensure-PublicSharePaths
+    if (-not (Test-Path $paths.LogPath)) {
+        Write-Host "Noch keine Logdatei vorhanden: $($paths.LogPath)" -ForegroundColor Yellow
+        return
+    }
+    Get-Content -Path $paths.LogPath -Tail 80
+}
+
 switch ($Action) {
     "start" {
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
@@ -365,5 +566,17 @@ switch ($Action) {
         $env:MERCATOR_E2E_BASE_URL = $appUrl
         Write-Host "Starte komplette E2E-Suite gegen $appUrl" -ForegroundColor Cyan
         Invoke-PythonModule pytest tests/e2e/ -v
+    }
+    "share-start" {
+        Invoke-ShareStart
+    }
+    "share-stop" {
+        Invoke-ShareStop
+    }
+    "share-status" {
+        Invoke-ShareStatus
+    }
+    "share-logs" {
+        Invoke-ShareLogs
     }
 }
