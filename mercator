@@ -84,7 +84,8 @@ elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "darwin"* ]]; then
         ensure_compose
         case "$ACTION" in
             start)
-                run_compose up -d --wait
+                # WICHTIG: --build stellt sicher, dass Dockerfile-Aenderungen (z.B. cloudflared) geladen werden
+                run_compose up -d --build --wait
                 echo "Mercator gestartet. App: $(get_app_url)"
                 ;;
             stop)
@@ -93,7 +94,8 @@ elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "darwin"* ]]; then
                 ;;
             restart)
                 run_compose down
-                run_compose up -d --wait
+                # WICHTIG: --build wird verwendet um sicherzustellen, dass Dockerfile-Aenderungen geladen werden
+                run_compose up -d --build --wait
                 echo "Mercator neu gestartet. App: $(get_app_url)"
                 ;;
             status)

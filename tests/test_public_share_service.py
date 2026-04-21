@@ -88,6 +88,32 @@ def test_missing_binary_returns_error_session() -> None:
     assert "cloudflared" in (session.error_message or "")
 
 
+def test_get_binary_diagnostics_when_binary_not_found() -> None:
+    provider = CloudflareQuickTunnelProvider(cloudflared_bin="definitely_missing_cloudflared_bin")
+
+    diags = provider.get_binary_diagnostics()
+
+    assert diags["binary_available"] == "Nein"
+    assert diags["resolved_bin_path"] is None
+    assert diags["configured_bin"] == "definitely_missing_cloudflared_bin"
+
+
+def test_prestart_check_rejects_unreachable_local_url(monkeypatch) -> None:
+    provider = CloudflareQuickTunnelProvider(cloudflared_bin="cloudflared")
+
+    # Fake binary available
+    monkeypatch.setattr(provider, "is_binary_available", lambda: True)
+    monkeypatch.setattr(provider, "_resolve_bin", lambda: "cloudflared")
+    # Fake local URL not healthy
+    monkeypatch.setattr(provider, "_is_local_url_healthy", lambda _url: False)
+
+    session = provider.start("http://localhost:8501")
+
+    assert session.status == TunnelStatus.ERROR
+    assert "Vorstart-Fehler" in (session.error_message or "")
+    assert "nicht erreichbar" in (session.error_message or "").lower()
+
+
 def test_resolve_bin_prefers_repo_local_cloudflared_exe_when_not_in_path(monkeypatch, tmp_path) -> None:
     provider = CloudflareQuickTunnelProvider(cloudflared_bin="cloudflared")
     fake_repo_root = tmp_path / "repo"
@@ -182,11 +208,31 @@ def test_get_status_reports_warning_when_url_unreachable() -> None:
 
     session.process = _AliveProcess()  # type: ignore[assignment]
 
-    provider._is_public_url_reachable = lambda _: False  # type: ignore[method-assign]
+    provider._is_local_url_healthy = lambda _: False  # type: ignore[method-assign]
     status = provider.get_status(session)
 
     assert status == TunnelStatus.WARNING
     assert session.last_healthcheck_ok is False
+
+
+def test_get_status_reports_running_when_local_url_healthy() -> None:
+    provider = CloudflareQuickTunnelProvider()
+    session = _build_session(status=TunnelStatus.RUNNING)
+    session.process = None
+    session.last_healthcheck_at = None
+
+    class _AliveProcess:
+        def poll(self):
+            return None
+
+    session.process = _AliveProcess()  # type: ignore[assignment]
+
+    provider._is_local_url_healthy = lambda _: True  # type: ignore[method-assign]
+    status = provider.get_status(session)
+
+    assert status == TunnelStatus.RUNNING
+    assert session.last_healthcheck_ok is True
+    assert session.error_message is None
 
 
 def test_manager_marks_stale_if_process_missing_but_pid_is_dead(monkeypatch) -> None:

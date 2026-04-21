@@ -77,6 +77,32 @@ class CloudflareQuickTunnelProvider:
     def is_binary_available(self) -> bool:
         return self._resolve_bin() is not None
 
+    def get_binary_diagnostics(self) -> dict[str, str | None]:
+        """Liefert Diagnostik-Informationen über die cloudflared-Binary."""
+        resolved_bin = self._resolve_bin()
+
+        diagnostics = {
+            "configured_bin": self.cloudflared_bin,
+            "resolved_bin_path": resolved_bin,
+            "binary_available": "Ja" if resolved_bin else "Nein",
+            "version": None,
+        }
+
+        if resolved_bin:
+            try:
+                result = subprocess.run(
+                    [resolved_bin, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    diagnostics["version"] = result.stdout.strip().split("\n")[0]
+            except Exception as exc:
+                diagnostics["version"] = f"Fehler: {exc}"
+
+        return diagnostics
+
     @staticmethod
     def _is_executable_file(path: Path) -> bool:
         if not path.is_file():
@@ -124,9 +150,26 @@ class CloudflareQuickTunnelProvider:
         )
 
     def start(self, local_url: str) -> TunnelSession:
+        # Preflight Check 1: Binary verfügbar?
         resolved_bin = self._resolve_bin()
         if not resolved_bin:
             return self._build_missing_binary_session(local_url)
+
+        # Preflight Check 2: Lokale URL erreichbar?
+        if not self._is_local_url_healthy(local_url):
+            return TunnelSession(
+                provider="cloudflare",
+                local_url=local_url,
+                public_url=None,
+                pid=None,
+                started_at=datetime.now(timezone.utc),
+                status=TunnelStatus.ERROR,
+                raw_log_tail=[],
+                error_message=(
+                    f"Vorstart-Fehler: Lokale URL {local_url} ist nicht erreichbar. "
+                    "Stelle sicher, dass Streamlit auf dem konfigurierten Port läuft."
+                ),
+            )
 
         command = [resolved_bin, "tunnel", "--url", local_url]
         started_at = datetime.now(timezone.utc)

@@ -274,13 +274,14 @@ function Invoke-PythonModule {
 switch ($Action) {
     "start" {
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
+        # WICHTIG: --build wird standardmaessig hinzugefuegt um sicherzustellen, dass Dockerfile-Aenderungen (z.B. cloudflared) geladen werden.
         $uni = Test-UniDatabaseConnectivity
         if ($uni.MySql -and $uni.Mongo) {
             Write-Host "Uni-Datenbanken erreichbar. Starte nur die App (ohne lokale DB-Services)..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d --wait --no-deps app
+            Invoke-ComposeQuiet up -d --build --wait --no-deps app
         } else {
             Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
-            Invoke-ComposeQuiet up -d --wait
+            Invoke-ComposeQuiet up -d --build --wait
         }
         $appUrl = Get-AppUrl
         Write-Host "Mercator gestartet. App: $appUrl" -ForegroundColor Green
@@ -297,13 +298,14 @@ switch ($Action) {
         Invoke-ComposeQuiet down
         Remove-Legacy-Containers
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
+        # WICHTIG: --build wird standardmaessig hinzugefuegt um sicherzustellen, dass Dockerfile-Aenderungen geladen werden.
         $uni = Test-UniDatabaseConnectivity
         if ($uni.MySql -and $uni.Mongo) {
             Write-Host "Uni-Datenbanken erreichbar. Starte nur die App (ohne lokale DB-Services)..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d --wait --no-deps app
+            Invoke-ComposeQuiet up -d --build --wait --no-deps app
         } else {
             Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
-            Invoke-ComposeQuiet up -d --wait
+            Invoke-ComposeQuiet up -d --build --wait
         }
         $appUrl = Get-AppUrl
         Write-Host "Mercator neu gestartet. App: $appUrl" -ForegroundColor Green

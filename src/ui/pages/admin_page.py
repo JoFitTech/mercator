@@ -818,13 +818,36 @@ def render_admin_page(
                 public_url_value = session.public_url if session and session.public_url else "-"
                 st.text_input("Öffentliche URL", value=public_url_value, disabled=True)
                 st.caption("Tipp: Feld markieren und kopieren (Strg/Cmd+C).")
-                st.text_input(
-                    "cloudflared Binärdatei",
-                    value=settings.public_share.cloudflared_bin,
-                    disabled=True,
-                )
-                binary_available = provider.is_binary_available() if isinstance(provider, CloudflareQuickTunnelProvider) else False
-                st.text_input("Binärdatei gefunden", value="Ja" if binary_available else "Nein", disabled=True)
+
+                # Erweiterte Diagnostik: cloudflared Binary
+                if isinstance(provider, CloudflareQuickTunnelProvider):
+                    binary_diags = provider.get_binary_diagnostics()
+                    st.text_input(
+                        "cloudflared Binary (konfiguriert)",
+                        value=binary_diags.get("configured_bin", "-"),
+                        disabled=True,
+                    )
+                    st.text_input(
+                        "Binary gefunden unter",
+                        value=binary_diags.get("resolved_bin_path") or "NICHT GEFUNDEN",
+                        disabled=True,
+                    )
+                    if binary_diags.get("version"):
+                        st.text_input(
+                            "cloudflared Version",
+                            value=binary_diags["version"],
+                            disabled=True,
+                        )
+                    else:
+                        st.caption("⚠️ cloudflared-Version konnte nicht abgefragt werden")
+                else:
+                    st.text_input(
+                        "cloudflared Binärdatei",
+                        value=settings.public_share.cloudflared_bin,
+                        disabled=True,
+                    )
+                    binary_available = provider.is_binary_available() if isinstance(provider, CloudflareQuickTunnelProvider) else False
+                    st.text_input("Binärdatei gefunden", value="Ja" if binary_available else "Nein", disabled=True)
 
             can_open = bool(session and session.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING} and session.public_url)
             st.link_button(
