@@ -1,6 +1,6 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status", "logs", "init-db", "open", "cleanup", "doctor", "e2e-install", "e2e-smoke", "e2e", "share-start", "share-stop", "share-status", "share-logs")]
-    [string]$Action = "status",
+    [ValidateSet("start", "stop", "restart", "share-start", "share-stop", "share-reset")]
+    [string]$Action = "start",
     [string]$Service = "app"
 )
 
@@ -514,6 +514,12 @@ function Invoke-ShareLogs {
     Get-Content -Path $paths.LogPath -Tail 80
 }
 
+function Invoke-ShareReset {
+    Invoke-ShareStop
+    Start-Sleep -Milliseconds 250
+    Invoke-ShareStart
+}
+
 switch ($Action) {
     "start" {
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
@@ -530,6 +536,7 @@ switch ($Action) {
         Write-Host "Mercator gestartet. App: $appUrl" -ForegroundColor Green
     }
     "stop" {
+        Invoke-ShareStop
         if (-not (Ensure-DockerAvailable -Context "Es gibt keinen Docker-Stack zum Stoppen." -AllowMissing)) {
             Write-Host "Mercator-Stop uebersprungen: Docker Desktop/Daemon laeuft nicht." -ForegroundColor Yellow
             break
@@ -538,6 +545,7 @@ switch ($Action) {
         Write-Host "Mercator gestoppt." -ForegroundColor Yellow
     }
     "restart" {
+        Invoke-ShareStop
         Invoke-ComposeQuiet down
         Remove-Legacy-Containers
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
@@ -553,72 +561,13 @@ switch ($Action) {
         $appUrl = Get-AppUrl
         Write-Host "Mercator neu gestartet. App: $appUrl" -ForegroundColor Green
     }
-    "status" {
-        if (-not (Ensure-DockerAvailable -Context "Docker-Status kann nicht abgefragt werden." -AllowMissing)) {
-            Write-Host "Mercator-Status: Docker nicht verfuegbar. Lokale DB-Container laufen daher nicht." -ForegroundColor Yellow
-            break
-        }
-        Invoke-Compose ps
-    }
-    "logs" {
-        Invoke-Compose logs -f $Service
-    }
-     "init-db" {
-         # Stellt sicher, dass App und lokale Datenbanken laufen, bevor das Schema initialisiert wird.
-         Invoke-ComposeQuiet up -d --wait app mysql mongo
-         # Fuehrt die MySQL-Schema-Init fuer ALLE Ziele (local + uni) innerhalb des App-Containers aus.
-         Invoke-Compose exec app python -c "from src.scripts.init_mysql_schema import initialize_all_targets; results = initialize_all_targets(); [print(f'{k}: {v}') for k,v in results.items()]"
-     }
-    "doctor" {
-        # Stellt sicher, dass App läuft
-        Invoke-ComposeQuiet up -d --wait app
-        # Startet den DB-Doctor im App-Container
-        Invoke-Compose exec app python -m src.scripts.db_doctor
-    }
-    "open" {
-        $appUrl = Get-AppUrl
-        Start-Process $appUrl
-    }
-    "cleanup" {
-        if (-not (Ensure-DockerAvailable -Context "Cleanup des Docker-Stacks kann nicht ausgefuehrt werden." -AllowMissing)) {
-            Write-Host "Cleanup uebersprungen: Docker Desktop/Daemon laeuft nicht." -ForegroundColor Yellow
-            break
-        }
-        # Entfernt alte Container, die nicht zum neuen Stack gehoeren (Name 'mercator-*').
-        Remove-Legacy-Containers
-        # Optional: Raeumt auch den aktuellen Stack auf.
-        Invoke-Compose down --remove-orphans
-        Write-Host "Cleanup abgeschlossen." -ForegroundColor Green
-    }
-    "e2e-install" {
-        Write-Host "Installiere Dev- und E2E-Abhaengigkeiten..." -ForegroundColor Cyan
-        Invoke-PythonModule pip install -r requirements-dev.txt
-        Write-Host "Installiere Playwright Chromium..." -ForegroundColor Cyan
-        Invoke-PythonModule playwright install chromium
-        Write-Host "E2E-Setup abgeschlossen." -ForegroundColor Green
-    }
-    "e2e-smoke" {
-        $appUrl = Get-AppUrl
-        $env:MERCATOR_E2E_BASE_URL = $appUrl
-        Write-Host "Starte Smoke-E2E gegen $appUrl" -ForegroundColor Cyan
-        Invoke-PythonModule pytest tests/e2e/ -m smoke -v
-    }
-    "e2e" {
-        $appUrl = Get-AppUrl
-        $env:MERCATOR_E2E_BASE_URL = $appUrl
-        Write-Host "Starte komplette E2E-Suite gegen $appUrl" -ForegroundColor Cyan
-        Invoke-PythonModule pytest tests/e2e/ -v
-    }
     "share-start" {
         Invoke-ShareStart
     }
     "share-stop" {
         Invoke-ShareStop
     }
-    "share-status" {
-        Invoke-ShareStatus
-    }
-    "share-logs" {
-        Invoke-ShareLogs
+    "share-reset" {
+        Invoke-ShareReset
     }
 }

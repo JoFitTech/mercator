@@ -96,7 +96,6 @@ git clone <this-repo-url> mercator
 cd mercator
 copy .env.example .env
 mercator.bat start
-mercator.bat open
 ```
 
 oder in PowerShell:
@@ -105,7 +104,6 @@ git clone <this-repo-url> mercator
 cd mercator
 Copy-Item .env.example .env -Force
 .\mercator.ps1 start
-.\mercator.ps1 open
 ```
 
 ### Windows + Git Bash / WSL
@@ -117,7 +115,6 @@ cd mercator
 cp .env.example .env
 chmod +x mercator
 ./mercator start
-./mercator open
 ```
 
 ### macOS / Linux (Bash)
@@ -127,7 +124,6 @@ cd mercator
 cp .env.example .env
 chmod +x mercator
 ./mercator start
-./mercator open
 ```
 
 Wichtig:
@@ -216,8 +212,7 @@ Installationshilfe (Cloudflare):
 1. App lokal starten.
 2. Host-Modus (empfohlen):
    - `.\mercator.ps1 share-start`
-   - `.\mercator.ps1 share-status`
-   - `.\mercator.ps1 share-logs`
+   - `.\mercator.ps1 share-reset`
    - `.\mercator.ps1 share-stop`
 3. Container-Modus:
    - weiterhin über Sidebar/Admin start/stop steuerbar.
@@ -279,27 +274,29 @@ streamlit run streamlit_app.py
 
 **Windows (cmd.exe oder PowerShell):**
 ```cmd
-mercator.bat start       REM Startet alles
-mercator.bat open        REM Öffnet im Browser
-mercator.bat status      REM Zeigt Container
-mercator.bat logs        REM Live-Logs der App
-mercator.bat cleanup     REM Bereinigt alte Container
+mercator.bat start
+mercator.bat stop
+mercator.bat restart
+mercator.bat share-start
+mercator.bat share-stop
+mercator.bat share-reset
 ```
 
 oder in PowerShell:
 ```powershell
 .\mercator.ps1 start
-.\mercator.ps1 open
-.\mercator.ps1 status
-.\mercator.ps1 logs
+.\mercator.ps1 stop
+.\mercator.ps1 restart
+.\mercator.ps1 share-start
+.\mercator.ps1 share-stop
+.\mercator.ps1 share-reset
 ```
 
 **Bash / WSL / Linux:**
 ```bash
 ./mercator start
-./mercator open
-./mercator status
-./mercator logs
+./mercator stop
+./mercator restart
 ```
 
 Oder ausführlich: Siehe [Steuerungsskripte-Übersicht](SKRIPTE.md).
@@ -311,9 +308,11 @@ Nutze zentral `mercator.bat` oder `mercator.ps1`:
 
 ```cmd
 mercator.bat start
-mercator.bat status
-mercator.bat logs
-mercator.bat open
+mercator.bat stop
+mercator.bat restart
+mercator.bat share-start
+mercator.bat share-stop
+mercator.bat share-reset
 ```
 
 ### Für macOS / Linux Benutzer
@@ -321,9 +320,8 @@ Nutze `mercator`:
 
 ```bash
 ./mercator start
-./mercator status
-./mercator logs
-./mercator open
+./mercator stop
+./mercator restart
 ```
 
 ### Für Windows + Git Bash / WSL
@@ -337,26 +335,17 @@ Verwende entweder das Batch-Skript oder das Bash-Skript:
 - `start` - startet das Projekt (Uni-DB bevorzugt, sonst lokal)
 - `stop` - stoppt den Stack
 - `restart` - startet den Stack neu (inkl. Cleanup alter Container)
-- `status` - zeigt Containerstatus
-- `logs` - streamt Logs (default Service `app`)
-- `init-db` - initialisiert das MySQL-Schema für **alle** Ziele (local + uni)
-- `doctor` - führt einen detaillierten Schema-Check und Reparaturen durch
-- `open` - oeffnet `http://localhost:8501`
-- `cleanup` - entfernt verwaiste Container (Präfix `mercator-*` oder `finanzport-*`)
-- `e2e-install` - installiert Dev-/Playwright-Abhängigkeiten und Chromium
-- `e2e-smoke` - führt die schnellen Browser-Smoke-Tests gegen die laufende App aus
-- `e2e` - führt die gesamte Playwright-E2E-Suite gegen die laufende App aus
+- `share-start` - startet den Public-Share-Tunnel
+- `share-stop` - stoppt den Public-Share-Tunnel
+- `share-reset` - startet den Public-Share-Tunnel sauber neu
 
 Beispiele:
 
 ```powershell
-.\mercator.ps1 status
 .\mercator.ps1 restart
-.\mercator.ps1 logs
-.\mercator.ps1 logs -Service mongo
-.\mercator.ps1 init-db
-.\mercator.ps1 e2e-install
-.\mercator.ps1 e2e-smoke
+.\mercator.ps1 share-start
+.\mercator.ps1 share-reset
+.\mercator.ps1 share-stop
 ```
 
 In der Dashboard-Seite kannst du unter **Gate- und Profil-Einstellungen** die Kriterien editieren
@@ -373,7 +362,6 @@ Hinweis:
 - Der Befehl nutzt das aktive oder gefallbackte Ziel aus der MySQL-Resolver-Logik.
 - Für gezielte Initialisierung pro Ziel steht intern `initialize_mysql_schema_for_target("local"|"uni")` bereit.
 - Falls das Schema selbst neu erstellt werden soll, setze `LOCAL_MYSQL_CREATE_DATABASE=true` oder `UNI_MYSQL_CREATE_DATABASE=true`.
-- Alternativ zentral per Script: `.\mercator.ps1 init-db`.
 
 ## Docker-Start für lokale Tests (App + MongoDB + MySQL)
 Für einen Klick-Start/Stop in Docker Desktop liegt eine Compose-Datei unter `mercator-compose.yml`.
@@ -425,25 +413,17 @@ Wenn du Container sowie lokale MongoDB- und MySQL-Daten frisch neu aufsetzen wil
 
 ```powershell
 docker compose -f mercator-compose.yml down -v
-# Oder via Skript fuer gezielte Bereinigung von Altlasten:
-.\mercator.ps1 cleanup
 ```
 
 ### Fehlerbehandlung: Port-Konflikte
 Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung wie `Bind for 0.0.0.0:3306 failed: port is already allocated` fehlschlägt:
 1. Pruefe, ob noch alte Container (`mercator-mysql`, `mercator-mongo`, `mercator-app-1`) laufen.
-2. Fuehre `.\mercator.ps1 cleanup` aus, um diese gezielt zu entfernen.
+2. Fuehre `.\mercator.ps1 stop` aus, um laufende Stack-Container zu beenden.
 3. Starte den Stack danach erneut mit `.\mercator.ps1 start`.
 ```powershell
 .\mercator.ps1 start
 ```
 
-Danach kannst du den Status prüfen oder die App öffnen:
-
-```powershell
-.\mercator.ps1 status
-.\mercator.ps1 open
-```
 
 ## Nächste Schritte
 - Scheduler für stündlichen Importlauf ergänzen.

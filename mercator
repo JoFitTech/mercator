@@ -1,6 +1,6 @@
 #!/bin/bash
 # Mercator Control Script (Bash-Wrapper für mercator.ps1)
-# Verwendung: ./mercator start|stop|restart|status|logs|init-db|open|cleanup|doctor|e2e-install|e2e-smoke|e2e
+# Verwendung: ./mercator start|stop|restart|share-start|share-stop|share-reset
 #
 # Hinweis für Windows Benutzer:
 # - Im normalen Windows Terminal: verwende "mercator.bat start" oder ".\mercator.ps1 start"
@@ -11,8 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PS1_SCRIPT="$SCRIPT_DIR/mercator.ps1"
 BAT_SCRIPT="$SCRIPT_DIR/mercator.bat"
 
-# Standardaktion ist "status"
-ACTION="${1:-status}"
+# Standardaktion ist "start"
+ACTION="${1:-start}"
 SERVICE="${2:-app}"
 
 # Erkenne das aktuelle System
@@ -98,39 +98,9 @@ elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "darwin"* ]]; then
                 run_compose up -d --build --wait
                 echo "Mercator neu gestartet. App: $(get_app_url)"
                 ;;
-            status)
-                run_compose ps
-                ;;
-            logs)
-                run_compose logs -f "$SERVICE"
-                ;;
-            init-db)
-                run_compose up -d --wait app mysql mongo
-                run_compose exec app python -m src.scripts.init_mysql_schema
-                ;;
-            doctor)
-                run_compose up -d --wait app
-                run_compose exec app python -m src.scripts.db_doctor
-                ;;
-            open)
-                open_url "$(get_app_url)"
-                ;;
-            cleanup)
-                run_compose down --remove-orphans
-                echo "Cleanup abgeschlossen."
-                ;;
-            e2e-install)
-                python3 -m pip install -r requirements-dev.txt
-                python3 -m playwright install chromium
-                ;;
-            e2e-smoke)
-                MERCATOR_E2E_BASE_URL="$(get_app_url)" python3 -m pytest tests/e2e/ -m smoke -v
-                ;;
-            e2e)
-                MERCATOR_E2E_BASE_URL="$(get_app_url)" python3 -m pytest tests/e2e/ -v
-                ;;
             *)
                 echo "Fehler: Unbekannte Aktion: $ACTION"
+                echo "Erlaubte Aktionen: start | stop | restart"
                 exit 1
                 ;;
         esac

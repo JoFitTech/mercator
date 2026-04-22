@@ -28,6 +28,16 @@ def handle_startup_sync(
     if not settings.mysql.mysql_sync_enabled:
         return None
 
+    if not db_status.mysql.is_connected or mysql_res is None:
+        return StartupSyncOutcome(
+            executed=False,
+            skipped=True,
+            marked_pending=False,
+            success=False,
+            message="Startup-Sync uebersprungen: Keine aktive MySQL-Verbindung.",
+            error="mysql_not_connected",
+        )
+
     local_client = MySqlClient(settings.mysql.get_mysql_target("local"))
     uni_client = MySqlClient(settings.mysql.get_mysql_target("uni"))
     repo = SyncStateRepository(local_client)
@@ -44,11 +54,22 @@ def handle_startup_sync(
 
     requested_target = mysql_res.requested_target if mysql_res else settings.mysql.mysql_active_target
     active_target = db_status.mysql.active_target if db_status else None
-    outcome = service.run_for_start(
-        requested_target=requested_target,
-        active_target=active_target,
-        uni_reachable=bool(active_target == "uni" and db_status.mysql.is_connected),
-    )
+    try:
+        outcome = service.run_for_start(
+            requested_target=requested_target,
+            active_target=active_target,
+            uni_reachable=bool(active_target == "uni" and db_status.mysql.is_connected),
+        )
+    except Exception as exc:
+        LOGGER.exception("startup_sync hook failed unexpectedly")
+        outcome = StartupSyncOutcome(
+            executed=False,
+            skipped=True,
+            marked_pending=False,
+            success=False,
+            message="Startup-Sync wegen Laufzeitfehler uebersprungen.",
+            error=str(exc),
+        )
     st.session_state["_startup_sync_outcome"] = outcome
     return outcome
 
@@ -62,5 +83,7 @@ def render_startup_sync_toast_or_banner(outcome: StartupSyncOutcome | None) -> N
         st.toast("Startup-Sync local -> uni erfolgreich ausgeführt.")
     elif payload.executed and not payload.success:
         st.warning(f"Startup-Sync fehlgeschlagen: {payload.error or payload.message}")
+    elif payload.skipped and not payload.success:
+        st.warning(f"Startup-Sync uebersprungen: {payload.error or payload.message}")
     elif payload.marked_pending:
         LOGGER.info("startup_sync pending marker set for next uni-start")

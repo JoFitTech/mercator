@@ -78,6 +78,29 @@ class _SyncServiceStub:
         return _Res()
 
 
+class _BrokenRepoStub:
+    def clear_stale_lock_if_needed(self, stale_minutes: int) -> bool:  # noqa: ARG002
+        raise RuntimeError("repo down")
+
+    def mark_pending_due_to_non_uni_start(self, requested_target: str, active_target: str | None, start_mode: str):  # noqa: ARG002
+        raise RuntimeError("repo down")
+
+    def load(self) -> StartupSyncState:
+        raise RuntimeError("repo down")
+
+    def mark_start(self, requested_target: str, active_target: str | None, start_mode: str, status: str):  # noqa: ARG002
+        raise RuntimeError("repo down")
+
+    def mark_sync_running(self, direction: str):  # noqa: ARG002
+        raise RuntimeError("repo down")
+
+    def mark_sync_success(self, direction: str):  # noqa: ARG002
+        raise RuntimeError("repo down")
+
+    def mark_sync_failed(self, direction: str, error: str, status: str = "FAILED"):  # noqa: ARG002
+        raise RuntimeError("repo down")
+
+
 def _base_state() -> StartupSyncState:
     return StartupSyncState(
         state_key="startup_mysql_sync",
@@ -188,3 +211,28 @@ def test_disabled_startup_sync_is_skipped() -> None:
 
     assert out.skipped is True
     assert sync_stub.called is False
+
+
+def test_repo_failure_on_uni_start_uses_best_effort_sync_without_crash() -> None:
+    sync_stub = _SyncServiceStub()
+    svc = _service(_BrokenRepoStub(), sync_stub)
+
+    out = svc.run_for_start(requested_target="uni", active_target="uni", uni_reachable=True)
+
+    assert out.executed is True
+    assert out.success is True
+    assert sync_stub.called is True
+    assert "State-Repo" in out.message
+
+
+def test_repo_failure_on_local_start_skips_with_error_instead_of_crash() -> None:
+    sync_stub = _SyncServiceStub()
+    svc = _service(_BrokenRepoStub(), sync_stub)
+
+    out = svc.run_for_start(requested_target="local", active_target="local", uni_reachable=False)
+
+    assert out.skipped is True
+    assert out.success is False
+    assert out.marked_pending is False
+    assert sync_stub.called is False
+
