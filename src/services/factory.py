@@ -51,6 +51,11 @@ class ServiceFactory:
         self._api_usage_service = None
         self._scoring_service = None
         self._gate_evaluator = None
+        self._dashboard_service = None
+        self._analysis_service = None
+        self._analysis_service_key = None
+        self._import_service = None
+        self._import_service_key = None
 
     def _ensure_mysql_schema_for_import(self) -> bool:
         if not self.mysql_client:
@@ -118,6 +123,9 @@ class ServiceFactory:
         if not self.mysql_client:
             return None
 
+        if self._dashboard_service is not None:
+            return self._dashboard_service
+
         raw_repo = None
         company_mongo_repo = None
         if self.mongo_wrapper:
@@ -133,18 +141,28 @@ class ServiceFactory:
         trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
         company_repo = CompanyMySqlRepository(self.mysql_client)
 
-        return DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo)
+        self._dashboard_service = DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo)
+        return self._dashboard_service
 
     def create_analysis_service(self) -> AnalysisService | None:
         if not self.mysql_client:
             return None
-        
+
+        runtime_settings = self.create_app_settings_service().load()
+        policy = self.create_app_settings_service().load_score_gate_policy()
+        analysis_key = (
+            int(policy.score_threshold_pass_min),
+            int(policy.score_threshold_hold_min),
+            str(runtime_settings.lookup_mode),
+            int(runtime_settings.profile_ttl_days),
+        )
+        if self._analysis_service is not None and self._analysis_service_key == analysis_key:
+            return self._analysis_service
+
         trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
         company_repo = CompanyMySqlRepository(self.mysql_client)
-        policy = self.create_app_settings_service().load_score_gate_policy()
-        
+
         # FMP Client
-        runtime_settings = self.create_app_settings_service().load()
         fmp_client = FmpClient(
             replace(
                 self.settings.fmp,
@@ -154,13 +172,15 @@ class ServiceFactory:
             api_usage_service=self.create_api_usage_service()
         )
         
-        return AnalysisService(
+        self._analysis_service = AnalysisService(
             trade_repo,
             company_repo,
             score_gate_policy=policy,
             fmp_client=fmp_client,
             scoring_service=self.create_scoring_service()
         )
+        self._analysis_service_key = analysis_key
+        return self._analysis_service
 
     def create_import_service(self) -> ImportService | None:
         # Requirement 9: Kein Betrieb ohne Kernkomponenten (MySQL + Mongo fuer raw+clean Pipeline Pflicht)
@@ -188,6 +208,16 @@ class ServiceFactory:
             return None
         
         runtime_settings = self.create_app_settings_service().load()
+        import_key = (
+            tuple(runtime_settings.profile_gate_filter_statuses),
+            str(runtime_settings.api2_firing_mode),
+            int(runtime_settings.profile_ttl_days),
+            str(runtime_settings.lookup_mode),
+            bool(self.settings.review_mode or self.settings.disable_import),
+        )
+        if self._import_service is not None and self._import_service_key == import_key:
+            return self._import_service
+
         try:
             fmp_client = FmpClient(
                 replace(
@@ -211,7 +241,7 @@ class ServiceFactory:
         enrichment_service = CompanyEnrichmentService(fmp_client, av_client, poly_client)
         ServiceFactory.last_import_issue = None
 
-        return ImportService(
+        self._import_service = ImportService(
             fmp_client=fmp_client,
             gate_evaluator=self.create_gate_evaluator(),
             raw_repo=raw_repo,
@@ -226,6 +256,8 @@ class ServiceFactory:
             enrichment_service=enrichment_service,
             scoring_service=self.create_scoring_service()
         )
+        self._import_service_key = import_key
+        return self._import_service
 
     def create_company_repository(self) -> CompanyMySqlRepository | None:
         if not self.mysql_client:

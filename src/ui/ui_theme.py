@@ -20,14 +20,14 @@ THEME_COLORS: dict[str, str] = {
     "text_strong": "#0F1A26",
     "text": "#28323D",
     "text_muted": "#56646E",
-    "success": "#2F8F7A",
-    "success_bg": "#E7F5F1",
-    "danger": "#A54A4A",
-    "danger_bg": "#F8EBEB",
-    "warning": "#A5823F",
-    "warning_bg": "#F9F3E5",
-    "info": "#355D7E",
-    "info_bg": "#EAF1F6",
+    "success": "#1E9E6F",
+    "success_bg": "#E6F7F0",
+    "danger": "#C0392B",
+    "danger_bg": "#FDECEA",
+    "warning": "#B9770E",
+    "warning_bg": "#FEF5E7",
+    "info": "#2E86C1",
+    "info_bg": "#EAF3FB",
 }
 
 CHART_PALETTE: dict[str, object] = {
@@ -38,11 +38,11 @@ CHART_PALETTE: dict[str, object] = {
     "steel": THEME_COLORS["blue_300"],
     "categorical": [
         THEME_COLORS["blue_500"],
-        "#85A9B4",
-        "#6E97AB",
-        "#9EB9C2",
-        "#B7CBD1",
-        "#CAD9DE",
+        "#7D3C98",
+        "#1E9E6F",
+        "#B9770E",
+        "#C0392B",
+        "#2E86C1",
     ],
 }
 
@@ -74,14 +74,14 @@ def apply_ui_theme() -> None:
             --mercator-text: #28323D;
             --mercator-text-muted: #56646E;
 
-            --mercator-success: #2F8F7A;
-            --mercator-success-bg: #E7F5F1;
-            --mercator-danger: #A54A4A;
-            --mercator-danger-bg: #F8EBEB;
-            --mercator-warning: #A5823F;
-            --mercator-warning-bg: #F9F3E5;
-            --mercator-info: #355D7E;
-            --mercator-info-bg: #EAF1F6;
+            --mercator-success: #1E9E6F;
+            --mercator-success-bg: #E6F7F0;
+            --mercator-danger: #C0392B;
+            --mercator-danger-bg: #FDECEA;
+            --mercator-warning: #B9770E;
+            --mercator-warning-bg: #FEF5E7;
+            --mercator-info: #2E86C1;
+            --mercator-info-bg: #EAF3FB;
 
             --mercator-focus-ring: rgba(53, 93, 126, 0.32);
             --mercator-success-ring: rgba(47, 143, 122, 0.24);

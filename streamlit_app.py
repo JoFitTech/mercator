@@ -93,13 +93,15 @@ def main():
     # P0.3: Auto-Import folgt jetzt den RuntimeSettings (auto_import_enabled, interval, on_start)
     # AppSettingsService ist ein Singleton in der Factory – gecacht für diesen Rerun
     app_settings_service = factory.create_app_settings_service()
+    import_service = factory.create_import_service()
+    analysis_service = factory.create_analysis_service()
     auto_import_blocked = bool(
         settings.disable_import or settings.review_mode or settings.ui_test_mode
     )
     if db_status.is_ingestion_available and not auto_import_blocked:
         runtime_settings = app_settings_service.load()
         handle_auto_import(
-            factory.create_import_service(),
+            import_service,
             runtime=runtime_settings,
             disabled=auto_import_blocked,
         )
@@ -110,13 +112,13 @@ def main():
     if nav_target == "Dashboard":
         _safe_render_page("Dashboard", lambda: render_dashboard_page(
             service=factory.create_dashboard_service(),
-            import_service=factory.create_import_service(),
+            import_service=import_service,
             settings=settings,
             runtime_settings_service=app_settings_service,
             db_status=db_status,
         ))
     elif nav_target == "Trades":
-        _safe_render_page("Trades", lambda: render_trades_page(factory.create_analysis_service(), db_status=db_status))
+        _safe_render_page("Trades", lambda: render_trades_page(analysis_service, db_status=db_status))
     elif nav_target == "Unternehmen":
         _safe_render_page("Unternehmen", lambda: render_companies_page(factory.create_company_repository(), db_status=db_status))
     elif nav_target == "Einstellungen":
@@ -130,13 +132,13 @@ def main():
             mongo_available=db_status.mongo.is_connected,
             db_status=db_status,
             settings_service=app_settings_service,
-            import_service=factory.create_import_service(),
+            import_service=import_service,
             api_usage_service=factory.create_api_usage_service()
         ))
     elif nav_target == "Trade-Detail":
-        _safe_render_page("Trade-Detail", lambda: render_trade_detail_page(factory.create_analysis_service(), db_status=db_status))
+        _safe_render_page("Trade-Detail", lambda: render_trade_detail_page(analysis_service, db_status=db_status))
     elif nav_target == "Unternehmens-Detail":
-        _safe_render_page("Unternehmens-Detail", lambda: render_company_detail_page(factory.create_analysis_service(), db_status=db_status))
+        _safe_render_page("Unternehmens-Detail", lambda: render_company_detail_page(analysis_service, db_status=db_status))
     else:
         st.session_state["nav_target"] = "Dashboard"
         st.rerun()

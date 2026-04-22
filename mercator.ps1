@@ -1,11 +1,12 @@
 param(
-    [ValidateSet("start", "stop", "restart", "share-start", "share-stop", "share-reset")]
+    [ValidateSet("start", "stop", "restart", "share-start", "share-stop", "share-status", "share-logs", "share-reset")]
     [string]$Action = "start",
     [string]$Service = "app"
 )
 
 $ErrorActionPreference = "Stop"
 $composeFile = Join-Path $PSScriptRoot "mercator-compose.yml"
+$script:DockerAvailabilityCache = $null
 
 Set-Location -Path $PSScriptRoot
 
@@ -18,31 +19,38 @@ function Get-DockerAvailability {
         }
     }
 
-    $outFile = Join-Path $env:TEMP "mercator_docker_check_out.tmp"
-    $errorFile = Join-Path $env:TEMP "mercator_docker_check_error.tmp"
-    Remove-Item $outFile -ErrorAction SilentlyContinue
-    Remove-Item $errorFile -ErrorAction SilentlyContinue
+    $outFile = [System.IO.Path]::GetTempFileName()
+    $errorFile = [System.IO.Path]::GetTempFileName()
 
     $proc = Start-Process -FilePath $dockerCmd.Source `
         -ArgumentList @('version', '--format', '{{.Server.Version}}') `
         -RedirectStandardOutput $outFile `
         -RedirectStandardError $errorFile `
         -PassThru `
-        -Wait `
         -WindowStyle Hidden
-    $exitCode = $proc.ExitCode
 
-    if ($exitCode -eq 0) {
+    # Harte Obergrenze, damit der Start nie "haengen" bleibt.
+    $finished = $proc.WaitForExit(8000)
+    if (-not $finished) {
+        try { $proc.Kill() } catch { }
+        Remove-Item $outFile, $errorFile -ErrorAction SilentlyContinue
+        return @{
+            IsAvailable = $false
+            Message = "Docker-Check Timeout nach 8s (docker version)."
+        }
+    }
+    $serverVersion = (Get-Content $outFile -Raw -ErrorAction SilentlyContinue)
+    if ($serverVersion -and $serverVersion.Trim()) {
         Remove-Item $outFile, $errorFile -ErrorAction SilentlyContinue
         return @{
             IsAvailable = $true
-            Message = "Docker daemon verfuegbar."
+            Message = "Docker daemon verfuegbar (Server $($serverVersion.Trim()))."
         }
     }
 
     $detail = Get-Content $errorFile -Raw -ErrorAction SilentlyContinue
     if (-not $detail) {
-        $detail = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+        $detail = $serverVersion
     }
     if (-not $detail) {
         $detail = "Docker daemon ist aktuell nicht erreichbar."
@@ -62,7 +70,12 @@ function Ensure-DockerAvailable {
         [switch]$AllowMissing
     )
 
+    if ($script:DockerAvailabilityCache -and $script:DockerAvailabilityCache.IsAvailable) {
+        return $true
+    }
+
     $dockerState = Get-DockerAvailability
+    $script:DockerAvailabilityCache = $dockerState
     if ($dockerState.IsAvailable) {
         return $true
     }
@@ -277,13 +290,48 @@ function Get-AppUrl {
     return "http://localhost:8501"
 }
 
+function Wait-AppReady {
+    param(
+        [string]$AppUrl = "http://localhost:8501",
+        [int]$TimeoutSeconds = 90,
+        [int]$PollIntervalSeconds = 3,
+        [switch]$BestEffort
+    )
+
+    $healthUrl = "$AppUrl/_stcore/health"
+    Write-Host "      Warte auf App-Readiness: $healthUrl" -ForegroundColor Gray
+    $elapsed = 0
+    while ($elapsed -lt $TimeoutSeconds) {
+        try {
+            $resp = Invoke-WebRequest -Uri $healthUrl -Method Get -UseBasicParsing -TimeoutSec 4
+            if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300) {
+                Write-Host "      [OK] App ist erreichbar (${elapsed}s)." -ForegroundColor Green
+                return $true
+            }
+        } catch {
+            # App noch nicht bereit
+        }
+        if (($elapsed % 15) -eq 0 -and $elapsed -gt 0) {
+            Write-Host "      ... App startet noch ... (${elapsed}s / ${TimeoutSeconds}s)" -ForegroundColor Gray
+        }
+        Start-Sleep -Seconds $PollIntervalSeconds
+        $elapsed += $PollIntervalSeconds
+    }
+    if ($BestEffort) {
+        Write-Host "      [WARN] App ist nach ${TimeoutSeconds}s noch nicht bereit (Best-Effort: Start laeuft weiter)." -ForegroundColor Yellow
+    } else {
+        Write-Host "      [WARN] App ist nach ${TimeoutSeconds}s noch nicht bereit." -ForegroundColor Yellow
+    }
+    return $false
+}
+
 function Invoke-Compose {
     param(
         [Parameter(ValueFromRemainingArguments = $true)]
         [string[]]$Args
     )
 
-    Ensure-DockerAvailable -Context "Der Docker-Compose-Befehl kann nicht ausgefuehrt werden."
+    $null = Ensure-DockerAvailable -Context "Der Docker-Compose-Befehl kann nicht ausgefuehrt werden."
 
     $oldEAP = $ErrorActionPreference
     try {
@@ -305,12 +353,12 @@ function Invoke-ComposeQuiet {
         [string[]]$ComposeArgs
     )
 
-    Ensure-DockerAvailable -Context "Der Docker-Compose-Befehl kann nicht ausgefuehrt werden."
+    $null = Ensure-DockerAvailable -Context "Der Docker-Compose-Befehl kann nicht ausgefuehrt werden."
 
     $joinedArgs = $ComposeArgs -join " "
     # Fuehre den Befehl aus und fange stderr ab, um es im Fehlerfall anzuzeigen.
-    $errorFile = Join-Path $env:TEMP "mercator_compose_error.tmp"
-    
+    $errorFile = [System.IO.Path]::GetTempFileName()
+
     $oldEAP = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
@@ -524,15 +572,21 @@ function Wait-ContainerHealthy {
     param(
         [Parameter(Mandatory=$true)][string]$ContainerName,
         [int]$TimeoutSeconds = 90,
-        [int]$PollIntervalSeconds = 3
+        [int]$PollIntervalSeconds = 2
     )
     Write-Host "  Warte auf $ContainerName (healthy)..." -ForegroundColor Gray
     $elapsed = 0
+    $lastOutput = 0
     while ($elapsed -lt $TimeoutSeconds) {
         $health = docker inspect --format "{{.State.Health.Status}}" $ContainerName 2>$null
         if ($health -eq "healthy") {
-            Write-Host "  [OK] $ContainerName ist healthy." -ForegroundColor Green
+            Write-Host "  [OK] $ContainerName ist healthy (${elapsed}s)." -ForegroundColor Green
             return $true
+        }
+        # Zeige Fortschritt alle 10 Sekunden an
+        if ($elapsed - $lastOutput -ge 10) {
+            Write-Host "  ... noch warten ... (${elapsed}s / ${TimeoutSeconds}s)" -ForegroundColor Gray
+            $lastOutput = $elapsed
         }
         Start-Sleep -Seconds $PollIntervalSeconds
         $elapsed += $PollIntervalSeconds
@@ -548,8 +602,8 @@ function Invoke-ShutdownSync {
     #>
     $uni = Test-UniDatabaseConnectivity
     if (-not $uni.MySql) {
-        Write-Host "Uni-MySQL nicht erreichbar - Shutdown-Sync wird uebersprungen." -ForegroundColor Yellow
-        Write-Host "  (Pending-Flag wird beim naechsten Start automatisch gesetzt)" -ForegroundColor Gray
+        Write-Host "[INFO] Uni-MySQL nicht erreichbar - Shutdown-Sync wird uebersprungen." -ForegroundColor Gray
+        Write-Host "       (Pending-Flag wird beim naechsten Start automatisch gesetzt)" -ForegroundColor Gray
         return
     }
 
@@ -576,28 +630,33 @@ function Invoke-ShutdownSync {
 
 switch ($Action) {
     "start" {
-        # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
-        # WICHTIG: --build wird standardmaessig hinzugefuegt um sicherzustellen, dass Dockerfile-Aenderungen (z.B. cloudflared) geladen werden.
-        $uni = Test-UniDatabaseConnectivity
-        if ($uni.MySql -and $uni.Mongo) {
-            Write-Host "Uni-Datenbanken erreichbar. Starte nur die App (ohne lokale DB-Services)..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d --build --wait --no-deps app
-         } else {
-            Write-Host "Uni-Datenbanken nicht vollstaendig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
-            Write-Host ">> Starte mysql und mongo..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d mysql mongo
-            # Warte explizit bis beide Container healthy sind, bevor die App startet
-            $mysqlHealthy = Wait-ContainerHealthy -ContainerName "mercator-mysql" -TimeoutSeconds 90
-            $mongoHealthy = Wait-ContainerHealthy -ContainerName "mercator-mongo" -TimeoutSeconds 60
-            if (-not $mysqlHealthy -or -not $mongoHealthy) {
-                Write-Host "[WARN] Nicht alle Datenbank-Container sind healthy. App wird trotzdem gestartet (degraded mode)." -ForegroundColor Yellow
-            }
-            Write-Host ">> Starte App..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d --build --wait app
+        # Lokale DB-Services immer starten, damit Startup-Sync local -> uni stabil funktioniert.
+        # WICHTIG: --build bleibt beim app-Start aktiv fuer Dockerfile-Aenderungen.
+        Write-Host "`n[1/4] Pruefen Docker-Verfuegbarkeit..." -ForegroundColor Cyan
+        $null = Ensure-DockerAvailable -Context "Docker wird fuer den Start benoetigt."
+        Write-Host "      [OK] Docker ist verfuegbar." -ForegroundColor Green
+
+        Write-Host "`n[2/4] Starten lokale Datenbank-Services (mysql, mongo)..." -ForegroundColor Cyan
+        Invoke-Compose 'up' '-d' 'mysql' 'mongo'
+        Write-Host "      [OK] Container gestartet. Warte auf Healthcheck..." -ForegroundColor Gray
+
+        Write-Host "`n[3/4] Warten auf Datenbank-Readiness..." -ForegroundColor Cyan
+        # Warte explizit bis beide Container healthy sind, bevor die App startet
+        $mysqlHealthy = Wait-ContainerHealthy -ContainerName "mercator-mysql" -TimeoutSeconds 90
+        $mongoHealthy = Wait-ContainerHealthy -ContainerName "mercator-mongo" -TimeoutSeconds 60
+        if (-not $mysqlHealthy -or -not $mongoHealthy) {
+            Write-Host "      [WARN] Nicht alle Datenbank-Container sind healthy. App wird trotzdem gestartet." -ForegroundColor Yellow
         }
+
+        Write-Host "`n[4/4] Starten Mercator-App (mit Build-Output)..." -ForegroundColor Cyan
+        Invoke-Compose 'up' '-d' '--build' 'app'
         $appUrl = Get-AppUrl
-        Write-Host "[OK] Mercator gestartet. App: $appUrl" -ForegroundColor Green
-        Write-Host "     (Startup-Sync local -> uni wird beim ersten Browser-Aufruf ausgefuehrt)" -ForegroundColor Gray
+        [void](Wait-AppReady -AppUrl $appUrl -TimeoutSeconds 30 -BestEffort)
+
+        Write-Host "`n=== ERFOLGREICH GESTARTET ===" -ForegroundColor Green
+        Write-Host "App URL: $appUrl" -ForegroundColor Green
+        Write-Host "(Startup-Sync local -> uni wird beim ersten Browser-Aufruf ausgefuehrt)" -ForegroundColor Gray
+        Write-Host ""
     }
     "stop" {
         Invoke-ShareStop
@@ -607,41 +666,56 @@ switch ($Action) {
         }
         # Shutdown-Sync VOR dem Stoppen der Container
         Invoke-ShutdownSync
-        Invoke-Compose down
+        Invoke-Compose 'down'
         Write-Host "Mercator gestoppt." -ForegroundColor Yellow
     }
     "restart" {
+        Write-Host "`n[1/5] Stoppe Cloudflare-Tunnel..." -ForegroundColor Cyan
         Invoke-ShareStop
+        Write-Host "      [OK] Tunnel gestoppt." -ForegroundColor Green
+
+        Write-Host "`n[2/5] Fuehre Shutdown-Sync local -> uni durch..." -ForegroundColor Cyan
         # Shutdown-Sync VOR dem Stoppen
         Invoke-ShutdownSync
-        Invoke-ComposeQuiet down
+
+        Write-Host "`n[3/5] Fahren Docker-Stack herunter..." -ForegroundColor Cyan
+        Invoke-ComposeQuiet 'down'
         Remove-Legacy-Containers
-        # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
-        # WICHTIG: --build wird standardmaessig hinzugefuegt um sicherzustellen, dass Dockerfile-Aenderungen geladen werden.
-        $uni = Test-UniDatabaseConnectivity
-        if ($uni.MySql -and $uni.Mongo) {
-            Write-Host "Uni-Datenbanken erreichbar. Starte nur die App (ohne lokale DB-Services)..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d --build --wait --no-deps app
-        } else {
-            Write-Host "Uni-Datenbanken nicht vollstaendig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
-            Write-Host ">> Starte mysql und mongo..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d mysql mongo
-            $mysqlHealthy = Wait-ContainerHealthy -ContainerName "mercator-mysql" -TimeoutSeconds 90
-            $mongoHealthy = Wait-ContainerHealthy -ContainerName "mercator-mongo" -TimeoutSeconds 60
-            if (-not $mysqlHealthy -or -not $mongoHealthy) {
-                Write-Host "[WARN] Nicht alle Datenbank-Container sind healthy. App wird trotzdem gestartet." -ForegroundColor Yellow
-            }
-            Write-Host ">> Starte App..." -ForegroundColor Cyan
-            Invoke-ComposeQuiet up -d --build --wait app
+        Write-Host "      [OK] Stack gestoppt und aufgeraeumt." -ForegroundColor Green
+
+        Write-Host "`n[4/5] Starten lokale Datenbank-Services..." -ForegroundColor Cyan
+        # Lokale DB-Services immer vor App-Start hochfahren (Startup-Sync braucht local DB-Endpunkte).
+        # WICHTIG: --build bleibt beim app-Start aktiv fuer Dockerfile-Aenderungen.
+        Write-Host "      [INFO] Lokale DBs werden ohne Uni-DNS-Checks gestartet." -ForegroundColor Gray
+        Invoke-Compose 'up' '-d' 'mysql' 'mongo'
+        Write-Host "      [OK] Container gestartet. Warte auf Healthcheck..." -ForegroundColor Gray
+
+        $mysqlHealthy = Wait-ContainerHealthy -ContainerName "mercator-mysql" -TimeoutSeconds 90
+        $mongoHealthy = Wait-ContainerHealthy -ContainerName "mercator-mongo" -TimeoutSeconds 60
+        if (-not $mysqlHealthy -or -not $mongoHealthy) {
+            Write-Host "      [WARN] Nicht alle Datenbank-Container sind healthy. App wird trotzdem gestartet." -ForegroundColor Yellow
         }
+
+        Write-Host "`n[5/5] Starten Mercator-App (mit Build-Output)..." -ForegroundColor Cyan
+        Invoke-Compose 'up' '-d' '--build' 'app'
         $appUrl = Get-AppUrl
-        Write-Host "[OK] Mercator neu gestartet. App: $appUrl" -ForegroundColor Green
+        [void](Wait-AppReady -AppUrl $appUrl -TimeoutSeconds 30 -BestEffort)
+
+        Write-Host "`n=== ERFOLGREICH NEU GESTARTET ===" -ForegroundColor Green
+        Write-Host "App URL: $appUrl" -ForegroundColor Green
+        Write-Host ""
     }
     "share-start" {
         Invoke-ShareStart
     }
     "share-stop" {
         Invoke-ShareStop
+    }
+    "share-status" {
+        Invoke-ShareStatus
+    }
+    "share-logs" {
+        Invoke-ShareLogs
     }
     "share-reset" {
         Invoke-ShareReset

@@ -323,6 +323,27 @@ class CompanyRepository:
                 return result[0] if result and result[0] else None
 
 class CompanyMySqlRepository(CompanyRepository):
+    def list_profile_backfill_candidates(self, limit: int = 100) -> list[str]:
+        sql = """
+            SELECT DISTINCT c.current_symbol
+            FROM companies c
+            WHERE c.current_symbol IS NOT NULL
+              AND c.current_symbol <> ''
+              AND (
+                    COALESCE(c.profile_status, 'NOT_REQUESTED') IN ('NOT_REQUESTED', 'FAILED')
+                    OR COALESCE(c.sector_resolution_status, 'UNRESOLVED') = 'UNRESOLVED'
+                    OR c.sector IS NULL OR TRIM(c.sector) = ''
+                    OR c.market_cap IS NULL
+              )
+            ORDER BY COALESCE(c.last_seen_at, c.updated_at) DESC
+            LIMIT %s
+        """
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (int(limit),))
+                rows = cursor.fetchall()
+                return [str(row[0]).strip().upper() for row in rows if row and row[0]]
+
     def fetch_company(self, symbol: str) -> dict[str, Any] | None:
         return self.get_company_by_symbol(symbol)
 

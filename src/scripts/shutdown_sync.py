@@ -36,34 +36,34 @@ def _test_connection(client: MySqlClient, label: str) -> bool:
 
 def run_shutdown_sync() -> int:
     """Führt den Shutdown-Sync durch. Gibt Exit-Code zurück."""
-    print("⏳ Shutdown-Sync wird vorbereitet...", flush=True)
+    print("[INFO] Shutdown-Sync wird vorbereitet...", flush=True)
 
     try:
         settings = load_settings()
     except Exception as exc:
-        print(f"❌ Einstellungen konnten nicht geladen werden: {exc}", file=sys.stderr)
+        print(f"[ERROR] Einstellungen konnten nicht geladen werden: {exc}", file=sys.stderr)
         return 2
 
     if not settings.mysql.mysql_sync_enabled:
-        print("ℹ️  MySQL-Sync ist deaktiviert (MYSQL_SYNC_ENABLED=false). Überspringe.", flush=True)
+        print("[INFO] MySQL-Sync ist deaktiviert (MYSQL_SYNC_ENABLED=false). Ueberspringe.", flush=True)
         return 0
 
     try:
         local_client = MySqlClient(settings.mysql.get_mysql_target("local"))
         uni_client = MySqlClient(settings.mysql.get_mysql_target("uni"))
     except Exception as exc:
-        print(f"❌ MySQL-Clients konnten nicht erstellt werden: {exc}", file=sys.stderr)
+        print(f"[ERROR] MySQL-Clients konnten nicht erstellt werden: {exc}", file=sys.stderr)
         return 2
 
     # Verbindungsprüfung
-    print("🔍 Prüfe lokale MySQL...", flush=True)
+    print("[CHECK] Pruefe lokale MySQL...", flush=True)
     if not _test_connection(local_client, "local MySQL"):
-        print("⚠️  Lokale MySQL nicht erreichbar. Shutdown-Sync übersprungen.", flush=True)
+        print("[WARN] Lokale MySQL nicht erreichbar. Shutdown-Sync uebersprungen.", flush=True)
         return 0  # Kein Fehler – DB war schon nicht da
 
-    print("🔍 Prüfe Uni-MySQL...", flush=True)
+    print("[CHECK] Pruefe Uni-MySQL...", flush=True)
     if not _test_connection(uni_client, "uni MySQL"):
-        print("⚠️  Uni-MySQL nicht erreichbar. Shutdown-Sync übersprungen.", flush=True)
+        print("[WARN] Uni-MySQL nicht erreichbar. Shutdown-Sync uebersprungen.", flush=True)
         # Pending markieren damit nächster Start den Sync nachholt
         try:
             repo = SyncStateRepository(local_client)
@@ -72,19 +72,19 @@ def run_shutdown_sync() -> int:
                 active_target="local",
                 start_mode="SHUTDOWN_NO_UNI",
             )
-            print("📌 Pending-Sync-Flag gesetzt für nächsten Start.", flush=True)
+            print("[INFO] Pending-Sync-Flag gesetzt fuer naechsten Start.", flush=True)
         except Exception as exc:
             LOGGER.warning("shutdown_sync: Pending-Flag konnte nicht gesetzt werden: %s", exc)
         return 0
 
     # Sync durchführen
-    print("🔄 Starte Shutdown-Sync local → uni ...", flush=True)
+    print("[SYNC] Starte Shutdown-Sync local -> uni ...", flush=True)
     sync_service = MySqlSyncService()
     try:
         repo = SyncStateRepository(local_client)
         repo.mark_sync_running(direction="local_to_uni")
     except Exception as exc:
-        LOGGER.warning("shutdown_sync: State-Repo nicht verfügbar: %s", exc)
+        LOGGER.warning("shutdown_sync: State-Repo nicht verfuegbar: %s", exc)
 
     try:
         summary = sync_service.sync_startup_reconnect(
@@ -98,7 +98,7 @@ def run_shutdown_sync() -> int:
             + (summary.app_runtime_preferences_result.written_count if summary.app_runtime_preferences_result else 0)
         )
         print(
-            f"✅ Shutdown-Sync erfolgreich! "
+            f"[OK] Shutdown-Sync erfolgreich! "
             f"Companies: {companies_written}, Trades: {trades_written}, Settings: {settings_written}",
             flush=True,
         )
@@ -109,7 +109,7 @@ def run_shutdown_sync() -> int:
             pass
         return 0
     except Exception as exc:
-        print(f"❌ Shutdown-Sync fehlgeschlagen: {exc}", file=sys.stderr)
+        print(f"[ERROR] Shutdown-Sync fehlgeschlagen: {exc}", file=sys.stderr)
         try:
             repo = SyncStateRepository(local_client)
             repo.mark_sync_failed(direction="local_to_uni", error=str(exc))

@@ -48,6 +48,14 @@ class ImportSummary:
     profile_failures: int
 
 
+@dataclass(slots=True)
+class ProfileBackfillSummary:
+    candidates: int
+    attempted: int
+    refreshed: int
+    failed: int
+
+
 class ImportService:
     """Orchestriert FMP-Import, Gate-Prüfung und DB-Speicherung."""
 
@@ -471,6 +479,41 @@ class ImportService:
         except Exception as exc:
             LOGGER.exception("Gezielter Profil-Refresh fehlgeschlagen für %s", normalized_symbol)
             return {"ok": False, "message": f"Profil-Refresh für {normalized_symbol} fehlgeschlagen: {exc}", "symbol": normalized_symbol}
+
+    def backfill_missing_profiles(self, max_symbols: int = 50, force_refresh: bool = True) -> ProfileBackfillSummary:
+        """Lädt gezielt fehlende/unvollständige Firmenprofile per API2 nach."""
+        if self.company_mysql_repo is None:
+            return ProfileBackfillSummary(candidates=0, attempted=0, refreshed=0, failed=0)
+        if not hasattr(self.company_mysql_repo, "list_profile_backfill_candidates"):
+            return ProfileBackfillSummary(candidates=0, attempted=0, refreshed=0, failed=0)
+
+        candidates = self.company_mysql_repo.list_profile_backfill_candidates(limit=max_symbols)
+        attempted = 0
+        refreshed = 0
+        failed = 0
+
+        for symbol in candidates:
+            attempted += 1
+            result = self.refresh_company_profile_for_symbol(symbol)
+            if bool(result.get("ok")):
+                refreshed += 1
+            else:
+                failed += 1
+
+        LOGGER.info(
+            "API2 backfill abgeschlossen: candidates=%s attempted=%s refreshed=%s failed=%s force_refresh=%s",
+            len(candidates),
+            attempted,
+            refreshed,
+            failed,
+            force_refresh,
+        )
+        return ProfileBackfillSummary(
+            candidates=len(candidates),
+            attempted=attempted,
+            refreshed=refreshed,
+            failed=failed,
+        )
 
     @staticmethod
     def _extract_market_cap(profile: dict[str, Any]) -> int | None:

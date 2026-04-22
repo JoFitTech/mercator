@@ -276,7 +276,7 @@ def render_sidebar_navigation() -> None:
                 )
                 if st.button(label, key=f"sidebar_nav_{target}", use_container_width=True, type=button_type):
                     _set_nav_target(target)  # type: ignore[arg-type]
-        _render_public_share_sidebar_controls()
+        # Public-Share-Steuerung bewusst nur im Admin-Bereich.
 
 
 def render_system_status_sidebar(db_status, mysql_res):

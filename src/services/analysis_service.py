@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import json
 import pandas as pd
 
 from src.data_sources.fmp_client import FmpClient
@@ -69,6 +70,15 @@ class AnalysisService:
     # TTL-Cache für ticker_options (DB-Abfrage, teuer)
     _ticker_options_cache: tuple[float, list[str]] | None = None
     _TICKER_CACHE_TTL = 60.0  # Sekunden
+    _trades_page_cache: dict[str, tuple[float, tuple[pd.DataFrame, int]]] = {}
+    _TRADES_PAGE_CACHE_TTL = 20.0  # Sekunden
+
+    @staticmethod
+    def _freeze_filters(filters: dict | None) -> str:
+        if not filters:
+            return "{}"
+        normalized = {str(k): str(v) for k, v in sorted(filters.items(), key=lambda item: str(item[0]))}
+        return json.dumps(normalized, ensure_ascii=True, sort_keys=True)
 
     def list_ticker_options(self) -> list[str]:
         """Liefert ausschließlich symbolbasierte, bereinigte Tickeroptionen.
@@ -234,8 +244,19 @@ class AnalysisService:
 
         normalized["score"] = pd.to_numeric(normalized["score"], errors="coerce")
         normalized["score_class"] = normalized["score_class"].where(normalized["score_class"].notna(), None)
-        normalized["score_status"] = normalized["score"].apply(lambda v: self.scoring_service.compute_trade_score({"score": v})["status_label"])
-        normalized["score_status_color"] = normalized["score"].apply(lambda v: self.scoring_service.compute_trade_score({"score": v})["status_color"])
+
+        # Vektorisierte Status-Klassifizierung statt teurer row-wise Funktionsaufrufe.
+        pass_min = float(self.scoring_service.policy.score_threshold_pass_min)
+        hold_min = float(self.scoring_service.policy.score_threshold_hold_min)
+        score_series = normalized["score"]
+        normalized["score_status"] = self.scoring_service.policy.fail_label
+        normalized["score_status_color"] = self.scoring_service.policy.fail_color
+        hold_mask = score_series.notna() & (score_series >= hold_min)
+        pass_mask = score_series.notna() & (score_series >= pass_min)
+        normalized.loc[hold_mask, "score_status"] = self.scoring_service.policy.hold_label
+        normalized.loc[hold_mask, "score_status_color"] = self.scoring_service.policy.hold_color
+        normalized.loc[pass_mask, "score_status"] = self.scoring_service.policy.pass_label
+        normalized.loc[pass_mask, "score_status_color"] = self.scoring_service.policy.pass_color
         if "trade_republic_universe_status" not in normalized.columns:
             normalized["trade_republic_universe_status"] = pd.NA
         if "company_trade_republic_universe_status" in normalized.columns:
@@ -301,6 +322,13 @@ class AnalysisService:
         if min_value > 0:
             effective_filters["min_value"] = min_value
 
+        cache_key = f"{self._freeze_filters(effective_filters)}|{int(limit)}|{int(offset)}"
+        now = time.monotonic()
+        cached = AnalysisService._trades_page_cache.get(cache_key)
+        if cached is not None and now - cached[0] < AnalysisService._TRADES_PAGE_CACHE_TTL:
+            cached_df, cached_total = cached[1]
+            return cached_df.copy(), int(cached_total)
+
         total_count = self.trade_repo.count_trades(filters=effective_filters)
         if limit > 0 and total_count > 0 and offset >= total_count:
             last_page = max(1, (total_count + limit - 1) // limit)
@@ -308,6 +336,9 @@ class AnalysisService:
 
         df = self.trade_repo.fetch_trades_page(filters=effective_filters, limit=limit, offset=offset)
         df = self._ensure_trade_columns(df)
+        if len(AnalysisService._trades_page_cache) > 200:
+            AnalysisService._trades_page_cache.clear()
+        AnalysisService._trades_page_cache[cache_key] = (now, (df.copy(), int(total_count)))
         return df, total_count
 
     def get_ticker_detail(self, symbol: str, accumulate: bool = True) -> AnalysisResult:
