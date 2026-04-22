@@ -1,10 +1,13 @@
 """Trade-Detailseite (Requirement 5)."""
 
 from __future__ import annotations
+import pandas as pd
 import streamlit as st
+from src.services.accumulation_service import AccumulationService
 from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
+from src.ui.components.tables import render_trade_table
 
 
 def _safe_text(value: object, fallback: str = "Nicht verfügbar") -> str:
@@ -20,11 +23,97 @@ def _safe_float(value: object, fallback: float = 0.0) -> float:
     except (TypeError, ValueError):
         return fallback
 
+
+def _aod_token(direction: object) -> str | None:
+    normalized = str(direction or "").strip().upper()
+    if normalized == "BUY":
+        return "A"
+    if normalized == "SELL":
+        return "D"
+    return None
+
+
+def _to_date(value: object) -> pd.Timestamp | None:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed
+
+
+def _render_group_trade_detail(service: AnalysisService, group_context: dict[str, object]) -> bool:
+    symbol = str(group_context.get("symbol_at_trade") or "").strip()
+    reporting_name = str(group_context.get("reporting_name") or "").strip()
+    group_id = str(group_context.get("accumulation_group_id") or "").strip()
+    direction = str(group_context.get("direction") or "").strip().upper()
+    date_from = _to_date(group_context.get("accumulation_start_date"))
+    date_to = _to_date(group_context.get("accumulation_end_date"))
+
+    if not symbol:
+        return False
+
+    filters: dict[str, object] = {"symbol": symbol}
+    if reporting_name:
+        filters["reporting_name"] = reporting_name
+    if date_from is not None:
+        filters["date_from"] = date_from.date()
+    if date_to is not None:
+        filters["date_to"] = date_to.date()
+    aod = _aod_token(direction)
+    if aod:
+        filters["acquisition_or_disposition"] = aod
+
+    with st.spinner("Lade Einzeltrades der Akkumulationsgruppe..."):
+        try:
+            trades = service.trade_repo.fetch_trades(filters=filters, limit=2000)
+        except Exception as exc:
+            st.error(f"Fehler beim Laden der Gruppentrades: {exc}")
+            return True
+
+    if trades.empty:
+        render_empty_state("Für diese Akkumulationsgruppe wurden keine Einzeltrades gefunden.")
+        return True
+
+    grouped = AccumulationService.tag_trades_with_groups(trades.copy(), window_days=1)
+    if group_id and "accumulation_group_id" in grouped.columns:
+        selected = grouped[grouped["accumulation_group_id"].astype(str) == group_id].copy()
+        if selected.empty:
+            selected = grouped
+    else:
+        selected = grouped
+
+    selected = selected.sort_values("transaction_date", ascending=False, na_position="last").reset_index(drop=True)
+    total_value = pd.to_numeric(selected.get("trade_value_estimated"), errors="coerce").fillna(0).sum()
+    avg_score = pd.to_numeric(selected.get("score"), errors="coerce").mean()
+
+    render_page_header(
+        f"{symbol} - Akkumulationsgruppe",
+        f"{reporting_name or 'Unbekannter Insider'} · {direction or 'UNKNOWN'}",
+    )
+    render_kpi_row([
+        {"label": "Einzeltrades", "value": str(len(selected))},
+        {"label": "Gruppenwert", "value": f"${float(total_value):,.0f}"},
+        {"label": "Ø Score", "value": f"{float(avg_score):.1f}" if pd.notna(avg_score) else "-"},
+    ])
+
+    st.markdown("### Einzeltrades in dieser Gruppe")
+    render_trade_table(selected, height=480, on_select="ignore")
+    if st.button("Zurück zur Übersicht", use_container_width=True, key="back_from_group_detail"):
+        st.session_state["nav_target"] = "Dashboard"
+        st.rerun()
+    return True
+
 def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | None = None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Detailseite für einen einzelnen Trade."""
     if service is None:
         render_empty_state("Trade-Details sind derzeit nicht verfügbar, da die Analyse-Datenbank offline ist.")
         return
+
+    group_context = st.session_state.get("selected_trade_group")
+    if not dedupe_key and isinstance(group_context, dict):
+        handled = _render_group_trade_detail(service, group_context)
+        if handled:
+            return
+
     if not dedupe_key:
         dedupe_key = st.session_state.get("selected_trade_key")
         

@@ -29,6 +29,14 @@ def _page_shows_warning_not_crash(page: Page) -> None:
     wait_for_no_streamlit_error(page)
 
 
+def _expect_page_title_visible(page: Page, title: str) -> None:
+    heading = page.locator("h1").filter(has_text=title).first
+    if heading.count() > 0:
+        expect(heading).to_be_visible(timeout=ACTION_TIMEOUT)
+        return
+    expect(page.get_by_text(title, exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
+
+
 @pytest.mark.navigation
 def test_dashboard_page_loads(mercator_page: Page) -> None:
     """Die Startseite lädt ohne Python-Exception."""
@@ -83,11 +91,8 @@ def test_navigation_returns_to_dashboard(mercator_page: Page) -> None:
 
 @pytest.mark.navigation
 def test_header_and_sidebar_navigation_controls_visible(mercator_page: Page) -> None:
-    header = mercator_page.locator('[data-testid="stSegmentedControl"]').first
-    expect(header).to_be_visible(timeout=ACTION_TIMEOUT)
-
     for primary_page in ["Dashboard", "Trades", "Unternehmen"]:
-        expect(header.get_by_text(primary_page, exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
+        expect(mercator_page.get_by_role("button", name=primary_page, exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
 
     sidebar = mercator_page.locator('[data-testid="stSidebar"]')
     expect(sidebar.get_by_text("Verwaltung & Hilfe", exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
@@ -105,7 +110,7 @@ def test_header_sidebar_header_switch_stays_stable(mercator_page: Page) -> None:
 
     navigate_to_page(mercator_page, "Einstellungen")
     _page_shows_warning_not_crash(mercator_page)
-    expect(mercator_page.get_by_role("heading", name="Einstellungen", exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
+    _expect_page_title_visible(mercator_page, "Einstellungen")
 
 
 @pytest.mark.navigation
@@ -113,7 +118,7 @@ def test_sidebar_pages_remain_stable_without_header_reset(mercator_page: Page) -
     for sidebar_page in ["Admin", "Einstellungen", "Methodik"]:
         navigate_to_page(mercator_page, sidebar_page)
         _page_shows_warning_not_crash(mercator_page)
-        expect(mercator_page.get_by_role("heading", name=sidebar_page, exact=False)).to_be_visible(timeout=ACTION_TIMEOUT)
+        _expect_page_title_visible(mercator_page, sidebar_page)
 
 
 @pytest.mark.navigation

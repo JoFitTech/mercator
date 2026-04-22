@@ -3,7 +3,10 @@
 from __future__ import annotations
 import pandas as pd
 import streamlit as st
+import time
+import json
 from datetime import date, timedelta
+from src.services.accumulation_service import AccumulationService
 from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatus
 from src.ui.components.context_bar import render_filter_chip_bar
@@ -25,8 +28,12 @@ TRADE_FILTER_DEFAULTS = {
     "date_range": (date.today() - timedelta(days=90), date.today()),
     "min_score": 0,
     "min_value": 0,
+    "accumulate_trades": True,
+    "show_single_trades": False,
+    "accumulation_limit": 2000,
 }
 TRADE_PAGE_SIZES = [50, 100, 200]
+ACCUMULATION_CACHE_TTL_SECONDS = 20.0
 
 
 def _trade_filter_widget_keys() -> dict[str, str]:
@@ -39,6 +46,9 @@ def _trade_filter_widget_keys() -> dict[str, str]:
         "date_range": "trades_filter_date_range",
         "min_score": "trades_filter_min_score",
         "min_value": "trades_filter_min_value",
+        "accumulate_trades": "trades_filter_accumulate_trades",
+        "show_single_trades": "trades_filter_show_single_trades",
+        "accumulation_limit": "trades_filter_accumulation_limit",
     }
 
 
@@ -65,6 +75,13 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
         normalized["date_range"] = TRADE_FILTER_DEFAULTS["date_range"]
     normalized["min_score"] = int(normalized.get("min_score") or 0)
     normalized["min_value"] = int(normalized.get("min_value") or 0)
+    normalized["accumulate_trades"] = bool(normalized.get("accumulate_trades", True))
+    normalized["show_single_trades"] = bool(normalized.get("show_single_trades", False))
+    raw_acc_limit = normalized.get("accumulation_limit", 2000)
+    try:
+        normalized["accumulation_limit"] = max(200, min(10000, int(raw_acc_limit)))
+    except (TypeError, ValueError):
+        normalized["accumulation_limit"] = 2000
     return normalized
 
 
@@ -89,6 +106,9 @@ def _read_trade_filters_from_widgets() -> dict:
         "date_range": st.session_state.get(keys["date_range"], TRADE_FILTER_DEFAULTS["date_range"]),
         "min_score": st.session_state.get(keys["min_score"], 0),
         "min_value": st.session_state.get(keys["min_value"], 0),
+        "accumulate_trades": st.session_state.get(keys["accumulate_trades"], True),
+        "show_single_trades": st.session_state.get(keys["show_single_trades"], False),
+        "accumulation_limit": st.session_state.get(keys["accumulation_limit"], 2000),
     })
 
 
@@ -132,6 +152,43 @@ def _clamp_page(current_page: int, total_rows: int, page_size: int) -> tuple[int
     return min(max(1, int(current_page)), total_pages), total_pages
 
 
+def _to_date_or_none(value: object) -> date | None:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def _freeze_cache_filters(filters: dict | None) -> str:
+    if not filters:
+        return "{}"
+    normalized = {str(k): str(v) for k, v in sorted((filters or {}).items(), key=lambda item: str(item[0]))}
+    return json.dumps(normalized, ensure_ascii=True, sort_keys=True)
+
+
+def _load_cached_accumulation(cache_key: str) -> pd.DataFrame | None:
+    payload = st.session_state.get("trades_accumulation_cache", {}).get(cache_key)
+    if not payload:
+        return None
+    timestamp = float(payload.get("timestamp") or 0.0)
+    if time.monotonic() - timestamp > ACCUMULATION_CACHE_TTL_SECONDS:
+        return None
+    cached_df = payload.get("df")
+    if isinstance(cached_df, pd.DataFrame):
+        return cached_df.copy()
+    return None
+
+
+def _store_cached_accumulation(cache_key: str, df: pd.DataFrame) -> None:
+    cache = st.session_state.get("trades_accumulation_cache")
+    if not isinstance(cache, dict):
+        cache = {}
+    if len(cache) > 40:
+        cache.clear()
+    cache[cache_key] = {"timestamp": time.monotonic(), "df": df.copy()}
+    st.session_state["trades_accumulation_cache"] = cache
+
+
 def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Trades-Seite."""
     render_page_header("Trades", "Operative Arbeitsfläche für Insider-Trades.")
@@ -162,6 +219,18 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             f7, f8 = st.columns(2)
             f7.slider("Min. Score", 0, 100, key="trades_filter_min_score")
             f8.number_input("Min. Wert ($)", step=10000, key="trades_filter_min_value")
+
+            with st.expander("Sekundäre Filter & Darstellung", expanded=False):
+                st.toggle("Trades akkumulieren", key="trades_filter_accumulate_trades")
+                st.toggle("Einzeltrades anzeigen", key="trades_filter_show_single_trades")
+                st.number_input(
+                    "Akkumulations-Limit (Rohtrades)",
+                    min_value=200,
+                    max_value=10000,
+                    step=100,
+                    key="trades_filter_accumulation_limit",
+                    help="Maximale Anzahl Rohtrades, die im Akkumulationsmodus geladen und gruppiert werden.",
+                )
 
             apply_pressed = st.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
         _, b2 = st.columns(2)
@@ -212,27 +281,72 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     })
 
     p1, p2 = st.columns([1, 1])
-    page_size = p1.selectbox("Seitengröße", options=TRADE_PAGE_SIZES, index=1, key="trades_page_size")
-    current_page = max(1, int(p2.number_input("Seite", min_value=1, value=1, step=1, key="trades_current_page")))
-    offset = (current_page - 1) * int(page_size)
+    effective_accumulate = bool(active_filters.get("accumulate_trades", True)) and not bool(active_filters.get("show_single_trades", False))
+    raw_trades_df = pd.DataFrame()
 
-    with st.spinner("Lade Trades..."):
-        (trades_df, total_rows), load_error = safe_service_call(lambda: service.get_filtered_trades_page(
-            filters=filters,
-            limit=int(page_size),
-            offset=offset,
-            min_value=active_filters["min_value"],
-        ), context_label="Trades", fallback=(pd.DataFrame(), 0))
-    if load_error is not None:
-        st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
-        return
+    if effective_accumulate:
+        p1.info("Akkumulationsmodus aktiv")
+        accumulation_limit = int(active_filters.get("accumulation_limit") or 2000)
+        p2.caption(f"Pagination ist in diesem Modus deaktiviert · Limit {accumulation_limit}.")
 
-    valid_page, total_pages = _clamp_page(current_page, int(total_rows), int(page_size))
-    if valid_page != current_page:
-        st.session_state["trades_current_page"] = int(valid_page)
-        current_page = int(valid_page)
+        data_state_token = "none"
+        if hasattr(service.trade_repo, "get_dashboard_state_token"):
+            token, token_err = safe_service_call(
+                lambda: service.trade_repo.get_dashboard_state_token(),
+                context_label="Trades-Data-State",
+                fallback="none",
+            )
+            data_state_token = str(token or "none") if token_err is None else "none"
+
+        accumulation_cache_key = (
+            f"{_freeze_cache_filters(filters)}|{int(active_filters['min_value'])}|"
+            f"{accumulation_limit}|{data_state_token}"
+        )
+        cached_agg_df = _load_cached_accumulation(accumulation_cache_key)
+        if cached_agg_df is not None:
+            trades_df = cached_agg_df
+            raw_trades_df, load_error = safe_service_call(
+                lambda: service.get_filtered_trades(
+                    filters=filters,
+                    limit=accumulation_limit,
+                    accumulate=False,
+                    min_value=active_filters["min_value"],
+                ),
+                context_label="Trades-Rohdaten",
+                fallback=pd.DataFrame(),
+            )
+            if load_error is not None:
+                st.warning("Akkumulierte Trades werden aus Cache angezeigt; Drilldown ist gerade eingeschränkt.")
+                raw_trades_df = pd.DataFrame()
+        else:
+            with st.spinner("Lade und akkumuliere Trades..."):
+                raw_trades_df, load_error = safe_service_call(
+                    lambda: service.get_filtered_trades(
+                        filters=filters,
+                        limit=accumulation_limit,
+                        accumulate=False,
+                        min_value=active_filters["min_value"],
+                    ),
+                    context_label="Trades-Rohdaten",
+                    fallback=pd.DataFrame(),
+                )
+            if load_error is not None:
+                st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
+                return
+            try:
+                trades_df = AccumulationService.accumulate_trades(raw_trades_df.copy())
+            except Exception:
+                st.warning("Akkumulation fehlgeschlagen; zeige Einzeltrades als Fallback.")
+                trades_df = raw_trades_df.copy()
+            _store_cached_accumulation(accumulation_cache_key, trades_df)
+        total_rows = len(trades_df)
+        current_page, total_pages = 1, 1
+    else:
+        page_size = p1.selectbox("Seitengröße", options=TRADE_PAGE_SIZES, index=1, key="trades_page_size")
+        current_page = max(1, int(p2.number_input("Seite", min_value=1, value=1, step=1, key="trades_current_page")))
         offset = (current_page - 1) * int(page_size)
-        with st.spinner("Aktualisiere Trades-Seite..."):
+
+        with st.spinner("Lade Trades..."):
             (trades_df, total_rows), load_error = safe_service_call(lambda: service.get_filtered_trades_page(
                 filters=filters,
                 limit=int(page_size),
@@ -242,7 +356,23 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
         if load_error is not None:
             st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
             return
-        current_page, total_pages = _clamp_page(current_page, int(total_rows), int(page_size))
+
+        valid_page, total_pages = _clamp_page(current_page, int(total_rows), int(page_size))
+        if valid_page != current_page:
+            st.session_state["trades_current_page"] = int(valid_page)
+            current_page = int(valid_page)
+            offset = (current_page - 1) * int(page_size)
+            with st.spinner("Aktualisiere Trades-Seite..."):
+                (trades_df, total_rows), load_error = safe_service_call(lambda: service.get_filtered_trades_page(
+                    filters=filters,
+                    limit=int(page_size),
+                    offset=offset,
+                    min_value=active_filters["min_value"],
+                ), context_label="Trades", fallback=(pd.DataFrame(), 0))
+            if load_error is not None:
+                st.warning("Die Trades-Ansicht bleibt bedienbar, aber Daten konnten gerade nicht geladen werden.")
+                return
+            current_page, total_pages = _clamp_page(current_page, int(total_rows), int(page_size))
 
     if trades_df.empty:
         render_empty_state("Keine Trades für die aktuellen Filter gefunden.")
@@ -258,7 +388,10 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             st.rerun()
         return
 
-    st.caption(f"Seite {current_page} von {total_pages} · Gesamt {total_rows} Treffer")
+    if effective_accumulate:
+        st.caption(f"Akkumulierte Sicht · {total_rows} Gruppen")
+    else:
+        st.caption(f"Seite {current_page} von {total_pages} · Gesamt {total_rows} Treffer")
 
     # 3. KPIs
     kpis = [
@@ -293,7 +426,38 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             st.markdown(f"**Ausgewählt:** {symbol_label}")
             c1, c2 = st.columns(2)
             with c1:
-                if st.button(f"Trade-Detail öffnen: {symbol_label}", type="primary", use_container_width=True, key=f"open_trade_detail_{selected_idx}"):
+                dedupe_key = selected_trade.get("dedupe_key")
+                if effective_accumulate:
+                    if st.button(
+                        "Einzeltrades für diese Gruppe anzeigen",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"open_group_as_single_{selected_idx}",
+                    ):
+                        next_filters = _normalize_trades_filters(st.session_state.get("trades_filters"))
+                        start_date = _to_date_or_none(selected_trade.get("accumulation_start_date"))
+                        end_date = _to_date_or_none(selected_trade.get("accumulation_end_date"))
+                        if start_date and end_date:
+                            next_filters["date_range"] = (start_date, end_date)
+                        next_filters["symbol"] = symbol_value if symbol_value.lower() not in {"nan", "none"} else ""
+                        next_filters["reporting_name"] = str(selected_trade.get("reporting_name") or "").strip()
+                        next_filters["show_single_trades"] = True
+                        st.session_state["trades_filters"] = _normalize_trades_filters(next_filters)
+                        _sync_trade_filter_widgets_from_state(force=True)
+                        st.session_state["trades_current_page"] = 1
+                        st.session_state["trades_feedback"] = (
+                            "success",
+                            "Einzeltrades für die ausgewählte Akkumulationsgruppe wurden geladen.",
+                        )
+                        st.rerun()
+                elif st.button(
+                    f"Trade-Detail öffnen: {symbol_label}",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"open_trade_detail_{selected_idx}",
+                    disabled=not bool(dedupe_key),
+                    help="Für die Detailansicht wird ein dedupe_key benötigt." if not dedupe_key else None,
+                ):
                     st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
                     st.session_state["nav_target"] = "Trade-Detail"
                     st.rerun()
@@ -308,5 +472,12 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
                     st.session_state["selected_company_symbol"] = symbol_value
                     st.session_state["nav_target"] = "Unternehmens-Detail"
                     st.rerun()
+        if effective_accumulate:
+            group_id = str(selected_trade.get("accumulation_group_id") or "").strip()
+            if group_id and not raw_trades_df.empty:
+                group_trades = AccumulationService.get_trades_for_group(raw_trades_df.copy(), group_id)
+                st.markdown("##### Einzeltrades der ausgewählten Gruppe")
+                st.caption(f"Akkumulationsgruppe: {group_id} · Einzeltrades: {len(group_trades)}")
+                render_trade_table(group_trades, height=280, on_select="ignore")
     else:
         st.info("Bitte eine Zeile markieren, damit die Detail-Aktionen aktiv werden.")

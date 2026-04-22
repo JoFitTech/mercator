@@ -102,8 +102,12 @@ class DashboardService:
         snapshot = self.trade_repo.fetch_dashboard_kpi_snapshot(filters=filters)
         sector_dist = self.trade_repo.fetch_dashboard_sector_distribution(filters=filters)
         market_caps = self.trade_repo.fetch_dashboard_market_cap_distribution(filters=filters)
-        buys = self.trade_repo.fetch_dashboard_top_trades("BUY", filters=filters, limit=5)
-        sells = self.trade_repo.fetch_dashboard_top_trades("SELL", filters=filters, limit=5)
+        trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=20_000, filters=filters)
+        prepared_df = self._prepare_dataframe(trades_df)
+        core_df = self._build_accumulated_core_df(prepared_df)
+        top_tables = self._build_top_tables(core_df)
+        buys = top_tables.get("top_buys", pd.DataFrame())
+        sells = top_tables.get("top_sells", pd.DataFrame())
         buy_sector = sector_dist[sector_dist["direction"] == "BUY"][["sector", "count", "volume"]] if not sector_dist.empty else pd.DataFrame(columns=["sector", "count", "volume"])
         sell_sector = sector_dist[sector_dist["direction"] == "SELL"][["sector", "count", "volume"]] if not sector_dist.empty else pd.DataFrame(columns=["sector", "count", "volume"])
         net = pd.DataFrame(columns=["sector", "buy_count", "sell_count", "delta", "buy_volume", "sell_volume"])
@@ -489,11 +493,15 @@ class DashboardService:
             return {"top_buys": pd.DataFrame(), "top_sells": pd.DataFrame()}
 
         display_cols = [
+            "accumulation_group_id",
             "dedupe_key",
             "symbol_at_trade",
             "reporting_name",
+            "direction",
             "accumulated_trade_value_estimated",
             "trade_date",
+            "accumulation_start_date",
+            "accumulation_end_date",
             "gate_status",
             "profile_status",
             "sector",

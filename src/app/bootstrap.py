@@ -54,7 +54,7 @@ def _cached_core_services(requested_target: str):
 def bootstrap_app():
     """Initialisiert die App, konfiguriert Streamlit und baut die Services auf."""
     page_config: dict[str, str] = {
-        "page_title": "Mercator | Insider Intelligence",
+        "page_title": "Mercator",
         "layout": "wide",
         "initial_sidebar_state": "expanded",
     }

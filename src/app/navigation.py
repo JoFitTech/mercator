@@ -266,6 +266,7 @@ def render_sidebar_navigation() -> None:
     active_target = _resolve_parent_target(str(st.session_state.get("nav_target", "Dashboard")))
 
     with st.sidebar:
+        st.markdown("## Mercator")
         st.markdown("### Arbeitsbereiche")
         st.caption("Sekundärnavigation: Bereich aufklappen und Ziel auswählen.")
         with st.expander("Verwaltung & Hilfe", expanded=False):

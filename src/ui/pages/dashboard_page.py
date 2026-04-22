@@ -169,11 +169,12 @@ def _render_market_cap_distribution_chart(df: pd.DataFrame) -> None:
     )
 
 
-def _navigate_to_trade(dedupe_key: str | None) -> None:
-    if not dedupe_key:
-        st.warning("Trade-Schlüssel fehlt für die Navigation.")
+def _navigate_to_trade_group(group_context: dict[str, object] | None) -> None:
+    if not group_context:
+        st.warning("Akkumulationsgruppe fehlt für die Navigation.")
         return
-    st.session_state["selected_trade_key"] = dedupe_key
+    st.session_state["selected_trade_group"] = group_context
+    st.session_state.pop("selected_trade_key", None)
     st.session_state["nav_target"] = "Trade-Detail"
     st.rerun()
 
@@ -223,7 +224,14 @@ def _render_top_list(title: str, df: pd.DataFrame, table_key: str, side: str) ->
     symbol = str(selected_row.get("symbol_at_trade") or "").strip()
     if not symbol or symbol.lower() in {"nan", "none"}:
         symbol = "Unbekanntes Symbol"
-    dedupe_key = selected_row.get("dedupe_key")
+    group_context = {
+        "accumulation_group_id": selected_row.get("accumulation_group_id"),
+        "symbol_at_trade": selected_row.get("symbol_at_trade"),
+        "reporting_name": selected_row.get("reporting_name"),
+        "direction": selected_row.get("direction"),
+        "accumulation_start_date": selected_row.get("accumulation_start_date") or selected_row.get("trade_date"),
+        "accumulation_end_date": selected_row.get("accumulation_end_date") or selected_row.get("trade_date"),
+    }
 
     if selected_row.get("profile_status") != "FETCHED":
         st.caption("Profil fehlt / unvollständig: API2 nicht geladen oder unvollständig.")
@@ -233,7 +241,7 @@ def _render_top_list(title: str, df: pd.DataFrame, table_key: str, side: str) ->
         c1, c2 = st.columns(2)
         with c1:
             if st.button("Trade öffnen", key=f"open_trade_{side}_{selected_idx}", use_container_width=True):
-                _navigate_to_trade(dedupe_key)
+                _navigate_to_trade_group(group_context)
         with c2:
             if st.button("Unternehmen öffnen", key=f"open_company_{side}_{selected_idx}", use_container_width=True):
                 _navigate_to_company(symbol if symbol != "Unbekanntes Symbol" else None)
@@ -246,11 +254,10 @@ def render_dashboard_page(
     runtime_settings_service: AppSettingsService | None = None,
     db_status: DatabaseStatus | None = None,
 ) -> None:
+    render_page_header("Markt-Dashboard", "Signalorientierter Überblick auf akkumulierter Basis.")
     if service is None:
         st.warning("Dashboard derzeit nicht verfügbar, da MySQL nicht erreichbar ist.")
         return
-
-    render_page_header("Markt-Dashboard", "Signalorientierter Überblick auf akkumulierter Basis.")
     st.caption("Direkter Sprung in die operative Analyse:")
     if st.button(
         "Zur Trades-Arbeitsfläche",

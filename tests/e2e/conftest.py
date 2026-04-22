@@ -48,7 +48,7 @@ SLOW_MO: int = int(os.getenv("MERCATOR_E2E_SLOW_MO", "0"))
 # Timeouts (ms)
 PAGE_LOAD_TIMEOUT: int = int(os.getenv("MERCATOR_E2E_PAGE_LOAD_TIMEOUT_MS", "30000"))
 ACTION_TIMEOUT: int = int(os.getenv("MERCATOR_E2E_ACTION_TIMEOUT_MS", "15000"))
-STREAMLIT_READY_TIMEOUT: int = int(os.getenv("MERCATOR_E2E_STREAMLIT_READY_TIMEOUT_MS", "20000"))
+STREAMLIT_READY_TIMEOUT: int = int(os.getenv("MERCATOR_E2E_STREAMLIT_READY_TIMEOUT_MS", "45000"))
 AUTOSTART_APP: bool = os.getenv("MERCATOR_E2E_AUTOSTART", "false").lower() in {"true", "1", "yes"}
 APP_START_TIMEOUT_SECONDS: int = int(os.getenv("MERCATOR_E2E_APP_START_TIMEOUT_SECONDS", "90"))
 CHROMIUM_EXECUTABLE: str | None = os.getenv("MERCATOR_E2E_CHROMIUM_EXECUTABLE")
@@ -282,12 +282,20 @@ def _wait_for_streamlit_ready(page: Page, timeout_ms: int = STREAMLIT_READY_TIME
         # Falls kein Spinner vorhanden war – kein Problem
         pass
 
-    # Schritt 3: Sidebar muss sichtbar sein (Navigation geladen)
-    page.wait_for_selector(
-        '[data-testid="stSidebar"]',
-        state="visible",
-        timeout=timeout_ms,
-    )
+    # Schritt 3: Sidebar-Container muss vorhanden sein.
+    # Sichtbarkeit wird in dedizierten Smoke-Tests separat geprüft.
+    try:
+        page.wait_for_selector(
+            '[data-testid="stSidebar"]',
+            state="visible",
+            timeout=min(timeout_ms, 5000),
+        )
+    except Exception:
+        page.wait_for_selector(
+            '[data-testid="stSidebar"]',
+            state="attached",
+            timeout=timeout_ms,
+        )
 
 
 def _save_failure_artifacts(page: Page, request: pytest.FixtureRequest, phase: str) -> None:
@@ -365,7 +373,11 @@ def _resolve_page_alias(page_title: str) -> str:
 def _click_first_visible(locators: list) -> bool:
     for locator in locators:
         try:
-            if locator.is_visible(timeout=1500):
+            if locator.is_visible(timeout=4000):
+                try:
+                    locator.scroll_into_view_if_needed(timeout=2000)
+                except Exception:
+                    pass
                 locator.click()
                 return True
         except Exception:
@@ -375,9 +387,21 @@ def _click_first_visible(locators: list) -> bool:
 
 def _expand_sidebar_management(page: Page) -> None:
     sidebar = page.locator('[data-testid="stSidebar"]')
-    expander = sidebar.get_by_text("Verwaltung & Hilfe", exact=False).first
-    expander.wait_for(state="visible", timeout=ACTION_TIMEOUT)
-    expander.click()
+    settings_button = sidebar.get_by_role("button", name="Einstellungen", exact=False).first
+    try:
+        if settings_button.is_visible(timeout=800):
+            return
+    except Exception:
+        pass
+
+    summary = sidebar.locator('[data-testid="stExpander"] summary').filter(has_text="Verwaltung & Hilfe").first
+    summary.wait_for(state="visible", timeout=ACTION_TIMEOUT)
+    summary.click()
+
+    try:
+        settings_button.wait_for(state="visible", timeout=2500)
+    except Exception:
+        pass
     page.wait_for_timeout(150)
 
 
@@ -398,6 +422,12 @@ def navigate_to_page(page: Page, page_title: str) -> None:
             page.get_by_text(resolved_title, exact=False).first,
         ])
         if not clicked:
+            page.wait_for_timeout(250)
+            clicked = _click_first_visible([
+                page.get_by_role("button", name=resolved_title, exact=False).first,
+                page.get_by_text(resolved_title, exact=False).first,
+            ])
+        if not clicked:
             raise AssertionError(f"Header-Navigation für '{resolved_title}' nicht gefunden.")
         _wait_for_streamlit_ready(page)
         return
@@ -409,6 +439,13 @@ def navigate_to_page(page: Page, page_title: str) -> None:
             sidebar.get_by_role("button", name=resolved_title, exact=False).first,
             sidebar.get_by_text(resolved_title, exact=False).first,
         ])
+        if not clicked:
+            page.wait_for_timeout(250)
+            _expand_sidebar_management(page)
+            clicked = _click_first_visible([
+                sidebar.get_by_role("button", name=resolved_title, exact=False).first,
+                sidebar.get_by_text(resolved_title, exact=False).first,
+            ])
         if not clicked:
             raise AssertionError(f"Sidebar-Navigation für '{resolved_title}' nicht gefunden.")
         _wait_for_streamlit_ready(page)

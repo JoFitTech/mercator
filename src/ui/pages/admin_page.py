@@ -37,7 +37,7 @@ def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
     if status == TunnelStatus.STALE:
         return "warning", "Tunnel ist stale (z. B. öffentliche URL tot) und muss neu gestartet werden."
     if status == TunnelStatus.WARNING:
-        return "warning", "Tunnelprozess lebt, aber es gibt Health-Warnungen."
+        return "warning", "Tunnelprozess lebt, aber die öffentliche URL ist nicht erreichbar (Health-Warnungen)."
     if status == TunnelStatus.ERROR:
         return "error", "Tunnel konnte nicht gestartet werden."
     return "caption", "Tunnel ist gestoppt."
