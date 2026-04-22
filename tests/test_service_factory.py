@@ -22,6 +22,20 @@ class _MySqlClientStub:
         return None
 
 
+class _MySqlClientSchemaSpy:
+    def __init__(self) -> None:
+        self.initialize_calls = 0
+
+    def initialize_schema(self) -> list[str]:
+        self.initialize_calls += 1
+        return []
+
+
+class _MySqlClientSchemaFail:
+    def initialize_schema(self) -> list[str]:
+        raise RuntimeError("schema boom")
+
+
 def _build_settings() -> AppSettings:
     mysql_settings = Settings(
         mysql_active_target="local",
@@ -193,3 +207,65 @@ def test_import_service_disabled_with_clear_reason_when_mongo_client_missing() -
     assert factory_module.ServiceFactory.last_import_issue == (
         "ImportService deaktiviert: Mongo-Client fehlt (raw pipeline nicht verfuegbar)."
     )
+
+
+def test_import_service_runs_mysql_schema_migration_once_before_creation(monkeypatch) -> None:
+    settings = _build_settings()
+    mysql_spy = _MySqlClientSchemaSpy()
+
+    monkeypatch.setattr(factory_module, "InsiderTradeMongoRepository", lambda _client: object())
+    monkeypatch.setattr(factory_module, "CompanyMongoRepository", lambda _client: object())
+    monkeypatch.setattr(factory_module, "InsiderTradeMySqlRepository", lambda _client: object())
+    monkeypatch.setattr(factory_module, "CompanyMySqlRepository", lambda _client: object())
+    monkeypatch.setattr(factory_module, "TradeRepublicUniverseIngestionService", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(factory_module, "TradeRepublicUniverseMatchingService", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(factory_module, "CompanyEnrichmentService", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(factory_module, "ImportService", lambda **_kwargs: object())
+
+    class _RuntimeSettingsServiceStub:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def load(self):
+            return SimpleNamespace(
+                profile_ttl_days=7,
+                lookup_mode="cik_primary_symbol_fallback",
+                profile_gate_filter_statuses=("PASS",),
+                api2_firing_mode="PASS + PENDING",
+            )
+
+        def load_score_gate_policy(self):
+            return ScoreGatePolicy()
+
+    monkeypatch.setattr(factory_module, "AppSettingsService", _RuntimeSettingsServiceStub)
+    monkeypatch.setattr(factory_module, "FmpClient", lambda *_args, **_kwargs: object())
+
+    service_factory = factory_module.ServiceFactory(
+        settings=settings,
+        mysql_client=mysql_spy,
+        mongo_wrapper=object(),
+    )
+
+    first = service_factory.create_import_service()
+    second = service_factory.create_import_service()
+
+    assert first is not None
+    assert second is not None
+    assert mysql_spy.initialize_calls == 1
+
+
+def test_import_service_is_disabled_when_mysql_schema_migration_fails() -> None:
+    settings = _build_settings()
+
+    service_factory = factory_module.ServiceFactory(
+        settings=settings,
+        mysql_client=_MySqlClientSchemaFail(),
+        mongo_wrapper=object(),
+    )
+
+    import_service = service_factory.create_import_service()
+
+    assert import_service is None
+    assert factory_module.ServiceFactory.last_import_issue is not None
+    assert "MySQL-Schema-Migration fehlgeschlagen" in factory_module.ServiceFactory.last_import_issue
+

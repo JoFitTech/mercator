@@ -44,12 +44,36 @@ class ServiceFactory:
         self.settings = settings
         self.mysql_client = mysql_client
         self.mongo_wrapper = mongo_wrapper
+        self._mysql_schema_checked_for_import = False
         
         # Cache für Singleton-Services innerhalb der Factory-Lebensdauer
         self._app_settings_service = None
         self._api_usage_service = None
         self._scoring_service = None
         self._gate_evaluator = None
+
+    def _ensure_mysql_schema_for_import(self) -> bool:
+        if not self.mysql_client:
+            return False
+        if self._mysql_schema_checked_for_import:
+            return True
+
+        try:
+            actions = self.mysql_client.initialize_schema()
+            if actions:
+                LOGGER.info(
+                    "ServiceFactory: MySQL schema migration before import applied %s changes.",
+                    len(actions),
+                )
+            self._mysql_schema_checked_for_import = True
+            return True
+        except Exception as exc:
+            ServiceFactory.last_import_issue = (
+                "ImportService deaktiviert: MySQL-Schema-Migration fehlgeschlagen "
+                f"({exc})."
+            )
+            LOGGER.warning("ServiceFactory: %s", ServiceFactory.last_import_issue)
+            return False
 
     def create_app_settings_service(self) -> AppSettingsService:
         if self._app_settings_service is None:
@@ -148,6 +172,9 @@ class ServiceFactory:
         if not self.mongo_wrapper:
             ServiceFactory.last_import_issue = "ImportService deaktiviert: Mongo-Client fehlt (raw pipeline nicht verfuegbar)."
             LOGGER.warning("ServiceFactory: %s", ServiceFactory.last_import_issue)
+            return None
+
+        if not self._ensure_mysql_schema_for_import():
             return None
 
         trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
