@@ -21,9 +21,13 @@ venv/
 
 # Legacy and Large files
 legacy/
+docs/
 data/raw/
 data/interim/
 data/processed/
+
+# Tests (nicht benötigt im Production-Image)
+tests/
 
 # OS specific
 .DS_Store
@@ -36,3 +40,13 @@ build/
 *.tmp
 *.temp
 app.tar.gz
+
+# Tunnel-Artefakte
+PUBLIC_TUNNEL_URL.txt
+*_pid.txt
+tunnel*.txt
+
+# Markdown-Dokumentation
+*.md
+!README.md
+

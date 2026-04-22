@@ -520,6 +520,60 @@ function Invoke-ShareReset {
     Invoke-ShareStart
 }
 
+function Wait-ContainerHealthy {
+    param(
+        [Parameter(Mandatory=$true)][string]$ContainerName,
+        [int]$TimeoutSeconds = 90,
+        [int]$PollIntervalSeconds = 3
+    )
+    Write-Host "  Warte auf $ContainerName (healthy)..." -ForegroundColor Gray
+    $elapsed = 0
+    while ($elapsed -lt $TimeoutSeconds) {
+        $health = docker inspect --format "{{.State.Health.Status}}" $ContainerName 2>$null
+        if ($health -eq "healthy") {
+            Write-Host "  ✅ $ContainerName ist healthy." -ForegroundColor Green
+            return $true
+        }
+        Start-Sleep -Seconds $PollIntervalSeconds
+        $elapsed += $PollIntervalSeconds
+    }
+    Write-Host "  ⚠️  $ContainerName wurde nicht healthy innerhalb von ${TimeoutSeconds}s." -ForegroundColor Yellow
+    return $false
+}
+
+function Invoke-ShutdownSync {
+    <#
+    Führt den Shutdown-Sync (local -> uni) via Python-Skript aus.
+    Wird beim 'stop' aufgerufen, bevor die Container gestoppt werden.
+    #>
+    $uni = Test-UniDatabaseConnectivity
+    if (-not $uni.MySql) {
+        Write-Host "Uni-MySQL nicht erreichbar – Shutdown-Sync wird übersprungen." -ForegroundColor Yellow
+        Write-Host "  (Pending-Flag wird beim nächsten Start automatisch gesetzt)" -ForegroundColor Gray
+        return
+    }
+
+    Write-Host "🔄 Führe Shutdown-Sync local → uni durch..." -ForegroundColor Cyan
+    try {
+        $pythonCommand = Get-PythonCommand
+        if ($pythonCommand -like "* -3") {
+            $parts = $pythonCommand -split " "
+            & $parts[0] $parts[1] -m src.scripts.shutdown_sync
+        } else {
+            & $pythonCommand -m src.scripts.shutdown_sync
+        }
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Shutdown-Sync abgeschlossen." -ForegroundColor Green
+        } elseif ($LASTEXITCODE -eq 1) {
+            Write-Host "⚠️  Shutdown-Sync fehlgeschlagen (Daten bleiben lokal, nächster Start holt nach)." -ForegroundColor Yellow
+        } else {
+            Write-Host "⚠️  Shutdown-Sync konnte nicht gestartet werden (Konfigurationsfehler)." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "⚠️  Shutdown-Sync-Fehler: $_" -ForegroundColor Yellow
+    }
+}
+
 switch ($Action) {
     "start" {
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
@@ -530,10 +584,20 @@ switch ($Action) {
             Invoke-ComposeQuiet up -d --build --wait --no-deps app
         } else {
             Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
-            Invoke-ComposeQuiet up -d --build --wait
+            Write-Host "▶  Starte mysql und mongo..." -ForegroundColor Cyan
+            Invoke-ComposeQuiet up -d mysql mongo
+            # Warte explizit bis beide Container healthy sind, bevor die App startet
+            $mysqlHealthy = Wait-ContainerHealthy -ContainerName "mercator-mysql" -TimeoutSeconds 90
+            $mongoHealthy = Wait-ContainerHealthy -ContainerName "mercator-mongo" -TimeoutSeconds 60
+            if (-not $mysqlHealthy -or -not $mongoHealthy) {
+                Write-Host "⚠️  Nicht alle Datenbank-Container sind healthy. App wird trotzdem gestartet (degraded mode)." -ForegroundColor Yellow
+            }
+            Write-Host "▶  Starte App..." -ForegroundColor Cyan
+            Invoke-ComposeQuiet up -d --build --wait app
         }
         $appUrl = Get-AppUrl
-        Write-Host "Mercator gestartet. App: $appUrl" -ForegroundColor Green
+        Write-Host "✅ Mercator gestartet. App: $appUrl" -ForegroundColor Green
+        Write-Host "   (Startup-Sync local → uni wird beim ersten Browser-Aufruf automatisch ausgeführt)" -ForegroundColor Gray
     }
     "stop" {
         Invoke-ShareStop
@@ -541,11 +605,15 @@ switch ($Action) {
             Write-Host "Mercator-Stop uebersprungen: Docker Desktop/Daemon laeuft nicht." -ForegroundColor Yellow
             break
         }
+        # Shutdown-Sync VOR dem Stoppen der Container
+        Invoke-ShutdownSync
         Invoke-Compose down
         Write-Host "Mercator gestoppt." -ForegroundColor Yellow
     }
     "restart" {
         Invoke-ShareStop
+        # Shutdown-Sync VOR dem Stoppen
+        Invoke-ShutdownSync
         Invoke-ComposeQuiet down
         Remove-Legacy-Containers
         # Pruefe zuerst die Uni-DBs. Wenn beide erreichbar sind, starte nur die App ohne lokale DB-Services.
@@ -556,10 +624,18 @@ switch ($Action) {
             Invoke-ComposeQuiet up -d --build --wait --no-deps app
         } else {
             Write-Host "Uni-Datenbanken nicht vollständig erreichbar. Starte kompletten lokalen Stack..." -ForegroundColor Yellow
-            Invoke-ComposeQuiet up -d --build --wait
+            Write-Host "▶  Starte mysql und mongo..." -ForegroundColor Cyan
+            Invoke-ComposeQuiet up -d mysql mongo
+            $mysqlHealthy = Wait-ContainerHealthy -ContainerName "mercator-mysql" -TimeoutSeconds 90
+            $mongoHealthy = Wait-ContainerHealthy -ContainerName "mercator-mongo" -TimeoutSeconds 60
+            if (-not $mysqlHealthy -or -not $mongoHealthy) {
+                Write-Host "⚠️  Nicht alle Datenbank-Container sind healthy. App wird trotzdem gestartet." -ForegroundColor Yellow
+            }
+            Write-Host "▶  Starte App..." -ForegroundColor Cyan
+            Invoke-ComposeQuiet up -d --build --wait app
         }
         $appUrl = Get-AppUrl
-        Write-Host "Mercator neu gestartet. App: $appUrl" -ForegroundColor Green
+        Write-Host "✅ Mercator neu gestartet. App: $appUrl" -ForegroundColor Green
     }
     "share-start" {
         Invoke-ShareStart

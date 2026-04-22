@@ -546,6 +546,8 @@ class MySqlClient:
                     ("idx_trades_symbol_transaction", "symbol_at_trade, transaction_date"),
                     ("idx_trades_company_transaction", "company_key, transaction_date"),
                     ("idx_trades_gate_validation_transaction", "gate_status, validation_status, transaction_date"),
+                    # Erweiterter Covering-Index für Dashboard-KPI-Queries mit Score-Filter
+                    ("idx_trades_gate_validation_score_date", "gate_status, validation_status, score, transaction_date"),
                     ("idx_trades_score", "score"),
                     ("idx_trades_tr_universe_status", "trade_republic_universe_status"),
                 ]

@@ -91,11 +91,13 @@ def main():
 
     # 3. Background Tasks (Auto-Import)
     # P0.3: Auto-Import folgt jetzt den RuntimeSettings (auto_import_enabled, interval, on_start)
+    # AppSettingsService ist ein Singleton in der Factory – gecacht für diesen Rerun
+    app_settings_service = factory.create_app_settings_service()
     auto_import_blocked = bool(
         settings.disable_import or settings.review_mode or settings.ui_test_mode
     )
     if db_status.is_ingestion_available and not auto_import_blocked:
-        runtime_settings = factory.create_app_settings_service().load()
+        runtime_settings = app_settings_service.load()
         handle_auto_import(
             factory.create_import_service(),
             runtime=runtime_settings,
@@ -110,7 +112,7 @@ def main():
             service=factory.create_dashboard_service(),
             import_service=factory.create_import_service(),
             settings=settings,
-            runtime_settings_service=factory.create_app_settings_service(),
+            runtime_settings_service=app_settings_service,
             db_status=db_status,
         ))
     elif nav_target == "Trades":
@@ -118,7 +120,7 @@ def main():
     elif nav_target == "Unternehmen":
         _safe_render_page("Unternehmen", lambda: render_companies_page(factory.create_company_repository(), db_status=db_status))
     elif nav_target == "Einstellungen":
-        _safe_render_page("Einstellungen", lambda: render_settings_page(factory.create_app_settings_service(), db_status=db_status))
+        _safe_render_page("Einstellungen", lambda: render_settings_page(app_settings_service, db_status=db_status))
     elif nav_target == "Methodik":
         _safe_render_page("Methodik", render_methodology_page)
     elif nav_target == "Admin":
@@ -127,7 +129,7 @@ def main():
             mysql_client=factory.mysql_client,
             mongo_available=db_status.mongo.is_connected,
             db_status=db_status,
-            settings_service=factory.create_app_settings_service(),
+            settings_service=app_settings_service,
             import_service=factory.create_import_service(),
             api_usage_service=factory.create_api_usage_service()
         ))

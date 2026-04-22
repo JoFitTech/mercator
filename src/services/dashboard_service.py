@@ -194,13 +194,13 @@ class DashboardService:
             return working
 
         cached_profiles: dict[str, dict[str, Any]] = {}
-        for company_key in working.loc[candidate_mask, "company_key"].astype(str).str.strip().unique():
+        candidate_keys = working.loc[candidate_mask, "company_key"].astype(str).str.strip().unique().tolist()
+        if candidate_keys:
             try:
-                profile = self.company_mongo_repo.get_profile(company_key)
+                # Einmaliger Bulk-Query statt N einzelner find_one-Aufrufe (N+1-Eliminierung)
+                cached_profiles = self.company_mongo_repo.get_profiles_bulk(candidate_keys)
             except Exception:
-                profile = None
-            if profile:
-                cached_profiles[company_key] = profile
+                cached_profiles = {}
 
         if not cached_profiles:
             return working
@@ -513,17 +513,36 @@ class DashboardService:
 
         companies = core_df.sort_values("trade_date", ascending=False).drop_duplicates(subset=["symbol_at_trade"])
 
-        reasons_by_symbol: dict[str, list[str]] = {}
-        for _, row in companies.iterrows():
-            reasons: list[str] = []
-            if row.get("profile_status") not in {"FETCHED"}:
-                reasons.append("API2 nicht geladen")
-            if row.get("sector") == UNKNOWN_PROFILE_LABEL:
-                reasons.append("Sector fehlt")
-            if row.get("market_cap_bucket") == UNKNOWN_PROFILE_LABEL:
-                reasons.append("Market Cap fehlt")
-            if reasons:
-                reasons_by_symbol[str(row.get("symbol_at_trade"))] = reasons
+        # Vektorielle Boolean-Masken statt zeilenweisem iterrows()
+        no_profile = companies["profile_status"].ne("FETCHED")
+        missing_sector = companies["sector"].eq(UNKNOWN_PROFILE_LABEL)
+        missing_cap = companies["market_cap_bucket"].eq(UNKNOWN_PROFILE_LABEL)
+        has_issue = no_profile | missing_sector | missing_cap
+
+        # Vollständig vektorisierte Variante – kein iterrows() mehr
+        affected = companies.loc[has_issue, ["symbol_at_trade", "profile_status", "sector", "market_cap_bucket"]].copy()
+
+        # Erstelle je eine Boolean-Spalte pro Grund
+        affected["_r_api2"] = affected["profile_status"].ne("FETCHED")
+        affected["_r_sector"] = affected["sector"].eq(UNKNOWN_PROFILE_LABEL)
+        affected["_r_cap"] = affected["market_cap_bucket"].eq(UNKNOWN_PROFILE_LABEL)
+
+        def _collect_reasons(row: "pd.Series") -> list[str]:  # noqa: F821
+            out: list[str] = []
+            if row["_r_api2"]:
+                out.append("API2 nicht geladen")
+            if row["_r_sector"]:
+                out.append("Sector fehlt")
+            if row["_r_cap"]:
+                out.append("Market Cap fehlt")
+            return out
+
+        reason_series = affected.apply(_collect_reasons, axis=1)
+        reasons_by_symbol: dict[str, list[str]] = {
+            str(sym): reasons
+            for sym, reasons in zip(affected["symbol_at_trade"], reason_series)
+            if reasons
+        }
 
         return {
             "missing_data_summary": {

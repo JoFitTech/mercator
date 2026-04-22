@@ -11,9 +11,17 @@ from src.config.settings import MongoConfig
 class MongoClientWrapper:
     """Erzeugt eine MongoDB-Datenbankverbindung für Rohdaten und Profile."""
 
-    def __init__(self, config: MongoConfig, server_selection_timeout_ms: int = 10000) -> None:
+    def __init__(
+        self,
+        config: MongoConfig,
+        server_selection_timeout_ms: int = 5000,
+        max_pool_size: int = 10,
+        min_pool_size: int = 1,
+    ) -> None:
         self.config = config
         self._server_selection_timeout_ms = server_selection_timeout_ms
+        self._max_pool_size = max_pool_size
+        self._min_pool_size = min_pool_size
         self._client: MongoClient | None = None
 
     def get_database(self) -> Database:
@@ -21,6 +29,8 @@ class MongoClientWrapper:
         if self._client is None:
             client_kwargs = {
                 "serverSelectionTimeoutMS": self._server_selection_timeout_ms,
+                "maxPoolSize": self._max_pool_size,
+                "minPoolSize": self._min_pool_size,
             }
             if self.config.direct_connection is not None:
                 client_kwargs["directConnection"] = self.config.direct_connection

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import pandas as pd
 
 from src.data_sources.fmp_client import FmpClient
@@ -65,14 +66,25 @@ class AnalysisService:
         self.fmp_client = fmp_client
         self.scoring_service = scoring_service or ScoringService(self.score_gate_policy)
 
+    # TTL-Cache für ticker_options (DB-Abfrage, teuer)
+    _ticker_options_cache: tuple[float, list[str]] | None = None
+    _TICKER_CACHE_TTL = 60.0  # Sekunden
+
     def list_ticker_options(self) -> list[str]:
         """Liefert ausschließlich symbolbasierte, bereinigte Tickeroptionen.
 
         Fokussiert auf Ticker, für die tatsächlich Trades in der MySQL-Datenbank vorliegen.
+        Ergebnis wird für 60 Sekunden in-process gecacht.
         """
+        now = time.monotonic()
+        cached = AnalysisService._ticker_options_cache
+        if cached is not None and now - cached[0] < AnalysisService._TICKER_CACHE_TTL:
+            return cached[1]
 
         symbols = self.trade_repo.fetch_all_symbols()
-        return sanitize_symbol_options(symbols)
+        result = sanitize_symbol_options(symbols)
+        AnalysisService._ticker_options_cache = (now, result)
+        return result
 
     def get_companies(self, limit: int = 100, offset: int = 0) -> pd.DataFrame:
         """Gibt eine Liste der Unternehmen als DataFrame zurück."""

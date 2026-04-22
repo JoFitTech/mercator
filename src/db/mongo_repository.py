@@ -24,25 +24,28 @@ class InsiderTradeMongoRepository:
         self.collection.create_index("dedupe_key", unique=True)
 
     def upsert_raw_trades(self, trades: list[dict[str, Any]]) -> int:
-        """Schreibt Rohtrades als Upsert in MongoDB.
+        """Schreibt Rohtrades als Upsert in MongoDB via bulk_write (deutlich schneller als N einzelne Requests).
 
         Args:
             trades: Liste normalisierter Trade-Dicts.
 
         Returns:
-            int: Anzahl erfolgreich verarbeiteter Upserts.
+            int: Anzahl erfolgreich verarbeiteter Upserts (neue Dokumente).
         """
 
-        count = 0
-        for trade in trades:
-            result = self.collection.update_one(
+        if not trades:
+            return 0
+
+        operations = [
+            UpdateOne(
                 {"dedupe_key": trade["dedupe_key"]},
                 {"$setOnInsert": trade},
                 upsert=True,
             )
-            if result.upserted_id is not None:
-                count += 1
-        return count
+            for trade in trades
+        ]
+        result = self.collection.bulk_write(operations, ordered=False)
+        return result.upserted_count
 
     def count_all(self) -> int:
         """Liefert die Anzahl aller Rohdatensätze."""
@@ -272,6 +275,18 @@ class CompanyMongoRepository:
         if not normalized_key:
             return None
         return self.collection.find_one({"company_key": normalized_key})
+
+    def get_profiles_bulk(self, company_keys: list[str]) -> dict[str, dict[str, Any]]:
+        """Lädt mehrere Profile in einem einzigen MongoDB-Query ($in).
+
+        Returns:
+            Dict von company_key → Profil-Dokument (nur gefundene Keys enthalten).
+        """
+        normalized = [k for k in (self._normalize_company_key(ck) for ck in company_keys) if k]
+        if not normalized:
+            return {}
+        cursor = self.collection.find({"company_key": {"$in": normalized}})
+        return {doc["company_key"]: doc for doc in cursor if "company_key" in doc}
 
     def upsert_profile(self, company: dict[str, Any]) -> None:
         """Speichert oder aktualisiert ein Profil nach `company_key`."""

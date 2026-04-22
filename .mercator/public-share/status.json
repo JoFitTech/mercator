@@ -1,6 +1,6 @@
 ﻿{
     "last_exit_code":  null,
-    "public_url":  "https://baseball-developer-bars-hints.trycloudflare.com",
+    "public_url":  null,
     "execution_mode":  "host",
     "extra_args":  [
                        "--protocol",
@@ -9,9 +9,9 @@
                        "4"
                    ],
     "local_url":  "http://localhost:8501",
-    "status":  "RUNNING",
-    "pid":  29340,
+    "status":  "STOPPED",
+    "pid":  null,
     "provider":  "cloudflare",
     "last_error":  null,
-    "started_at":  "2026-04-21T22:42:29.3920083Z"
+    "started_at":  "2026-04-22T07:57:36.1220316Z"
 }
