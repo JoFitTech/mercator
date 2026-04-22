@@ -267,9 +267,9 @@ class InsiderTradeRepository:
             SELECT 
                 t.*,
                 t.score AS score_value,
-                c.sector,
-                c.industry,
-                c.market_cap
+                c.sector AS company_sector,
+                c.industry AS company_industry,
+                c.market_cap AS company_market_cap
             FROM insider_trades t
             LEFT JOIN companies c ON t.company_key = c.company_key
         """

@@ -205,15 +205,17 @@ def test_dashboard_uses_mongo_profile_when_mysql_join_is_missing():
             ])
 
     class MockCompanyMongoRepo:
-        def get_profile(self, company_key: str):
-            if company_key == "CIK:1":
-                return {
-                    "company_key": "CIK:1",
-                    "profile_status": "FETCHED",
-                    "sector": "Technology",
-                    "marketCap": 1500000000,
-                }
-            return None
+        def get_profiles_bulk(self, company_keys):
+            result = {}
+            for company_key in company_keys:
+                if company_key == "CIK:1":
+                    result[company_key] = {
+                        "company_key": "CIK:1",
+                        "profile_status": "FETCHED",
+                        "sector": "Technology",
+                        "marketCap": 1500000000,
+                    }
+            return result
 
     service = DashboardService(
         raw_repo=None,
@@ -225,6 +227,69 @@ def test_dashboard_uses_mongo_profile_when_mysql_join_is_missing():
     payload = service.build_dashboard_payload()
 
     assert not payload["sector_distribution_buy"].empty
+    assert payload["sector_distribution_buy"].iloc[0]["sector"] == "Technology"
+    assert payload["market_cap_distribution"].set_index("bucket").loc["Small Cap (<2B)", "companies"] == 1
+
+
+def test_dashboard_uses_aliased_company_join_columns_without_crash():
+    class MockRepo:
+        def fetch_dashboard_kpi_snapshot(self, filters=None):
+            return {
+                "relevant_trades": 1,
+                "affected_companies": 1,
+                "buy_count": 1,
+                "sell_count": 0,
+                "buy_volume": 100.0,
+                "sell_volume": 0.0,
+                "gate_passed_count": 1,
+                "avg_score": 80.0,
+            }
+
+        def fetch_dashboard_sector_distribution(self, filters=None):
+            return pd.DataFrame(
+                [{"direction": "BUY", "sector": "Technology", "count": 1, "volume": 100.0}]
+            )
+
+        def fetch_dashboard_market_cap_distribution(self, filters=None):
+            return pd.DataFrame(
+                [{"bucket": "Small Cap (<2B)", "companies": 1}]
+            )
+
+        def fetch_trades_enriched_with_company(self, limit=2000, filters=None):
+            return pd.DataFrame(
+                [
+                    {
+                        "gate_status": "PASS",
+                        "symbol_at_trade": "AAPL",
+                        "transaction_date": "2024-01-01",
+                        "profile_status": "FETCHED",
+                        "company_key": "CIK:1",
+                        "price": 10.0,
+                        "qty": 10,
+                        "trade_value_estimated": 100.0,
+                        "acquisition_or_disposition": "A",
+                        "market_cap": None,
+                        "company_market_cap": 1500000000,
+                        "sector": None,
+                        "company_sector": "Technology",
+                        "score": 80.0,
+                    }
+                ]
+            )
+
+        def get_dashboard_state_token(self):
+            return "t1"
+
+    service = DashboardService(
+        raw_repo=None,
+        company_mongo_repo=None,
+        trade_repo=MockRepo(),
+        company_repo=MockRepo(),
+    )
+
+    payload = service.build_dashboard_payload()
+
+    assert payload["payload_error_message"] is None
     assert payload["sector_distribution_buy"].iloc[0]["sector"] == "Technology"
     assert payload["market_cap_distribution"].set_index("bucket").loc["Small Cap (<2B)", "companies"] == 1
 

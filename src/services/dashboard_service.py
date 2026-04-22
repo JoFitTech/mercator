@@ -183,6 +183,13 @@ class DashboardService:
             working["sector"] = pd.NA
         if "market_cap" not in working.columns:
             working["market_cap"] = pd.NA
+        if "company_sector" in working.columns:
+            sector_missing_from_trade = working["sector"].isna() | working["sector"].fillna("").astype(str).str.strip().eq("")
+            working.loc[sector_missing_from_trade, "sector"] = working.loc[sector_missing_from_trade, "company_sector"]
+        if "company_market_cap" in working.columns:
+            trade_cap = pd.to_numeric(working["market_cap"], errors="coerce")
+            company_cap = pd.to_numeric(working["company_market_cap"], errors="coerce")
+            working["market_cap"] = trade_cap.fillna(company_cap)
         if "profile_status" not in working.columns:
             working["profile_status"] = pd.NA
 
@@ -278,6 +285,13 @@ class DashboardService:
         )
         working["direction"] = mapped_direction.fillna(fallback_direction).fillna("UNKNOWN")
 
+        if "market_cap" not in working.columns:
+            working["market_cap"] = pd.NA
+        if "company_market_cap" in working.columns:
+            trade_cap = pd.to_numeric(working["market_cap"], errors="coerce")
+            company_cap = pd.to_numeric(working["company_market_cap"], errors="coerce")
+            working["market_cap"] = trade_cap.fillna(company_cap)
+
         for num_col in ("price", "qty", "trade_value_estimated", "market_cap"):
             if num_col not in working.columns:
                 working[num_col] = pd.NA
@@ -291,6 +305,8 @@ class DashboardService:
 
         if "sector" not in working.columns:
             working["sector"] = pd.NA
+        if "company_sector" in working.columns:
+            working["sector"] = working["sector"].where(working["sector"].notna(), working["company_sector"])
         working["sector"] = working["sector"].fillna("").astype(str).str.strip()
 
         if "profile_status" not in working.columns:
