@@ -1107,9 +1107,12 @@ def render_admin_page(
                 )
 
                 with st.container(border=True):
-                    st.info("Host-Modus: cloudflared läuft außerhalb des Containers.")
+                    st.info(
+                        "Host-Modus aktiv: cloudflared läuft außerhalb des Containers. "
+                        "Dieser Pfad ist für Cloudflare Quick Tunnel der empfohlene Standard."
+                    )
                     st.code(
-                        ".\\mercator.ps1 share-start\n.\\mercator.ps1 share-stop\n.\\mercator.ps1 share-status\n.\\mercator.ps1 share-logs",
+                        ".\\mercator.ps1 share-start\n.\\mercator.ps1 share-status\n.\\mercator.ps1 share-reset\n.\\mercator.ps1 share-stop\n.\\mercator.ps1 share-logs",
                         language="powershell",
                     )
                     cols = st.columns(2)
@@ -1135,13 +1138,26 @@ def render_admin_page(
                         st.text_input("Letzter Fehler", value=host_state.last_error or "-", disabled=True)
                         st.text_input("Extra-Args", value=" ".join(host_state.extra_args) or "-", disabled=True)
 
-                can_open_host = bool(host_state.public_url and host_state.status in {TunnelStatus.RUNNING, TunnelStatus.WARNING})
+                can_open_host = bool(host_state.public_url and host_state.status == TunnelStatus.RUNNING)
                 st.link_button(
                     "Öffentliche URL öffnen",
                     host_state.public_url if can_open_host and host_state.public_url else "http://localhost",
                     disabled=not can_open_host,
                     use_container_width=True,
                 )
+                if host_state.status == TunnelStatus.WARNING:
+                    _show_admin_feedback(
+                        "warning",
+                        "Die aktuelle Tunnel-URL ist nicht stabil erreichbar.",
+                        "Bitte nicht die bestehende trycloudflare-URL weitergeben. Stattdessen `share-reset` ausführen "
+                        "und nur die frisch erzeugte URL verwenden.",
+                    )
+                if host_state.status == TunnelStatus.STALE:
+                    _show_admin_feedback(
+                        "warning",
+                        "Die gespeicherte Tunnel-URL ist veraltet.",
+                        "Bitte `share-reset` ausführen. Alte trycloudflare-Links bleiben dauerhaft ungültig.",
+                    )
                 st.markdown("##### Letzter Log-Ausschnitt")
                 if host_state.log_tail:
                     st.code("\n".join(host_state.log_tail), language="text")

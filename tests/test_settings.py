@@ -177,6 +177,17 @@ def test_load_settings_reads_review_mode_flags(monkeypatch) -> None:
     assert settings.ui_test_mode is True
 
 
+def test_load_settings_forces_cloudflare_public_share_to_host_mode(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_PUBLIC_SHARE", "true")
+    monkeypatch.setenv("PUBLIC_SHARE_PROVIDER", "cloudflare")
+    monkeypatch.setenv("PUBLIC_SHARE_EXECUTION_MODE", "container")
+
+    settings = load_settings()
+
+    assert settings.public_share.provider == "cloudflare"
+    assert settings.public_share.execution_mode == "host"
+
+
 def test_mongo_config_trims_whitespace_in_uri(monkeypatch) -> None:
     monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
     monkeypatch.setenv(

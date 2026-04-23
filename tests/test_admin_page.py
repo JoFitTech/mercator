@@ -236,4 +236,4 @@ def test_public_share_status_message_for_warning() -> None:
 def test_resolve_share_file_path_relative() -> None:
     base = __import__("pathlib").Path("/tmp/repo")
     resolved = _resolve_share_file_path(base, ".mercator/public-share/status.json")
-    assert str(resolved).endswith(".mercator/public-share/status.json")
+    assert str(resolved).replace("\\", "/").endswith(".mercator/public-share/status.json")

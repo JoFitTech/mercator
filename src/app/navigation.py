@@ -216,7 +216,7 @@ def _render_topbar_brand() -> None:
 def _render_public_share_sidebar_controls() -> None:
     manager = st.session_state.get("public_share_manager")
     enabled = bool(st.session_state.get("public_share_enabled"))
-    execution_mode = str(st.session_state.get("public_share_execution_mode", "container"))
+    execution_mode = str(st.session_state.get("public_share_execution_mode", "host"))
     if not enabled:
         return
     if execution_mode == "host":

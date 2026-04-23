@@ -1,15 +1,17 @@
 ﻿{
     "last_exit_code":  null,
-    "public_url":  "https://les-clearly-pictures-hostel.trycloudflare.com",
+    "public_url":  "https://totals-poet-appropriations-proof.trycloudflare.com",
     "execution_mode":  "host",
     "extra_args":  [
                        "--protocol",
-                       "http2"
+                       "http2",
+                       "--edge-ip-version",
+                       "4"
                    ],
     "local_url":  "http://localhost:8501",
     "status":  "STARTING",
-    "pid":  6856,
+    "pid":  30628,
     "provider":  "cloudflare",
     "last_error":  null,
-    "started_at":  "2026-04-23T09:05:45.9193895Z"
+    "started_at":  "2026-04-23T09:44:15.2735644Z"
 }

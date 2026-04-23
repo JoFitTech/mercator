@@ -505,8 +505,19 @@ function Invoke-ShareStart {
     $bin = Get-CloudflaredBinaryPath
     $extraArgs = Get-CloudflaredExtraArgs
     $arguments = @("tunnel", "--url", $localUrl) + $extraArgs
-    Set-Content -Path $paths.LogPath -Value "" -Encoding UTF8
-    Set-Content -Path $paths.ErrorLogPath -Value "" -Encoding UTF8
+
+    # Versuche Log-Dateien zu loeschen oder zu leeren; wenn das fehlschlaegt, ueberschreibe oder ignoriere es
+    try {
+        if (Test-Path $paths.LogPath) {
+            Remove-Item $paths.LogPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path $paths.ErrorLogPath) {
+            Remove-Item $paths.ErrorLogPath -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        # Wenn Dateien in Benutzung sind, ignoriere den Fehler
+        Write-Host "Info: Log-Dateien konnten nicht geleert werden (kein Problem). Start wird fortgesetzt." -ForegroundColor Gray
+    }
 
     $proc = Start-Process -FilePath $bin -ArgumentList $arguments -RedirectStandardOutput $paths.LogPath -RedirectStandardError $paths.ErrorLogPath -PassThru -WindowStyle Hidden
     Start-Sleep -Milliseconds 900

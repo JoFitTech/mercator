@@ -753,6 +753,22 @@ class AppSettings:
     mongo_targets: MongoSettings | None = None
 
 
+def _normalize_public_share_execution_mode(provider: str, execution_mode_raw: str) -> str:
+    normalized_mode = (execution_mode_raw or "host").strip().lower()
+    if normalized_mode not in {"host", "container"}:
+        return "host"
+
+    normalized_provider = (provider or "cloudflare").strip().lower()
+    if normalized_provider == "cloudflare" and normalized_mode == "container":
+        LOGGER.warning(
+            "PUBLIC_SHARE_EXECUTION_MODE=container ist fuer PUBLIC_SHARE_PROVIDER=cloudflare deaktiviert; "
+            "es wird automatisch auf host umgestellt."
+        )
+        return "host"
+
+    return normalized_mode
+
+
 def load_settings() -> AppSettings:
     """Lädt die vollständigen Anwendungseinstellungen aus der Umgebung.
 
@@ -777,8 +793,9 @@ def load_settings() -> AppSettings:
             public_share_extra_args_raw,
         )
         public_share_extra_args = ()
-    execution_mode_raw = _read_string_env("PUBLIC_SHARE_EXECUTION_MODE", default="host").lower()
-    execution_mode = execution_mode_raw if execution_mode_raw in {"host", "container"} else "host"
+    public_share_provider = _read_string_env("PUBLIC_SHARE_PROVIDER", default="cloudflare").lower()
+    execution_mode_raw = _read_string_env("PUBLIC_SHARE_EXECUTION_MODE", default="host")
+    execution_mode = _normalize_public_share_execution_mode(public_share_provider, execution_mode_raw)
 
     app_settings = AppSettings(
         app_env=os.getenv("APP_ENV", "local"),
@@ -826,7 +843,7 @@ def load_settings() -> AppSettings:
         trade_republic_refresh_ttl_hours=_read_int_env("TRADE_REPUBLIC_REFRESH_TTL_HOURS", default=24),
         public_share=PublicShareConfig(
             enabled=_read_bool_env("ENABLE_PUBLIC_SHARE", default=False),
-            provider=_read_string_env("PUBLIC_SHARE_PROVIDER", default="cloudflare").lower(),
+            provider=public_share_provider,
             execution_mode=execution_mode,
             local_url=_read_string_env("PUBLIC_SHARE_LOCAL_URL", default="http://localhost:8501"),
             cloudflared_bin=_read_string_env("CLOUDFLARED_BIN", default="cloudflared"),
