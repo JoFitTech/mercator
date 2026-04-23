@@ -745,6 +745,24 @@ function Invoke-ShutdownSync {
     }
 }
 
+function Test-CloudflaredEdgeConnectionFailed {
+    param([Parameter(Mandatory=$true)][string]$ErrorLogPath)
+    if (-not (Test-Path $ErrorLogPath)) { return $false }
+    $tail = Get-Content -Path $ErrorLogPath -Tail 20 -ErrorAction SilentlyContinue
+    if (-not $tail) { return $false }
+    $combined = ($tail | Out-String)
+    $failurePatterns = @(
+        "Unable to establish connection with Cloudflare edge",
+        "dial tcp.*:7844.*i/o timeout",
+        "Serve tunnel error"
+    )
+    $hitCount = 0
+    foreach ($pattern in $failurePatterns) {
+        if ($combined -match $pattern) { $hitCount++ }
+    }
+    return ($hitCount -ge 2)
+}
+
 switch ($Action) {
     "start" {
         # Lokale DB-Services immer starten, damit Startup-Sync local -> uni stabil funktioniert.
