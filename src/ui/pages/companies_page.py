@@ -192,7 +192,12 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
 
     selected_idx = get_single_selected_row_index(event, len(display_df))
     if selected_idx is not None:
-        selected_company = source_df.iloc[selected_idx]
+        try:
+            selected_company = source_df.iloc[selected_idx]
+        except (IndexError, KeyError):
+            st.error("Ausgewählte Zeile ist ungültig. Bitte erneut auswählen.")
+            return
+
         company_label = _company_display_name(selected_company)
         symbol_value = _ui_text(selected_company.get("current_symbol"), fallback="")
         can_navigate = bool(symbol_value)

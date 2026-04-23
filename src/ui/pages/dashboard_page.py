@@ -183,8 +183,9 @@ def _navigate_to_company(symbol: str | None) -> None:
     if not symbol:
         st.warning("Symbol fehlt für die Navigation.")
         return
-    st.session_state["selected_company_symbol"] = symbol
-    st.session_state["nav_target"] = "Unternehmens-Detail"
+    if str(symbol or "").strip():
+        st.session_state["selected_company_symbol"] = str(symbol).strip()
+        st.session_state["nav_target"] = "Unternehmens-Detail"
     st.rerun()
 
 

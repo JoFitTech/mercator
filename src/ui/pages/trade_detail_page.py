@@ -108,15 +108,19 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
         render_empty_state("Trade-Details sind derzeit nicht verfügbar, da die Analyse-Datenbank offline ist.")
         return
 
+    # Dedupe-Key ist die authoritative Quelle
+    if not dedupe_key:
+        dedupe_key = st.session_state.get("selected_trade_key")
+
+    dedupe_key = str(dedupe_key or "").strip() if dedupe_key else None
+
+    # Fallback fuer Dashboard-Drilldown auf Akkumulationsgruppen.
     group_context = st.session_state.get("selected_trade_group")
     if not dedupe_key and isinstance(group_context, dict):
         handled = _render_group_trade_detail(service, group_context)
         if handled:
             return
 
-    if not dedupe_key:
-        dedupe_key = st.session_state.get("selected_trade_key")
-        
     if not dedupe_key:
         render_empty_state("Kein Trade ausgewählt.")
         if st.button("Zurück zur Trades-Übersicht"):
@@ -126,11 +130,13 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
 
     # Daten laden
     with st.spinner("Lade Trade-Details..."):
-        # Wir nutzen fetch_trades mit dedupe_key Filter
         try:
             trades = service.trade_repo.fetch_trades(filters={"dedupe_key": dedupe_key}, limit=1)
         except Exception as e:
-            st.error(f"Fehler beim Laden des Trades: {e}")
+            st.error(f"Fehler beim Laden des Trades: {str(e)[:100]}")
+            if st.button("Zurück zur Trades-Übersicht"):
+                st.session_state["nav_target"] = "Trades"
+                st.rerun()
             return
         
     if trades.empty:
@@ -149,10 +155,14 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
     )
 
     # 1. KPI-Übersicht (Requirement 5.2)
+    gate_status = _safe_text(trade.get("gate_status"), fallback="Nicht verfügbar")
+    score_val = _safe_float(trade.get("score"), fallback=0.0)
+    score_class = _safe_text(trade.get("score_class"), fallback="Nicht verfügbar")
+
     kpis = [
         {"label": "Wert", "value": f"${_safe_float(trade.get('trade_value_estimated')):,.0f}"},
-        {"label": "Score", "value": f"{_safe_float(trade.get('score')):.1f}"},
-        {"label": "Klasse", "value": _safe_text(trade.get("score_class"), fallback="Nicht verfügbar")},
+        {"label": "Score", "value": f"{score_val:.1f}"},
+        {"label": "Gate", "value": gate_status},
     ]
     render_kpi_row(kpis)
 
@@ -169,21 +179,19 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
             st.write(f"**Menge:** {_safe_float(trade.get('qty')):,.0f}")
             st.write(f"**Preis:** ${_safe_float(trade.get('price')):,.2f}")
             st.write(f"**Datum:** {_safe_text(trade.get('transaction_date'))}")
-            st.write(f"**Filing:** {_safe_text(trade.get('filing_date'))}")
 
     with c2:
         with st.container(border=True):
-            st.subheader("Status & Scoring")
-            st.write("**Gate-Status:**", _safe_text(trade.get("gate_status")))
-            st.write("**Gate-Begründung:**", trade.get("gate_reason") or "Nicht vorhanden")
-            st.write("**Validierungsstatus:**", _safe_text(trade.get("validation_status")))
-            st.write("**Dashboard-valide:**", "Ja" if trade.get("dashboard_valid") else "Nein")
-            st.write("**Dedupe-Key:**", f"`{_safe_text(trade.get('dedupe_key'))}`")
+            st.subheader("Status & Analyse")
+            st.write("**Gate-Status:**", gate_status)
+            gate_reason = trade.get("gate_reason") or ""
+            if gate_reason:
+                st.write("**Gate-Grund:**", str(gate_reason).strip())
+            st.write("**Validierung:**", _safe_text(trade.get("validation_status")))
+            st.write("**Klasse:**", score_class)
             source_url = str(trade.get("source_url") or "").strip()
             if source_url:
-                st.link_button("Originales SEC-Filing (externer Link)", source_url, help="Öffnet das Filing in einem neuen Browser-Tab.")
-            else:
-                st.caption("Kein Original-SEC-Filing für diesen Trade hinterlegt.")
+                st.link_button("SEC-Filing (extern)", source_url, help="Öffnet das Filing in einem neuen Browser-Tab.")
 
     # 3. Insider Quality (Requirement 4.4)
     st.markdown("---")

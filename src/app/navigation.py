@@ -67,8 +67,12 @@ def _render_navbar_control(options_list: list[str], current_label: str) -> tuple
 
 
 def _set_nav_target(target: PageName) -> None:
-    if st.session_state.get("nav_target") == target:
+    """Atomic navigation state setter mit Rückfall auf validen Target."""
+    current = str(st.session_state.get("nav_target") or "")
+    if current == target:
         return
+    if target not in ALL_NAV_TARGETS:
+        target = "Dashboard"
     st.session_state["nav_target"] = target
     st.rerun()
 

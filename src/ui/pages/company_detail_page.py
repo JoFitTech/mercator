@@ -30,9 +30,12 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
     if service is None:
         render_empty_state("Unternehmensdetails sind derzeit nicht verfügbar, da die Analyse-Datenbank offline ist.")
         return
+
     if not symbol:
         symbol = st.session_state.get("selected_company_symbol")
-        
+
+    symbol = str(symbol or "").strip() if symbol else None
+
     if not symbol:
         render_empty_state("Kein Unternehmen ausgewählt.")
         if st.button("Zurück zur Unternehmen-Übersicht"):
@@ -42,8 +45,15 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
 
     # Daten laden
     with st.spinner(f"Lade Details für {symbol}..."):
-        result = service.get_ticker_detail(symbol, accumulate=False)
-        
+        try:
+            result = service.get_ticker_detail(symbol, accumulate=False)
+        except Exception as e:
+            st.error(f"Fehler beim Laden der Unternehmensdaten: {str(e)[:100]}")
+            if st.button("Zurück zur Übersicht"):
+                st.session_state["nav_target"] = "Unternehmen"
+                st.rerun()
+            return
+
     if not result or result.rows is None:
         render_empty_state(f"Keine Daten für '{symbol}' gefunden.")
         return
@@ -75,7 +85,7 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
     st.markdown("---")
     st.subheader("Insider Trade-Historie")
     st.caption("Sortierung: Neueste Trades zuerst. Wählen Sie eine Zeile für Detailaktionen.")
-    trades_df = pd.DataFrame(result.rows)
+    trades_df = pd.DataFrame(result.rows) if result.rows else pd.DataFrame()
     if trades_df.empty:
         st.info("Keine Trades in der Historie gefunden.")
     else:
@@ -85,13 +95,17 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
         event = render_trade_table(trades_df, height=500)
         selected_idx = get_single_selected_row_index(event, len(trades_df))
         if selected_idx is not None:
-            selected_trade = trades_df.iloc[selected_idx]
-            with st.container(border=True):
-                st.markdown("**Ausgewählt:** Trade-Historienzeile")
-                if st.button("Trade-Detail öffnen", type="primary", use_container_width=True):
-                    st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
-                    st.session_state["nav_target"] = "Trade-Detail"
-                    st.rerun()
+            try:
+                selected_trade = trades_df.iloc[selected_idx]
+            except (IndexError, KeyError):
+                st.error("Ausgewählte Zeile ist ungültig. Bitte erneut auswählen.")
+            else:
+                with st.container(border=True):
+                    st.markdown("**Ausgewählt:** Trade-Historienzeile")
+                    if st.button("Trade-Detail öffnen", type="primary", use_container_width=True):
+                        st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
+                        st.session_state["nav_target"] = "Trade-Detail"
+                        st.rerun()
         else:
             st.info("Bitte eine Zeile auswählen, um in den Trade-Detailmodus zu wechseln.")
 

@@ -418,7 +418,12 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
 
     selected_idx = get_single_selected_row_index(event, len(trades_df))
     if selected_idx is not None:
-        selected_trade = trades_df.iloc[selected_idx]
+        try:
+            selected_trade = trades_df.iloc[selected_idx]
+        except (IndexError, KeyError):
+            st.error("Ausgewählte Zeile ist ungültig. Bitte erneut auswählen.")
+            return
+
         symbol_label = _trade_action_symbol_label(selected_trade)
         symbol_value = str(selected_trade.get("symbol_at_trade") or "").strip()
         can_open_company = bool(symbol_value) and symbol_value.lower() not in {"nan", "none"}
@@ -450,17 +455,25 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
                             "Einzeltrades für die ausgewählte Akkumulationsgruppe wurden geladen.",
                         )
                         st.rerun()
-                elif st.button(
-                    f"Trade-Detail öffnen: {symbol_label}",
-                    type="primary",
-                    use_container_width=True,
-                    key=f"open_trade_detail_{selected_idx}",
-                    disabled=not bool(dedupe_key),
-                    help="Für die Detailansicht wird ein dedupe_key benötigt." if not dedupe_key else None,
-                ):
-                    st.session_state["selected_trade_key"] = selected_trade.get("dedupe_key")
-                    st.session_state["nav_target"] = "Trade-Detail"
-                    st.rerun()
+                elif dedupe_key:
+                    if st.button(
+                        f"Trade-Detail öffnen: {symbol_label}",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"open_trade_detail_{selected_idx}",
+                    ):
+                        st.session_state["selected_trade_key"] = str(dedupe_key).strip()
+                        st.session_state["nav_target"] = "Trade-Detail"
+                        st.rerun()
+                else:
+                    st.button(
+                        f"Trade-Detail öffnen: {symbol_label}",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=True,
+                        key=f"open_trade_detail_disabled_{selected_idx}",
+                        help="Für die Detailansicht wird eine dedupe_key benötigt.",
+                    )
             with c2:
                 if st.button(
                     f"Unternehmens-Detail öffnen: {symbol_label}",
