@@ -1,6 +1,6 @@
 ﻿{
     "last_exit_code":  null,
-    "public_url":  "https://beverages-assumptions-pictures-motor.trycloudflare.com",
+    "public_url":  null,
     "execution_mode":  "host",
     "extra_args":  [
                        "--protocol",
@@ -9,9 +9,9 @@
                        "4"
                    ],
     "local_url":  "http://localhost:8501",
-    "status":  "WARNING",
-    "pid":  31256,
+    "status":  "STOPPED",
+    "pid":  null,
     "provider":  "cloudflare",
-    "last_error":  "Tunnelprozess laeuft, aber Cloudflare-Edge-Verbindung scheitert (Timeout auf Port 7844). Bitte Netzwerk/FW fuer ausgehend TCP/UDP 7844 freigeben oder anderes Netz/VPN testen. Detail: Public-URL-Check fehlgeschlagen: Der Remotename konnte nicht aufgelöst werden: \u0027beverages-assumptions-pictures-motor.trycloudflare.com\u0027",
-    "started_at":  "2026-04-23T09:54:56.3230654Z"
+    "last_error":  null,
+    "started_at":  "2026-04-23T18:47:34.8470528Z"
 }
