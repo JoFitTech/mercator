@@ -140,11 +140,17 @@ class DashboardService:
             [{"bucket": bucket, "companies": companies} for bucket, companies in expected_buckets.items()]
         )
         
-        # Berechne missing_data_summary aus Snapshot-Daten (nicht aus großem DF!)
+        decision_snapshot = self.trade_repo.fetch_dashboard_decision_snapshot(filters=filters)
         missing_summary = self._compute_missing_data_summary_from_snapshot(snapshot, filters)
-        
-        # Berechne ergänzende KPIs aus Snapshot (nicht hardcodiert!)
-        enriched_kpis = self._compute_enriched_kpis_from_snapshot(snapshot, filters)
+        enriched_kpis = self._compute_enriched_kpis_from_snapshot(snapshot, filters, decision_snapshot)
+
+        last_update_value = self.trade_repo.fetch_dashboard_last_update(filters=filters)
+        if isinstance(last_update_value, pd.Timestamp):
+            last_update = last_update_value.date().strftime("%d.%m.%Y")
+        elif hasattr(last_update_value, "strftime"):
+            last_update = last_update_value.strftime("%d.%m.%Y")
+        else:
+            last_update = self._max_trade_date_str(top_buys_df, top_sells_df)
         
         return {
             "kpi_buy_sell_ratio_count": f"{snapshot['buy_count']}:{snapshot['sell_count']}",
@@ -172,7 +178,7 @@ class DashboardService:
             "top_buys": top_buys_df.reset_index(drop=True),
             "top_sells": top_sells_df.reset_index(drop=True),
             "missing_data_summary": missing_summary,
-            "last_update": self._max_trade_date_str(top_buys_df, top_sells_df),
+            "last_update": last_update,
         }
 
     def _compute_missing_data_summary_from_snapshot(self, snapshot: dict[str, Any], filters: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -180,28 +186,56 @@ class DashboardService:
         Berechnet missing_data_summary aus denormalizierten Snapshot-Feldern.
         Nicht aus großem DataFrame-Vollpfad!
         """
-        # Placeholder-Implementierung: kann später von Repository erweitert werden
-        return {
-            "symbols_with_missing_profile": [],
-            "reasons_by_symbol": {}
-        }
+        if hasattr(self.trade_repo, "fetch_dashboard_missing_data_summary"):
+            rows = self.trade_repo.fetch_dashboard_missing_data_summary(filters=filters or {}, limit=25)
+            reasons_by_symbol: dict[str, list[str]] = {}
+            for row in rows:
+                symbol = str(row.get("symbol_at_trade") or "").strip().upper()
+                if not symbol:
+                    continue
+                reasons: list[str] = []
+                if bool(row.get("missing_profile")):
+                    reasons.append("API2 nicht geladen")
+                if bool(row.get("missing_sector")):
+                    reasons.append("Sector fehlt")
+                if bool(row.get("missing_market_cap")):
+                    reasons.append("Market Cap fehlt")
+                if reasons:
+                    reasons_by_symbol[symbol] = reasons
+            return {
+                "symbols_with_missing_profile": sorted(reasons_by_symbol.keys()),
+                "reasons_by_symbol": reasons_by_symbol,
+            }
+        return {"symbols_with_missing_profile": [], "reasons_by_symbol": {}}
 
-    def _compute_enriched_kpis_from_snapshot(self, snapshot: dict[str, Any], filters: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _compute_enriched_kpis_from_snapshot(
+        self,
+        snapshot: dict[str, Any],
+        filters: dict[str, Any] | None = None,
+        decision_snapshot: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Berechnet ergänzende KPI-Werte aus Snapshot-Feldern, nicht aus großem Core-DF.
         
         Die Werte sollten im Snapshot oder über leichte zusätzliche Queries verfügbar sein.
         """
-        # Placeholder-Logik: Diese Werte können später von Repository-Methoden  gefüllt werden
+        if decision_snapshot is None and hasattr(self.trade_repo, "fetch_dashboard_decision_snapshot"):
+            decision_snapshot = self.trade_repo.fetch_dashboard_decision_snapshot(filters=filters or {})
+        decision_snapshot = decision_snapshot or {}
+
+        affected_companies = int(snapshot.get("affected_companies") or 0)
+        fetched_profiles = int(decision_snapshot.get("fetched_profiles_count") or 0)
+        missing_profiles = int(decision_snapshot.get("missing_profiles_count") or max(affected_companies - fetched_profiles, 0))
+
         return {
-            "actionable_buys": 0,  # TODO: aus Snapshot oder leichte Query
-            "buy_candidates": snapshot.get("relevant_trades", 0),  # Näherung
-            "watchlist": 0,  # TODO
-            "sell_warnings": 0,  # TODO
-            "tr_not_found": 0,  # TODO: Count von Trade-Republic-Mismatches
-            "exchange_resolution_issues": 0,  # TODO
-            "fetched_profiles_count": snapshot.get("affected_companies", 0),  # Näherung
-            "missing_profiles_count": 0,  # TODO: aus leichter Query
+            "actionable_buys": int(decision_snapshot.get("actionable_buys") or 0),
+            "buy_candidates": int(decision_snapshot.get("buy_candidates") or 0),
+            "watchlist": int(decision_snapshot.get("watchlist") or 0),
+            "sell_warnings": int(decision_snapshot.get("sell_warnings") or 0),
+            "tr_not_found": int(decision_snapshot.get("tr_not_found") or 0),
+            "exchange_resolution_issues": int(decision_snapshot.get("exchange_resolution_issues") or 0),
+            "fetched_profiles_count": fetched_profiles,
+            "missing_profiles_count": missing_profiles,
         }
 
 

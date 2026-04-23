@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -10,6 +11,7 @@ from src.db.repositories.company_repository import CompanyRepository
 from src.services.dashboard_service import DashboardService
 from src.services.historical_market_data_service import HistoricalMarketDataService
 from src.services.import_service import ImportService
+import src.services.import_service as import_service_module
 
 
 def test_mysql_client_reuses_connection_pool() -> None:
@@ -29,7 +31,7 @@ def test_mysql_client_reuses_connection_pool() -> None:
     assert pool.get_connection.call_count == 2
 
 
-def test_company_trade_stats_delta_update_called() -> None:
+def test_company_trade_stats_uses_recompute_path() -> None:
     service = ImportService.__new__(ImportService)
     repo = MagicMock()
     service.company_mysql_repo = repo
@@ -40,10 +42,8 @@ def test_company_trade_stats_delta_update_called() -> None:
 
     ImportService._update_company_trade_stats(service, trades)
 
-    rows = repo.upsert_trade_stats_deltas.call_args[0][0]
-    assert rows[0]["trade_count_delta"] == 2
-    assert rows[0]["buy_count_delta"] == 1
-    assert rows[0]["sell_count_delta"] == 1
+    repo.recompute_trade_stats_for_company_keys.assert_called_once_with(["SYM:A"])
+    repo.upsert_trade_stats_deltas.assert_not_called()
 
 
 def test_company_repository_page_uses_stats_table() -> None:
@@ -146,3 +146,57 @@ def test_import_company_persistence_prefers_batch_upsert_many() -> None:
 
     service.company_mongo_repo.upsert_profiles.assert_called_once_with(companies)
     service.company_mysql_repo.upsert_companies.assert_called_once_with(companies)
+
+
+def test_import_uses_api2_bulk_cache_lookup(monkeypatch) -> None:
+    monkeypatch.setattr(import_service_module, "normalize_insider_trade", lambda item, fetched_at: dict(item))
+
+    fmp_client = MagicMock()
+    fmp_client.fetch_latest_insider_trades.return_value = [
+        {
+            "company_key": "SYM:AAPL",
+            "symbol": "AAPL",
+            "acquisition_or_disposition": "A",
+            "price": 10.0,
+            "qty": 2.0,
+            "transaction_date": date(2026, 1, 1),
+            "dedupe_key": "AAPL-1",
+        }
+    ]
+    fmp_client.config.profile_ttl_days = 7
+
+    gate_evaluator = MagicMock()
+    gate_evaluator.evaluate.return_value = SimpleNamespace(status="PASS", reason="ok")
+
+    raw_repo = MagicMock()
+    raw_repo.upsert_raw_trades.return_value = 1
+
+    company_mongo_repo = MagicMock()
+    company_mongo_repo.get_recent_profiles_bulk.return_value = {
+        "SYM:AAPL": {
+            "company_key": "SYM:AAPL",
+            "sector": "Technology",
+            "market_cap": 100,
+            "profile_status": "FETCHED",
+            "profile_updated_at": datetime.now(UTC),
+        }
+    }
+
+    trade_repo = MagicMock()
+    company_repo = MagicMock()
+    company_repo.recompute_trade_stats_for_company_keys.return_value = 1
+
+    service = ImportService(
+        fmp_client=fmp_client,
+        gate_evaluator=gate_evaluator,
+        raw_repo=raw_repo,
+        company_mongo_repo=company_mongo_repo,
+        trade_mysql_repo=trade_repo,
+        company_mysql_repo=company_repo,
+    )
+
+    service.run_hourly_import(page=0, limit=1)
+
+    company_mongo_repo.get_recent_profiles_bulk.assert_called_once()
+    company_mongo_repo.get_recent_profile.assert_not_called()
+

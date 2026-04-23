@@ -393,11 +393,15 @@ class InsiderTradeRepository:
         where_clause = f"WHERE {' AND '.join(conditions)}"
         sql = f"""
             SELECT
+                NULL AS accumulation_group_id,
                 t.dedupe_key,
                 t.symbol_at_trade,
                 t.reporting_name,
+                CASE WHEN t.acquisition_or_disposition IN ('A', 'BUY') THEN 'BUY' ELSE 'SELL' END AS direction,
                 COALESCE(t.trade_value_estimated, 0) AS accumulated_trade_value_estimated,
                 t.transaction_date AS trade_date,
+                t.transaction_date AS accumulation_start_date,
+                t.transaction_date AS accumulation_end_date,
                 t.gate_status,
                 t.profile_status,
                 COALESCE(NULLIF(TRIM(c.sector), ''), 'Unknown / API2 fehlt') AS sector,
@@ -416,6 +420,83 @@ class InsiderTradeRepository:
         params.append(limit)
         with self._client.get_connection() as conn:
             return pd.read_sql(sql, conn, params=params)
+
+    def fetch_dashboard_decision_snapshot(self, filters: dict[str, Any] | None = None) -> dict[str, int]:
+        conditions, params = self._build_filter_sql(filters, alias="t")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"""
+            SELECT
+                SUM(CASE WHEN UPPER(COALESCE(t.decision_status, '')) = 'ACTIONABLE_BUY' THEN 1 ELSE 0 END) AS actionable_buys,
+                SUM(CASE WHEN UPPER(COALESCE(t.decision_status, '')) = 'BUY_CANDIDATE' THEN 1 ELSE 0 END) AS buy_candidates,
+                SUM(CASE WHEN UPPER(COALESCE(t.decision_status, '')) = 'WATCHLIST' THEN 1 ELSE 0 END) AS watchlist,
+                SUM(CASE WHEN UPPER(COALESCE(t.decision_status, '')) = 'SELL_WARNING' THEN 1 ELSE 0 END) AS sell_warnings,
+                SUM(CASE WHEN UPPER(COALESCE(t.tr_availability_state, '')) = 'NOT_FOUND' THEN 1 ELSE 0 END) AS tr_not_found,
+                SUM(CASE WHEN UPPER(COALESCE(t.trade_republic_match_confidence, '')) IN ('LOW', 'UNKNOWN') THEN 1 ELSE 0 END) AS exchange_resolution_issues,
+                COUNT(DISTINCT CASE WHEN UPPER(COALESCE(t.profile_status, '')) = 'FETCHED' THEN t.symbol_at_trade END) AS fetched_profiles_count,
+                COUNT(DISTINCT CASE WHEN UPPER(COALESCE(t.profile_status, '')) <> 'FETCHED' THEN t.symbol_at_trade END) AS missing_profiles_count
+            FROM insider_trades t
+            {where_clause}
+        """
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                row = cursor.fetchone() or ()
+        return {
+            "actionable_buys": int(row[0] or 0) if len(row) > 0 else 0,
+            "buy_candidates": int(row[1] or 0) if len(row) > 1 else 0,
+            "watchlist": int(row[2] or 0) if len(row) > 2 else 0,
+            "sell_warnings": int(row[3] or 0) if len(row) > 3 else 0,
+            "tr_not_found": int(row[4] or 0) if len(row) > 4 else 0,
+            "exchange_resolution_issues": int(row[5] or 0) if len(row) > 5 else 0,
+            "fetched_profiles_count": int(row[6] or 0) if len(row) > 6 else 0,
+            "missing_profiles_count": int(row[7] or 0) if len(row) > 7 else 0,
+        }
+
+    def fetch_dashboard_missing_data_summary(self, filters: dict[str, Any] | None = None, limit: int = 25) -> list[dict[str, Any]]:
+        conditions, params = self._build_filter_sql(filters, alias="t")
+        conditions.extend([
+            "t.symbol_at_trade IS NOT NULL",
+            "t.symbol_at_trade <> ''",
+        ])
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"""
+            SELECT
+                t.symbol_at_trade,
+                MAX(CASE WHEN UPPER(COALESCE(t.profile_status, '')) <> 'FETCHED' THEN 1 ELSE 0 END) AS missing_profile,
+                MAX(CASE WHEN COALESCE(NULLIF(TRIM(c.sector), ''), 'Unknown / API2 fehlt') = 'Unknown / API2 fehlt' THEN 1 ELSE 0 END) AS missing_sector,
+                MAX(CASE WHEN c.market_cap IS NULL THEN 1 ELSE 0 END) AS missing_market_cap
+            FROM insider_trades t
+            LEFT JOIN companies c ON c.company_key = t.company_key
+            {where_clause}
+            GROUP BY t.symbol_at_trade
+            HAVING missing_profile = 1 OR missing_sector = 1 OR missing_market_cap = 1
+            ORDER BY t.symbol_at_trade ASC
+            LIMIT %s
+        """
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, [*params, int(limit)])
+                rows = cursor.fetchall()
+        return [
+            {
+                "symbol_at_trade": row[0],
+                "missing_profile": bool(row[1]),
+                "missing_sector": bool(row[2]),
+                "missing_market_cap": bool(row[3]),
+            }
+            for row in rows
+            if row and row[0]
+        ]
+
+    def fetch_dashboard_last_update(self, filters: dict[str, Any] | None = None):
+        conditions, params = self._build_filter_sql(filters, alias="t")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"SELECT MAX(t.transaction_date) FROM insider_trades t {where_clause}"
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                row = cursor.fetchone()
+                return row[0] if row else None
 
     def fetch_dashboard_market_cap_distribution(self, filters: dict[str, Any] | None = None) -> pd.DataFrame:
         conditions, params = self._build_filter_sql(filters, alias="t")

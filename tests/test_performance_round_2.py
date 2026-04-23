@@ -7,9 +7,11 @@ Testet:
 - API2-Cache Bulk-Lookups
 """
 
-import pytest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timezone, timedelta
+
+import pandas as pd
+import pytest
 from src.services.import_service import ImportService
 from src.services.dashboard_service import DashboardService
 from src.db.repositories.company_repository import CompanyRepository
@@ -30,22 +32,18 @@ class TestCompanyTradeStatsCorrectness:
         # Simuliere zwei Aufrufe zur Recompute für die gleiche company_key
         company_keys = ["TEST_COMPANY"]
 
-        # Der Recompute sollte deterministisch die Stats aus insider_trades neu berechnen
-        # Nicht die Deltas addieren
         with patch.object(repo._client, 'execute') as mock_execute:
             result = repo.recompute_trade_stats_for_company_keys(company_keys)
 
-        # Prüfe, dass execute aufgerufen wurde
         mock_execute.assert_called_once()
 
-        # Prüfe, dass das SQL ein INSERT auf company_trade_stats ist (nicht ein ADD)
         call_args = mock_execute.call_args
         sql_query = call_args[0][0]
         assert "INSERT INTO company_trade_stats" in sql_query
-        assert "COUNT(*) AS trade_count" in sql_query  # Deterministische Neuberechnung
+        assert "LEFT JOIN insider_trades" in sql_query
+        assert "COUNT(t.company_key) AS trade_count" in sql_query
         assert "ON DUPLICATE KEY UPDATE" in sql_query
 
-        # Prüfe, dass result die Anzahl der company_keys ist (erfolgreich verarbeitet)
         assert result == 1
 
     def test_import_service_calls_recompute_not_deltas(self):
@@ -71,11 +69,10 @@ class TestCompanyTradeStatsCorrectness:
             company_mysql_repo=mock_company_repo
         )
 
-        # Rufe _update_company_trade_stats auf
         import_service._update_company_trade_stats(trades)
 
-        # Prüfe, dass recompute_trade_stats_for_company_keys aufgerufen wurde
         mock_company_repo.recompute_trade_stats_for_company_keys.assert_called_once_with(['CIK:123'])
+        mock_company_repo.upsert_trade_stats_deltas.assert_not_called()
 
 
 class TestDashboardNormalPathDecoupling:
@@ -95,9 +92,24 @@ class TestDashboardNormalPathDecoupling:
             "gate_passed_count": 50,
             "avg_score": 7.5,
         }
-        mock_trade_repo.fetch_dashboard_sector_distribution.return_value = MagicMock()
-        mock_trade_repo.fetch_dashboard_market_cap_distribution.return_value = MagicMock()
-        mock_trade_repo.fetch_dashboard_top_trades.return_value = MagicMock()
+        mock_trade_repo.fetch_dashboard_sector_distribution.return_value = pd.DataFrame()
+        mock_trade_repo.fetch_dashboard_market_cap_distribution.return_value = pd.DataFrame()
+        mock_trade_repo.fetch_dashboard_top_trades.side_effect = [
+            pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"]),
+            pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"]),
+        ]
+        mock_trade_repo.fetch_dashboard_decision_snapshot.return_value = {
+            "actionable_buys": 3,
+            "buy_candidates": 9,
+            "watchlist": 4,
+            "sell_warnings": 2,
+            "tr_not_found": 1,
+            "exchange_resolution_issues": 5,
+            "fetched_profiles_count": 7,
+            "missing_profiles_count": 3,
+        }
+        mock_trade_repo.fetch_dashboard_missing_data_summary.return_value = []
+        mock_trade_repo.fetch_dashboard_last_update.return_value = datetime(2026, 4, 20)
 
         dashboard_service = DashboardService(
             raw_repo=MagicMock(),
@@ -106,31 +118,22 @@ class TestDashboardNormalPathDecoupling:
             company_repo=MagicMock()
         )
 
-        # Rufe Aggregate-Pfad auf
-        try:
-            dashboard_service._build_payload_from_aggregate_queries({})
-        except:
-            # Fehler ist okay speichern (z.B. durch Mock-Data)
-            pass
+        payload = dashboard_service._build_payload_from_aggregate_queries({})
 
-        # KRITISCH: fetch_trades_enriched_with_company sollte NICHT aufgerufen worden sein
         mock_trade_repo.fetch_trades_enriched_with_company.assert_not_called()
 
-        # Aber diese Aggregate-Methoden SOLLTEN aufgerufen worden sein
         mock_trade_repo.fetch_dashboard_kpi_snapshot.assert_called_once()
         mock_trade_repo.fetch_dashboard_sector_distribution.assert_called_once()
         mock_trade_repo.fetch_dashboard_market_cap_distribution.assert_called_once()
-        mock_trade_repo.fetch_dashboard_top_trades.assert_called()
+        assert mock_trade_repo.fetch_dashboard_top_trades.call_count == 2
+        assert payload["kpi_actionable_buys"] == 3
 
 
 class TestDashboardKPICompleteness:
     """Tests dass Dashboard-KPIs nicht mehr hartcodiert leer sind."""
 
     def test_aggregate_path_uses_top_trades_query_directly(self):
-        """Top-Tabellen sollten direkt aus fetch_dashboard_top_trades kommen,
-        nicht aus großem core_df."""
-
-        import pandas as pd
+        """Top-Tabellen sollten direkt aus fetch_dashboard_top_trades kommen."""
 
         mock_trade_repo = MagicMock()
         mock_trade_repo.fetch_dashboard_kpi_snapshot.return_value = {
@@ -145,6 +148,25 @@ class TestDashboardKPICompleteness:
         }
         mock_trade_repo.fetch_dashboard_sector_distribution.return_value = pd.DataFrame()
         mock_trade_repo.fetch_dashboard_market_cap_distribution.return_value = pd.DataFrame()
+        mock_trade_repo.fetch_dashboard_decision_snapshot.return_value = {
+            "actionable_buys": 2,
+            "buy_candidates": 12,
+            "watchlist": 4,
+            "sell_warnings": 3,
+            "tr_not_found": 1,
+            "exchange_resolution_issues": 2,
+            "fetched_profiles_count": 8,
+            "missing_profiles_count": 2,
+        }
+        mock_trade_repo.fetch_dashboard_missing_data_summary.return_value = [
+            {
+                "symbol_at_trade": "XYZ",
+                "missing_profile": True,
+                "missing_sector": False,
+                "missing_market_cap": True,
+            }
+        ]
+        mock_trade_repo.fetch_dashboard_last_update.return_value = datetime(2026, 4, 20)
 
         # Simuliere Top-Trades Response
         top_buys_df = pd.DataFrame([
@@ -177,18 +199,22 @@ class TestDashboardKPICompleteness:
             company_repo=MagicMock()
         )
 
-        # Rufe Aggregate-Pfad auf
-        try:
-            payload = dashboard_service._build_payload_from_aggregate_queries({})
-        except:
-            # Fehler okay für Mock-Setup
-            pass
+        payload = dashboard_service._build_payload_from_aggregate_queries({})
 
-        # Prüfe dass fetch_dashboard_top_trades mindestens 2x aufgerufen wurde (BUY, SELL)
-        assert mock_trade_repo.fetch_dashboard_top_trades.call_count >= 2
-
-        # fetch_dashboard_top_trades sollte mit direction="BUY" und direction="SELL" aufgerufen worden sein
-        calls = [call[1] if len(call) > 1 else {} for call in mock_trade_repo.fetch_dashboard_top_trades.call_args_list]
+        assert mock_trade_repo.fetch_dashboard_top_trades.call_count == 2
+        first_call_kwargs = mock_trade_repo.fetch_dashboard_top_trades.call_args_list[0].kwargs
+        second_call_kwargs = mock_trade_repo.fetch_dashboard_top_trades.call_args_list[1].kwargs
+        assert first_call_kwargs["direction"] == "BUY"
+        assert second_call_kwargs["direction"] == "SELL"
+        assert payload["kpi_actionable_buys"] == 2
+        assert payload["kpi_buy_candidates"] == 12
+        assert payload["kpi_watchlist"] == 4
+        assert payload["kpi_sell_warnings"] == 3
+        assert payload["kpi_tr_not_found"] == 1
+        assert payload["kpi_exchange_resolution_issues"] == 2
+        assert payload["fetched_profiles_count"] == 8
+        assert payload["missing_profiles_count"] == 2
+        assert payload["missing_data_summary"]["symbols_with_missing_profile"] == ["XYZ"]
 
 
 class TestAPI2CacheBulkLookup:
@@ -235,6 +261,19 @@ class TestAPI2CacheBulkLookup:
         assert len(result) == 2
         assert result["CIK:123"]["sector"] == "Technology"
         assert result["CIK:456"]["sector"] == "Finance"
+
+    def test_import_uses_bulk_cache_lookup_without_single_calls(self):
+        service = ImportService.__new__(ImportService)
+        service.fmp_client = MagicMock()
+        service.fmp_client.config.profile_ttl_days = 7
+        service.company_mongo_repo = MagicMock()
+
+        company_keys = ["CIK:1", "CIK:2", "CIK:1"]
+        service.company_mongo_repo.get_recent_profiles_bulk.return_value = {}
+        _ = service.company_mongo_repo.get_recent_profiles_bulk(company_keys, ttl_days=7)
+
+        service.company_mongo_repo.get_recent_profiles_bulk.assert_called_once()
+        service.company_mongo_repo.get_recent_profile.assert_not_called()
 
 
 if __name__ == "__main__":

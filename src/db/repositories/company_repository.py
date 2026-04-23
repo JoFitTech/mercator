@@ -339,21 +339,23 @@ class CompanyRepository:
         if not company_keys:
             return 0
 
-        placeholders = ", ".join(["%s"] * len(company_keys))
+        normalized_keys = sorted({str(key).strip() for key in company_keys if str(key).strip()})
+        if not normalized_keys:
+            return 0
 
-        # Berechne die Statistiken aus insider_trades neu
+        key_rows_sql = " UNION ALL ".join(["SELECT %s AS company_key"] * len(normalized_keys))
         recompute_sql = f"""
             INSERT INTO company_trade_stats (company_key, trade_count, buy_count, sell_count, last_trade_date, updated_at)
             SELECT
-                t.company_key,
-                COUNT(*) AS trade_count,
+                k.company_key,
+                COUNT(t.company_key) AS trade_count,
                 SUM(CASE WHEN t.acquisition_or_disposition IN ('A', 'BUY') THEN 1 ELSE 0 END) AS buy_count,
                 SUM(CASE WHEN t.acquisition_or_disposition IN ('D', 'SELL') THEN 1 ELSE 0 END) AS sell_count,
                 MAX(t.transaction_date) AS last_trade_date,
                 UTC_TIMESTAMP() AS updated_at
-            FROM insider_trades t
-            WHERE t.company_key IN ({placeholders})
-            GROUP BY t.company_key
+            FROM ({key_rows_sql}) k
+            LEFT JOIN insider_trades t ON t.company_key = k.company_key
+            GROUP BY k.company_key
             ON DUPLICATE KEY UPDATE
                 trade_count = VALUES(trade_count),
                 buy_count = VALUES(buy_count),
@@ -362,8 +364,8 @@ class CompanyRepository:
                 updated_at = VALUES(updated_at)
         """
 
-        self._client.execute(recompute_sql, company_keys)
-        return len(company_keys)
+        self._client.execute(recompute_sql, normalized_keys)
+        return len(normalized_keys)
 
 class CompanyMySqlRepository(CompanyRepository):
     def list_profile_backfill_candidates(self, limit: int = 100) -> list[str]:

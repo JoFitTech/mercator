@@ -29,6 +29,31 @@ def test_benchmark_api3_cache_hit_miss_reports_both_paths() -> None:
     assert hit.scenario == "cache hit"
 
 
+def test_dashboard_normal_aggregate_scenario_avoids_full_load() -> None:
+    row = diag.benchmark_dashboard_normal_aggregate_path_without_full_load()
+    assert row.area == "Dashboard"
+    assert row.scenario == "Normal aggregate path (no full-load)"
+
+
+def test_dashboard_fallback_scenario_is_explicit() -> None:
+    row = diag.benchmark_dashboard_fallback_full_load_path()
+    assert row.area == "Dashboard"
+    assert row.scenario == "Fallback full-load path"
+
+
+def test_company_trade_stats_recompute_scenario_present() -> None:
+    row = diag.benchmark_company_trade_stats_recompute_path()
+    assert row.area == "company_trade_stats"
+    assert row.rows == 250
+
+
+def test_api2_bulk_vs_single_simulation_reports_query_delta() -> None:
+    single, bulk = diag.benchmark_api2_bulk_cache_lookup_vs_legacy_single(symbols=30)
+    assert single.sql_queries == 30
+    assert bulk.sql_queries == 1
+    assert single.duration_ms > bulk.duration_ms
+
+
 def test_diagnose_mongo_classifies_missing_local_service(monkeypatch) -> None:
     monkeypatch.setattr(
         diag,
@@ -54,3 +79,5 @@ def test_diagnose_mongo_classifies_missing_local_service(monkeypatch) -> None:
     result = diag.diagnose_mongo()
 
     assert result["classification"] == "runtime_environment_or_missing_service"
+
+

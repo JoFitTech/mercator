@@ -97,11 +97,13 @@ class _SyntheticPagedClient(_SyntheticMySqlClient):
 
 
 class _DashTradeRepo:
-    def __init__(self, delay_ms: float = 12.0) -> None:
+    def __init__(self, delay_ms: float = 12.0, *, fail_aggregate: bool = False, fail_on_full_load: bool = False) -> None:
         self.fetch_calls = 0
         self.state_calls = 0
         self.sql_queries = 0
         self.delay_s = delay_ms / 1000.0
+        self.fail_aggregate = fail_aggregate
+        self.fail_on_full_load = fail_on_full_load
 
     def get_max_updated_at(self):
         self.state_calls += 1
@@ -115,6 +117,8 @@ class _DashTradeRepo:
 
     def fetch_trades_enriched_with_company(self, limit: int, filters: dict | None = None) -> pd.DataFrame:
         self.fetch_calls += 1
+        if self.fail_on_full_load:
+            raise RuntimeError("Full-load path should not be used in this scenario")
         self.sql_queries += 1
         time.sleep(self.delay_s)
         return pd.DataFrame(
@@ -137,6 +141,8 @@ class _DashTradeRepo:
         )
 
     def fetch_dashboard_kpi_snapshot(self, filters: dict | None = None) -> dict[str, Any]:
+        if self.fail_aggregate:
+            raise RuntimeError("synthetic aggregate failure")
         self.sql_queries += 1
         return {"buy_count": 1, "sell_count": 0, "buy_volume": 20.0, "sell_volume": 0.0, "relevant_trades": 1, "affected_companies": 1, "gate_passed_count": 1, "avg_score": 80.0}
 
@@ -153,6 +159,27 @@ class _DashTradeRepo:
     def fetch_dashboard_market_cap_distribution(self, filters: dict | None = None) -> pd.DataFrame:
         self.sql_queries += 1
         return pd.DataFrame([{"bucket": "Small Cap (<2B)", "companies": 1}])
+
+    def fetch_dashboard_decision_snapshot(self, filters: dict | None = None) -> dict[str, int]:
+        self.sql_queries += 1
+        return {
+            "actionable_buys": 1,
+            "buy_candidates": 1,
+            "watchlist": 0,
+            "sell_warnings": 0,
+            "tr_not_found": 0,
+            "exchange_resolution_issues": 0,
+            "fetched_profiles_count": 1,
+            "missing_profiles_count": 0,
+        }
+
+    def fetch_dashboard_missing_data_summary(self, filters: dict | None = None, limit: int = 25) -> list[dict[str, Any]]:
+        self.sql_queries += 1
+        return []
+
+    def fetch_dashboard_last_update(self, filters: dict | None = None):
+        self.sql_queries += 1
+        return datetime(2026, 1, 1)
 
 
 class _DashCompanyRepo:
@@ -290,6 +317,76 @@ def benchmark_dashboard_aggregate_path() -> MetricRow:
     return MetricRow("Dashboard", "Aggregate query path", elapsed_ms, int(payload.get("kpi_relevant_trades_count", 0)), "miss", trade_repo.sql_queries + company_repo.sql_queries)
 
 
+def benchmark_dashboard_normal_aggregate_path_without_full_load() -> MetricRow:
+    trade_repo = _DashTradeRepo(fail_on_full_load=True)
+    company_repo = _DashCompanyRepo()
+    service = DashboardService(raw_repo=None, company_mongo_repo=None, trade_repo=trade_repo, company_repo=company_repo)  # type: ignore[arg-type]
+    t0 = time.perf_counter()
+    payload = service.build_dashboard_payload(filters={"symbol": "AAPL"})
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    return MetricRow(
+        "Dashboard",
+        "Normal aggregate path (no full-load)",
+        elapsed_ms,
+        int(payload.get("kpi_relevant_trades_count", 0)),
+        "miss",
+        trade_repo.sql_queries + company_repo.sql_queries,
+    )
+
+
+def benchmark_dashboard_fallback_full_load_path() -> MetricRow:
+    trade_repo = _DashTradeRepo(fail_aggregate=True)
+    company_repo = _DashCompanyRepo()
+    service = DashboardService(raw_repo=None, company_mongo_repo=None, trade_repo=trade_repo, company_repo=company_repo)  # type: ignore[arg-type]
+    t0 = time.perf_counter()
+    payload = service.build_dashboard_payload(filters={"symbol": "AAPL"})
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    return MetricRow(
+        "Dashboard",
+        "Fallback full-load path",
+        elapsed_ms,
+        int(payload.get("kpi_relevant_trades_count", 0)),
+        "fallback",
+        trade_repo.sql_queries + company_repo.sql_queries,
+    )
+
+
+def benchmark_company_trade_stats_recompute_path() -> MetricRow:
+    class _Repo:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def recompute_trade_stats_for_company_keys(self, keys: list[str]) -> int:
+            self.calls += 1
+            time.sleep(0.002)
+            return len(keys)
+
+    repo = _Repo()
+    keys = [f"SYM:S{i}" for i in range(250)]
+    t0 = time.perf_counter()
+    rows = repo.recompute_trade_stats_for_company_keys(keys)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    return MetricRow("company_trade_stats", "Recompute path", elapsed_ms, rows, "n/a", repo.calls)
+
+
+def benchmark_api2_bulk_cache_lookup_vs_legacy_single(symbols: int = 80) -> tuple[MetricRow, MetricRow]:
+    per_query_delay_s = 0.0015
+
+    t0 = time.perf_counter()
+    for _ in range(symbols):
+        time.sleep(per_query_delay_s)
+    single_ms = (time.perf_counter() - t0) * 1000
+
+    t1 = time.perf_counter()
+    time.sleep(per_query_delay_s)
+    bulk_ms = (time.perf_counter() - t1) * 1000
+
+    return (
+        MetricRow("Import API2 cache", "Legacy single lookup simulation", single_ms, symbols, "n/a", symbols),
+        MetricRow("Import API2 cache", "Bulk lookup simulation", bulk_ms, symbols, "n/a", 1),
+    )
+
+
 class _Api3CacheRepo:
     def __init__(self, cached: dict[str, Any] | None) -> None:
         self.cached = cached
@@ -406,6 +503,10 @@ def main() -> None:
     metrics.append(benchmark_companies_page_query_path())
     metrics.append(benchmark_connection_pool_reuse())
     metrics.append(benchmark_dashboard_aggregate_path())
+    metrics.append(benchmark_dashboard_normal_aggregate_path_without_full_load())
+    metrics.append(benchmark_dashboard_fallback_full_load_path())
+    metrics.append(benchmark_company_trade_stats_recompute_path())
+    metrics.extend(benchmark_api2_bulk_cache_lookup_vs_legacy_single())
     metrics.extend(benchmark_api3_cache_hit_miss())
 
     print("# Mercator Performance Diagnostics")
