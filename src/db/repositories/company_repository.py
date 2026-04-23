@@ -322,6 +322,49 @@ class CompanyRepository:
                 result = cursor.fetchone()
                 return result[0] if result and result[0] else None
 
+    def recompute_trade_stats_for_company_keys(self, company_keys: list[str]) -> int:
+        """
+        Rekalkuliert company_trade_stats für die gegebenen company_keys DETERMINISTISCH.
+
+        Dies berechnet Statistiken direkt aus der insider_trades-Tabelle neu,
+        anstatt Deltas zu verwenden. Dadurch wird verhindert, dass wiederholte
+        Imports mit überlappenden Trades zu Overcounting führen.
+
+        Args:
+            company_keys: Liste der company_keys, deren Statistiken neu berechnet werden sollen.
+
+        Returns:
+            Anzahl der aktualisierten Einträge in company_trade_stats.
+        """
+        if not company_keys:
+            return 0
+
+        placeholders = ", ".join(["%s"] * len(company_keys))
+
+        # Berechne die Statistiken aus insider_trades neu
+        recompute_sql = f"""
+            INSERT INTO company_trade_stats (company_key, trade_count, buy_count, sell_count, last_trade_date, updated_at)
+            SELECT
+                t.company_key,
+                COUNT(*) AS trade_count,
+                SUM(CASE WHEN t.acquisition_or_disposition IN ('A', 'BUY') THEN 1 ELSE 0 END) AS buy_count,
+                SUM(CASE WHEN t.acquisition_or_disposition IN ('D', 'SELL') THEN 1 ELSE 0 END) AS sell_count,
+                MAX(t.transaction_date) AS last_trade_date,
+                UTC_TIMESTAMP() AS updated_at
+            FROM insider_trades t
+            WHERE t.company_key IN ({placeholders})
+            GROUP BY t.company_key
+            ON DUPLICATE KEY UPDATE
+                trade_count = VALUES(trade_count),
+                buy_count = VALUES(buy_count),
+                sell_count = VALUES(sell_count),
+                last_trade_date = VALUES(last_trade_date),
+                updated_at = VALUES(updated_at)
+        """
+
+        self._client.execute(recompute_sql, company_keys)
+        return len(company_keys)
+
 class CompanyMySqlRepository(CompanyRepository):
     def list_profile_backfill_candidates(self, limit: int = 100) -> list[str]:
         sql = """

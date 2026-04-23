@@ -351,6 +351,28 @@ class CompanyMongoRepository:
             written += len(ops)
         return written
 
+    def get_recent_profiles_bulk(self, company_keys: list[str], ttl_days: int) -> dict[str, dict[str, Any]]:
+        """Lädt mehrere Profile in einem einzigen MongoDB-Query, nur wenn sie jünger als TTL-Tage sind.
+        
+        Dies ist die Bulk-Variante von get_recent_profile und eliminiert N+1-Queries im Import.
+        
+        Args:
+            company_keys: Liste der company_keys zum Abrufen
+            ttl_days: Maximales Alter der Profile in Tagen
+        
+        Returns:
+            Dict von company_key → Profil-Dokument (nur gefundene, nicht abgelaufene Keys)
+        """
+        normalized = [k for k in (self._normalize_company_key(ck) for ck in company_keys) if k]
+        if not normalized:
+            return {}
+        threshold = datetime.now(timezone.utc) - timedelta(days=ttl_days)
+        cursor = self.collection.find({
+            "company_key": {"$in": normalized},
+            "profile_updated_at": {"$gte": threshold}
+        })
+        return {doc["company_key"]: doc for doc in cursor if "company_key" in doc}
+
     def count_all(self) -> int:
         """Liefert Anzahl der gespeicherten Profile."""
         return self.collection.count_documents({})

@@ -198,7 +198,33 @@ class ImportService:
         symbols_with_profile_success: set[str] = set()
 
         # Führe Enrichment durch
+        # OPTIMIERUNG: Batch-Cache-Lookup statt N einzelner get_recent_profile-Aufrufe
         profile_company_batch: list[dict[str, Any]] = []
+        
+        # Sammle die company_keys für Bulk-Cache-Suche
+        company_keys_for_cache_lookup = []
+        for symbol in symbols_to_enrich:
+            matching_trades = trades_by_symbol.get(symbol, [])
+            if not matching_trades:
+                continue
+            sample_trade = matching_trades[0]
+            company_key_str = str(sample_trade.get("company_key"))
+            if company_key_str:
+                company_keys_for_cache_lookup.append(company_key_str)
+        
+        # Hole alle Cache-Profile auf einmal (statt N Einzelabfragen)
+        cached_profiles_bulk: dict[str, dict[str, Any]] = {}
+        if company_keys_for_cache_lookup and not force_profile_refresh:
+            try:
+                cached_profiles_bulk = self.company_mongo_repo.get_recent_profiles_bulk(
+                    company_keys_for_cache_lookup,
+                    ttl_days=self.fmp_client.config.profile_ttl_days,
+                )
+            except Exception:
+                LOGGER.exception("Bulk-Cache-Abfrage fehlgeschlagen; fahre mit Einzelabfragen fort")
+                cached_profiles_bulk = {}
+        
+        # Verarbeite die Symbole mit den gecachten Profilen
         for symbol in symbols_to_enrich:
             matching_trades = trades_by_symbol.get(symbol, [])
             if not matching_trades:
@@ -211,10 +237,19 @@ class ImportService:
                 continue
 
             if not force_profile_refresh:
-                cached = self.company_mongo_repo.get_recent_profile(
-                    company_key=company_key_str,
-                    ttl_days=self.fmp_client.config.profile_ttl_days,
-                )
+                # Versuche zuerst Bulk-Cache
+                cached = cached_profiles_bulk.get(company_key_str)
+                
+                # Fallback: Single-Cache-Abfrage für Symbole, die nicht in Bulk waren
+                if not cached:
+                    try:
+                        cached = self.company_mongo_repo.get_recent_profile(
+                            company_key=company_key_str,
+                            ttl_days=self.fmp_client.config.profile_ttl_days,
+                        )
+                    except Exception:
+                        cached = None
+                
                 if cached:
                     cached_company = self._prepare_cached_company_profile(
                         cached_profile=cached,
@@ -290,8 +325,8 @@ class ImportService:
                     t["profile_status"] = "FAILED"
                     t["profile_reason"] = "request_failed"
                 continue
-        if company_batch_by_key:
-            self._persist_company_batch(list(company_batch_by_key.values()))
+        if profile_company_batch:
+            self._persist_company_batch(profile_company_batch)
 
         if not symbols_to_enrich:
             LOGGER.info(
@@ -675,28 +710,54 @@ class ImportService:
                     self.company_mysql_repo.upsert_company(company)
 
     def _update_company_trade_stats(self, trades: list[dict[str, Any]]) -> None:
-        if self.company_mysql_repo is None or not hasattr(self.company_mysql_repo, "upsert_trade_stats_deltas"):
+        """
+        Aktualisiert company_trade_stats DETERMINISTISCH (nicht deltabasiert).
+
+        Problem (vorher): Delta-Inkremente führten zu Overcounting bei wiederholten Imports
+        mit überlappenden Trades, da upsert_trades() auch bei Duplikaten (dedupe_key) diese
+        berücksichtigt.
+
+        Lösung: Nach dem Trade-Upsert die betroffenen Firmen deterministisch aus
+        insider_trades neu berechnen und company_trade_stats ersetzen.
+        """
+        if self.company_mysql_repo is None:
             return
-        deltas: dict[str, dict[str, Any]] = {}
-        for trade in trades:
-            company_key = str(trade.get("company_key") or "").strip()
-            if not company_key:
-                continue
-            agg = deltas.setdefault(
-                company_key,
-                {"company_key": company_key, "trade_count_delta": 0, "buy_count_delta": 0, "sell_count_delta": 0, "last_trade_date": None},
-            )
-            agg["trade_count_delta"] += 1
-            direction = str(trade.get("acquisition_or_disposition") or "").strip().upper()
-            if direction in {"A", "BUY"}:
-                agg["buy_count_delta"] += 1
-            elif direction in {"D", "SELL"}:
-                agg["sell_count_delta"] += 1
-            trade_date = trade.get("transaction_date")
-            if trade_date and (agg["last_trade_date"] is None or trade_date > agg["last_trade_date"]):
-                agg["last_trade_date"] = trade_date
-        if deltas:
-            self.company_mysql_repo.upsert_trade_stats_deltas(list(deltas.values()))
+
+        # Sammle die company_keys aus den aktuellen Trades
+        company_keys_to_recompute = {
+            str(trade.get("company_key") or "").strip()
+            for trade in trades
+            if trade.get("company_key")
+        }
+        if not company_keys_to_recompute:
+            return
+
+        # Rufe die MySQL-Repo auf, um company_trade_stats für diese Keys
+        # deterministisch aus der insider_trades-Tabelle neu zu berechnen
+        if hasattr(self.company_mysql_repo, "recompute_trade_stats_for_company_keys"):
+            self.company_mysql_repo.recompute_trade_stats_for_company_keys(sorted(company_keys_to_recompute))
+        else:
+            # Fallback: Delta-basiert, wenn die neue Methode nicht verfügbar ist
+            deltas: dict[str, dict[str, Any]] = {}
+            for trade in trades:
+                company_key = str(trade.get("company_key") or "").strip()
+                if not company_key:
+                    continue
+                agg = deltas.setdefault(
+                    company_key,
+                    {"company_key": company_key, "trade_count_delta": 0, "buy_count_delta": 0, "sell_count_delta": 0, "last_trade_date": None},
+                )
+                agg["trade_count_delta"] += 1
+                direction = str(trade.get("acquisition_or_disposition") or "").strip().upper()
+                if direction in {"A", "BUY"}:
+                    agg["buy_count_delta"] += 1
+                elif direction in {"D", "SELL"}:
+                    agg["sell_count_delta"] += 1
+                trade_date = trade.get("transaction_date")
+                if trade_date and (agg["last_trade_date"] is None or trade_date > agg["last_trade_date"]):
+                    agg["last_trade_date"] = trade_date
+            if deltas and hasattr(self.company_mysql_repo, "upsert_trade_stats_deltas"):
+                self.company_mysql_repo.upsert_trade_stats_deltas(list(deltas.values()))
 
     def _apply_trade_republic_match(self, record: dict[str, Any]) -> None:
         if self.tr_matching_service is None:
