@@ -19,7 +19,9 @@ from src.app import navigation as app_navigation
 from src.services.database_status_service import DatabaseStatus, MongoStatus, MySqlStatus
 from src.services.public_share_service import TunnelStatus
 from src.ui.pages.trades_page import (
+    TRADES_WIDGET_RESYNC_PENDING_KEY,
     TRADE_FILTER_DEFAULTS,
+    _build_single_trade_drilldown_filters,
     _build_query_filters,
     _clamp_page as _clamp_trades_page,
     _normalize_trades_filters,
@@ -71,7 +73,8 @@ def test_dashboard_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -
     dashboard_page._reset_dashboard_filters_and_widgets()
 
     assert dashboard_page.st.session_state["dashboard_filters"]["date_range"] == dashboard_page.DASHBOARD_FILTER_DEFAULTS["date_range"]
-    assert dashboard_page.st.session_state["dashboard_filter_date_range"] == dashboard_page.DASHBOARD_FILTER_DEFAULTS["date_range"]
+    assert dashboard_page.st.session_state["dashboard_filter_date_range"] == (date(2026, 4, 1), date(2026, 4, 12))
+    assert dashboard_page.st.session_state["dashboard_filters_resync_pending"] is True
     assert dashboard_page.st.session_state["dashboard_feedback"][0] == "success"
 
 
@@ -137,11 +140,33 @@ def test_trades_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -> N
     _reset_trade_filters_and_widgets()
 
     assert trades_page.st.session_state["trades_filters"]["symbol"] == ""
-    assert trades_page.st.session_state["trades_filter_symbol"] == ""
-    assert trades_page.st.session_state["trades_filter_direction"] == "Alle"
-    assert trades_page.st.session_state["trades_filter_min_score"] == 0
-    assert trades_page.st.session_state["trades_filter_min_value"] == 0
+    assert trades_page.st.session_state["trades_filter_symbol"] == "AAPL"
+    assert trades_page.st.session_state["trades_filter_direction"] == "BUY"
+    assert trades_page.st.session_state["trades_filter_min_score"] == 33
+    assert trades_page.st.session_state["trades_filter_min_value"] == 200000
+    assert trades_page.st.session_state[TRADES_WIDGET_RESYNC_PENDING_KEY] is True
     assert trades_page.st.session_state["trades_current_page"] == 1
+
+
+def test_build_single_trade_drilldown_filters_sets_group_scope_and_single_trade_mode() -> None:
+    selected_trade = pd.Series(
+        {
+            "symbol_at_trade": "AAPL",
+            "reporting_name": "Jane Insider",
+            "accumulation_start_date": "2026-04-01",
+            "accumulation_end_date": "2026-04-03",
+        }
+    )
+
+    next_filters = _build_single_trade_drilldown_filters(
+        current_filters={"direction": "BUY", "show_single_trades": False},
+        selected_trade=selected_trade,
+    )
+
+    assert next_filters["symbol"] == "AAPL"
+    assert next_filters["reporting_name"] == "Jane Insider"
+    assert next_filters["show_single_trades"] is True
+    assert next_filters["date_range"] == (date(2026, 4, 1), date(2026, 4, 3))
 
 
 def test_trades_apply_reads_current_widget_values_without_enter(monkeypatch) -> None:

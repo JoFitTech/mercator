@@ -34,6 +34,7 @@ TRADE_FILTER_DEFAULTS = {
 }
 TRADE_PAGE_SIZES = [50, 100, 200]
 ACCUMULATION_CACHE_TTL_SECONDS = 20.0
+TRADES_WIDGET_RESYNC_PENDING_KEY = "trades_filters_resync_pending"
 
 
 def _trade_filter_widget_keys() -> dict[str, str]:
@@ -94,6 +95,11 @@ def _sync_trade_filter_widgets_from_state(force: bool = False) -> None:
             st.session_state[key] = active_filters[field]
 
 
+def _mark_trade_filter_widget_resync_pending() -> None:
+    """Markiert, dass Widget-Werte erst im naechsten Render-Zyklus aus dem kanonischen State gezogen werden."""
+    st.session_state[TRADES_WIDGET_RESYNC_PENDING_KEY] = True
+
+
 def _read_trade_filters_from_widgets() -> dict:
     """Liest den vollständigen Filterzustand aus den Widgets."""
     keys = _trade_filter_widget_keys()
@@ -113,11 +119,25 @@ def _read_trade_filters_from_widgets() -> dict:
 
 
 def _reset_trade_filters_and_widgets() -> None:
-    """Setzt kanonischen Filter-State und Widget-State vollständig zurück."""
+    """Setzt kanonischen Filter-State zurück und triggert Widget-Resync im naechsten Rerun."""
     st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
-    _sync_trade_filter_widgets_from_state(force=True)
+    _mark_trade_filter_widget_resync_pending()
     st.session_state["trades_current_page"] = 1
     st.session_state["trades_feedback"] = ("success", "Alle Trades-Filter wurden zurückgesetzt.")
+
+
+def _build_single_trade_drilldown_filters(current_filters: dict | None, selected_trade: pd.Series) -> dict:
+    """Erzeugt den kanonischen Filterzustand fuer den Drilldown Gruppe -> Einzeltrades."""
+    next_filters = _normalize_trades_filters(current_filters)
+    symbol_value = str(selected_trade.get("symbol_at_trade") or "").strip()
+    start_date = _to_date_or_none(selected_trade.get("accumulation_start_date"))
+    end_date = _to_date_or_none(selected_trade.get("accumulation_end_date"))
+    if start_date and end_date:
+        next_filters["date_range"] = (start_date, end_date)
+    next_filters["symbol"] = symbol_value if symbol_value.lower() not in {"nan", "none"} else ""
+    next_filters["reporting_name"] = str(selected_trade.get("reporting_name") or "").strip()
+    next_filters["show_single_trades"] = True
+    return _normalize_trades_filters(next_filters)
 
 
 def _trade_action_symbol_label(trade_row: pd.Series) -> str:
@@ -202,7 +222,8 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     if "trades_filters" not in st.session_state:
         st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
     st.session_state["trades_filters"] = _normalize_trades_filters(st.session_state["trades_filters"])
-    _sync_trade_filter_widgets_from_state()
+    resync_pending = bool(st.session_state.pop(TRADES_WIDGET_RESYNC_PENDING_KEY, False))
+    _sync_trade_filter_widgets_from_state(force=resync_pending)
 
     with st.expander("Filter und Suche", expanded=True):
         with st.form("trades_filters_form", clear_on_submit=False):
@@ -384,7 +405,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
         if c2.button("Zeitraum auf 90 Tage setzen", key="trades_empty_expand_period", use_container_width=True):
             st.session_state["trades_filters"] = _normalize_trades_filters(st.session_state.get("trades_filters"))
             st.session_state["trades_filters"]["date_range"] = TRADE_FILTER_DEFAULTS["date_range"]
-            _sync_trade_filter_widgets_from_state(force=True)
+            _mark_trade_filter_widget_resync_pending()
             st.rerun()
         return
 
@@ -439,16 +460,11 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
                         use_container_width=True,
                         key=f"open_group_as_single_{selected_idx}",
                     ):
-                        next_filters = _normalize_trades_filters(st.session_state.get("trades_filters"))
-                        start_date = _to_date_or_none(selected_trade.get("accumulation_start_date"))
-                        end_date = _to_date_or_none(selected_trade.get("accumulation_end_date"))
-                        if start_date and end_date:
-                            next_filters["date_range"] = (start_date, end_date)
-                        next_filters["symbol"] = symbol_value if symbol_value.lower() not in {"nan", "none"} else ""
-                        next_filters["reporting_name"] = str(selected_trade.get("reporting_name") or "").strip()
-                        next_filters["show_single_trades"] = True
-                        st.session_state["trades_filters"] = _normalize_trades_filters(next_filters)
-                        _sync_trade_filter_widgets_from_state(force=True)
+                        st.session_state["trades_filters"] = _build_single_trade_drilldown_filters(
+                            st.session_state.get("trades_filters"),
+                            selected_trade,
+                        )
+                        _mark_trade_filter_widget_resync_pending()
                         st.session_state["trades_current_page"] = 1
                         st.session_state["trades_feedback"] = (
                             "success",

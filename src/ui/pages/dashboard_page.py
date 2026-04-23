@@ -44,6 +44,7 @@ def _build_dashboard_filters(date_range: tuple[date, date] | list[date] | tuple[
 DASHBOARD_FILTER_DEFAULTS = {
     "date_range": (date.today() - timedelta(days=30), date.today()),
 }
+DASHBOARD_WIDGET_RESYNC_PENDING_KEY = "dashboard_filters_resync_pending"
 
 
 def _normalize_dashboard_filters(filters: dict | None) -> dict:
@@ -67,7 +68,7 @@ def _read_dashboard_filters_from_widgets() -> dict:
 
 def _reset_dashboard_filters_and_widgets() -> None:
     st.session_state["dashboard_filters"] = dict(DASHBOARD_FILTER_DEFAULTS)
-    _sync_dashboard_filter_widgets_from_state(force=True)
+    st.session_state[DASHBOARD_WIDGET_RESYNC_PENDING_KEY] = True
     st.session_state["dashboard_feedback"] = ("success", "Dashboard-Filter wurden auf den Standardzeitraum zurückgesetzt.")
 
 
@@ -272,7 +273,8 @@ def render_dashboard_page(
     if "dashboard_filters" not in st.session_state:
         st.session_state["dashboard_filters"] = dict(DASHBOARD_FILTER_DEFAULTS)
     st.session_state["dashboard_filters"] = _normalize_dashboard_filters(st.session_state["dashboard_filters"])
-    _sync_dashboard_filter_widgets_from_state()
+    resync_pending = bool(st.session_state.pop(DASHBOARD_WIDGET_RESYNC_PENDING_KEY, False))
+    _sync_dashboard_filter_widgets_from_state(force=resync_pending)
 
     with st.container(border=True):
         c_filter, c_reset = st.columns([0.8, 0.2], vertical_alignment="bottom")

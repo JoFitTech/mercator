@@ -24,7 +24,6 @@ from src.ui.pages.company_detail_page import render_company_detail_page
 from src.ui.pages.trade_detail_page import render_trade_detail_page
 from src.ui.pages.admin_page import render_admin_page
 from src.ui.pages.settings_page import render_settings_page
-from src.ui.pages.methodology_page import render_methodology_page
 
 
 def _safe_render_page(area_name: str, render_callable: Callable[[], None]) -> None:
@@ -123,8 +122,6 @@ def main():
         _safe_render_page("Unternehmen", lambda: render_companies_page(factory.create_company_repository(), db_status=db_status))
     elif nav_target == "Einstellungen":
         _safe_render_page("Einstellungen", lambda: render_settings_page(app_settings_service, db_status=db_status))
-    elif nav_target == "Methodik":
-        _safe_render_page("Methodik", render_methodology_page)
     elif nav_target == "Admin":
         _safe_render_page("Admin", lambda: render_admin_page(
             settings=settings,

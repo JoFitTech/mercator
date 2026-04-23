@@ -11,7 +11,7 @@ import streamlit as st
 from src.services.public_share_service import TunnelManager, TunnelStatus
 
 # Typer-Definition für Seiten
-PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Methodik", "Trade-Detail", "Unternehmens-Detail"]
+PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Trade-Detail", "Unternehmens-Detail"]
 
 HEADER_NAV_OPTIONS: dict[str, str] = {
     "Dashboard": "Dashboard",
@@ -20,7 +20,6 @@ HEADER_NAV_OPTIONS: dict[str, str] = {
 }
 
 SIDEBAR_NAV_OPTIONS: dict[str, str] = {
-    "Methodik": "Methodik",
     "Einstellungen": "Einstellungen",
     "Admin": "Admin",
 }
