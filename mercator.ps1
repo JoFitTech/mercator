@@ -191,6 +191,75 @@ function Get-CloudflaredPublicUrl {
     return $null
 }
 
+function Test-PublicShareUrl {
+    param([string]$Url)
+
+    if (-not $Url -or -not $Url.Trim()) {
+        return @{ Ok = $false; Message = "Keine Public-URL vorhanden."; IsHardFailure = $false }
+    }
+
+    foreach ($method in @("Head", "Get")) {
+        try {
+            $resp = Invoke-WebRequest -Uri $Url -Method $method -UseBasicParsing -TimeoutSec 6
+            if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 500) {
+                return @{ Ok = $true; Message = $null; IsHardFailure = $false }
+            }
+            return @{ Ok = $false; Message = "Public URL antwortet mit HTTP $($resp.StatusCode)."; IsHardFailure = ($resp.StatusCode -ge 500) }
+        } catch {
+            $msg = $_.Exception.Message
+            $isHard = $false
+
+            $response = $null
+            $statusCode = $null
+            $body = $null
+            try { $response = $_.Exception.Response } catch { $response = $null }
+            if ($response) {
+                try { $statusCode = [int]$response.StatusCode } catch { $statusCode = $null }
+                try {
+                    $stream = $response.GetResponseStream()
+                    if ($stream) {
+                        $reader = New-Object System.IO.StreamReader($stream)
+                        $body = $reader.ReadToEnd()
+                        $reader.Dispose()
+                        $stream.Dispose()
+                    }
+                } catch {
+                    $body = $null
+                }
+            }
+
+            if ($statusCode -eq 530 -and $body -and ($body -match "\b1033\b" -or $body -match "Cloudflare Tunnel error")) {
+                return @{
+                    Ok = $false
+                    Message = "Oeffentliche URL ist nicht mehr aufloesbar (Cloudflare Error 1033)."
+                    IsHardFailure = $true
+                }
+            }
+
+            if ($msg -match "\b1033\b" -or $msg -match "\b530\b" -or $msg -match "Cloudflare Tunnel error") {
+                $isHard = $true
+            }
+            if ($method -eq "Get") {
+                return @{ Ok = $false; Message = "Public-URL-Check fehlgeschlagen: $msg"; IsHardFailure = $isHard }
+            }
+        }
+    }
+
+    return @{ Ok = $false; Message = "Public-URL-Check fehlgeschlagen."; IsHardFailure = $false }
+}
+
+function Test-CloudflaredEdgeTimeouts {
+    param([Parameter(Mandatory=$true)][string]$ErrorLogPath)
+
+    if (-not (Test-Path $ErrorLogPath)) { return $false }
+    $tail = Get-Content -Path $ErrorLogPath -Tail 80 -ErrorAction SilentlyContinue
+    if (-not $tail) { return $false }
+    $hits = @(
+        $tail | Select-String -Pattern "Unable to establish connection with Cloudflare edge|Failed to dial a quic connection|dial tcp .*:7844: i/o timeout|failed to dial to edge with quic" -AllMatches
+    ).Count
+    return ($hits -ge 1)
+}
+
 function Get-MongoHostPortFromUri {
     param([string]$Uri)
     if (-not $Uri) { return @{ Host = $null; Port = $null } }
@@ -447,7 +516,7 @@ function Invoke-ShareStart {
         if (-not $publicUrl) { Start-Sleep -Milliseconds 400 }
     }
 
-    $status = if ($proc.HasExited) { "ERROR" } elseif ($publicUrl) { "RUNNING" } else { "STARTING" }
+    $status = if ($proc.HasExited) { "ERROR" } elseif ($publicUrl) { "STARTING" } else { "STARTING" }
     $lastExitCode = if ($proc.HasExited) { $proc.ExitCode } else { $null }
     $lastError = if ($proc.HasExited) { "cloudflared wurde beendet." } else { $null }
     $statusPayload = @{
@@ -465,7 +534,10 @@ function Invoke-ShareStart {
     Write-PublicShareStatus -Paths $paths -Status $statusPayload
     Set-Content -Path $paths.PidPath -Value "$($proc.Id)" -Encoding UTF8
     Write-Host "Host-Tunnel gestartet (PID $($proc.Id))." -ForegroundColor Green
-    if ($publicUrl) { Write-Host "Public URL: $publicUrl" -ForegroundColor Green }
+    if ($publicUrl) {
+        Write-Host "Public URL: $publicUrl" -ForegroundColor Green
+        Write-Host "Hinweis: share-status prueft Erreichbarkeit und meldet 1033/Edge-Timeouts." -ForegroundColor Gray
+    }
 }
 
 function Invoke-ShareStop {
@@ -545,6 +617,40 @@ function Invoke-ShareStatus {
             extra_args = $status.extra_args
         }
     }
+
+    if ($alive -and $status.public_url) {
+        $publicCheck = Test-PublicShareUrl -Url "$($status.public_url)"
+        $edgeTimeoutsDetected = Test-CloudflaredEdgeTimeouts -ErrorLogPath $paths.ErrorLogPath
+
+        if ($publicCheck.Ok) {
+            $status.status = "RUNNING"
+            $status.last_error = $null
+        } else {
+            $status.status = "WARNING"
+            $status.last_error = $publicCheck.Message
+            if ($edgeTimeoutsDetected) {
+                $status.last_error = (
+                    "Tunnelprozess laeuft, aber Cloudflare-Edge-Verbindung scheitert (Timeout auf Port 7844). " +
+                    "Bitte Netzwerk/FW fuer ausgehend TCP/UDP 7844 freigeben oder anderes Netz/VPN testen. " +
+                    "Detail: " + $publicCheck.Message
+                )
+            }
+        }
+
+        Write-PublicShareStatus -Paths $paths -Status @{
+            execution_mode = $status.execution_mode
+            provider = $status.provider
+            local_url = $status.local_url
+            public_url = $status.public_url
+            pid = $sharePid
+            started_at = $status.started_at
+            status = $status.status
+            last_error = $status.last_error
+            last_exit_code = $status.last_exit_code
+            extra_args = $status.extra_args
+        }
+    }
+
     Write-Host "Execution Mode: $($status.execution_mode)"
     Write-Host "Status: $($status.status)"
     Write-Host "Local URL: $($status.local_url)"
