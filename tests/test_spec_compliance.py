@@ -300,5 +300,48 @@ def test_gate_evaluator_rejects_excluded_transaction_code_class(tx: str) -> None
     assert result.reason in {"excluded_transaction_code_class", "excluded_transaction_type"}
 
 
+# ---------------------------------------------------------------------------
+# FIX 2: Gate-Minimum 100k – AppSettingsService-Normalisierung
+# ---------------------------------------------------------------------------
 
+def test_app_settings_service_normalizes_gate_min_below_100k() -> None:
+    """load_score_gate_policy() muss alte Policy mit gate_min_trade_value<100k auf 100k anheben."""
+    from unittest.mock import MagicMock
+    from src.services.app_settings_service import AppSettingsService
+    from src.config.settings import AppSettings, EnrichmentConfig, FmpConfig, GateConfig, MongoConfig, MySqlTargetSettings, Settings
+    from src.domain_rules import ScoreGatePolicy
 
+    runtime_repo = MagicMock()
+    runtime_repo.load.return_value = ScoreGatePolicy(gate_min_trade_value=0).to_dict()
+
+    mysql_settings = Settings(
+        mysql_active_target="local",
+        mysql_auto_fallback_to_local=True,
+        mysql_sync_enabled=True,
+        local_mysql=MySqlTargetSettings(
+            name="local", host="localhost", port=3306, database="mercator",
+            user="root", password="x", connect_timeout=5,
+            create_database=False, ssl_disabled=True, ssl_ca=None, ssl_cert=None, ssl_key=None,
+        ),
+        uni_mysql=MySqlTargetSettings(
+            name="uni", host="", port=3306, database="", user="", password="",
+            connect_timeout=5, create_database=False, ssl_disabled=True,
+            ssl_ca=None, ssl_cert=None, ssl_key=None,
+        ),
+    )
+    app_settings = AppSettings(
+        app_env="test", app_title="T", dataset_path=".", project_root=__import__("pathlib").Path("."),
+        mysql=mysql_settings,
+        mongo=MongoConfig(active_target="local", uri="mongodb://localhost:27017/", database="m"),
+        fmp=FmpConfig(base_url="https://x", api_key="abc", api_key_source="env"),
+        enrichment=EnrichmentConfig(), gate=GateConfig(),
+        review_mode=False, disable_import=False, disable_admin_delete=False,
+        ui_test_mode=False, demo_mode=False,
+        trade_republic_universe_url="https://example.com",
+        trade_republic_refresh_ttl_hours=24,
+    )
+    svc = AppSettingsService(runtime_repo=runtime_repo, filter_repo=None, defaults=app_settings)
+
+    policy = svc.load_score_gate_policy()
+
+    assert policy.gate_min_trade_value == 100_000

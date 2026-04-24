@@ -167,13 +167,18 @@ class AppSettingsService:
             if isinstance(base.get(key), list):
                 base[key] = tuple(base[key])
         try:
-            return ScoreGatePolicy(**base)
+            policy = ScoreGatePolicy(**base)
         except Exception as exc:
             LOGGER.warning(
                 "Score/Gate-Policy Payload ungueltig. Verwende Defaults. error=%s",
                 exc,
             )
             return self.defaults_score_gate_policy()
+        # Defensive Normalisierung: gespeicherter Wert <100000 wird auf 100000 angehoben.
+        if policy.gate_min_trade_value < 100_000:
+            from dataclasses import replace as dc_replace
+            policy = dc_replace(policy, gate_min_trade_value=100_000)
+        return policy
 
     def save_score_gate_policy(self, policy: ScoreGatePolicy) -> None:
         session = self._session_state()

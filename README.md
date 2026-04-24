@@ -449,7 +449,7 @@ Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung w
 ## Hinweise zu Datensatz, MySQL und MongoDB
 - FMP-MVP nutzt im Kern **zwei Endpunktklassen**:
   - `/insider-trading/latest`
-  - `/profile-cik` (primär) + `/profile` (Fallback)
+  - `/profile` (Standard für Gate-Pass-Kandidaten; `/search-cik` und `/profile-cik` nur als optionale Fallbacks bei Identitäts- oder Symbolauflösungsproblemen)
 - Optionaler manueller Backfill je Firma: `/insider-trading/search`.
 - MongoDB speichert Rohdaten und Profilpayloads.
 - MySQL speichert bereinigte, auswertbare Zieldaten.

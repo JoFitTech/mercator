@@ -749,6 +749,7 @@ class AppSettings:
     ui_test_mode: bool
     trade_republic_universe_url: str
     trade_republic_refresh_ttl_hours: int
+    demo_mode: bool = False
     public_share: PublicShareConfig = PublicShareConfig()
     mongo_targets: MongoSettings | None = None
 
@@ -860,6 +861,7 @@ def load_settings() -> AppSettings:
         disable_import=_read_bool_env("MERCATOR_DISABLE_IMPORT", default=False),
         disable_admin_delete=disable_admin_delete,
         ui_test_mode=_read_bool_env("MERCATOR_UI_TEST_MODE", default=False),
+        demo_mode=_read_bool_env("MERCATOR_DEMO_MODE", default=False),
         trade_republic_universe_url=_read_string_env(
             "TRADE_REPUBLIC_UNIVERSE_URL",
             default="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",

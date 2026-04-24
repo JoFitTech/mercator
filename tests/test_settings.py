@@ -162,7 +162,6 @@ def test_load_settings_reads_fmp_api_key_from_streamlit_secrets(monkeypatch) -> 
     assert app_settings.fmp.api_key == "secret_from_streamlit"
     assert app_settings.fmp.api_key_source == "streamlit_secrets"
 
-
 def test_load_settings_reads_review_mode_flags(monkeypatch) -> None:
     monkeypatch.setenv("MERCATOR_REVIEW_MODE", "true")
     monkeypatch.setenv("MERCATOR_DISABLE_IMPORT", "true")
@@ -175,6 +174,22 @@ def test_load_settings_reads_review_mode_flags(monkeypatch) -> None:
     assert settings.disable_import is True
     assert settings.disable_admin_delete is True
     assert settings.ui_test_mode is True
+
+
+def test_load_settings_reads_demo_mode(monkeypatch) -> None:
+    monkeypatch.setenv("MERCATOR_DEMO_MODE", "true")
+
+    settings = load_settings()
+
+    assert settings.demo_mode is True
+
+
+def test_load_settings_demo_mode_defaults_to_false(monkeypatch) -> None:
+    monkeypatch.delenv("MERCATOR_DEMO_MODE", raising=False)
+
+    settings = load_settings()
+
+    assert settings.demo_mode is False
 
 
 def test_load_settings_forces_admin_delete_block_in_production(monkeypatch) -> None:

@@ -44,8 +44,8 @@ def render_settings_page(
         with st.form("gate_settings_form", border=True):
             g1, g2 = st.columns(2)
             min_trade_value = g1.number_input(
-                "Mindest-Trade-Wert ($)", 
-                min_value=0, 
+                "Mindest-Trade-Wert ($)",
+                min_value=0,
                 value=int(policy.gate_min_trade_value),
                 help="Trades unter diesem Wert werden im Pre-Gate aussortiert."
             )

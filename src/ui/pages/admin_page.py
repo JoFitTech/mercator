@@ -198,6 +198,8 @@ def should_render_danger_zone(settings: AppSettings, pending_sync: bool) -> bool
         return False
     if bool(settings.review_mode or settings.disable_admin_delete):
         return False
+    if getattr(settings, "demo_mode", False):
+        return False
     if pending_sync:
         return False
     return True
@@ -226,8 +228,9 @@ class AdminDashboardService:
     def _deletes_blocked(self) -> bool:
         app_env = str(self.settings.app_env or "").strip().lower()
         is_production = app_env in {"prod", "production"}
+        demo_mode = bool(getattr(self.settings, "demo_mode", False))
         return bool(
-            is_production or self.settings.review_mode or self.settings.disable_admin_delete
+            is_production or self.settings.review_mode or self.settings.disable_admin_delete or demo_mode
         )
 
     def _local_sync_state_repo(self) -> SyncStateRepository | None:
@@ -275,6 +278,8 @@ class AdminDashboardService:
         app_env = str(self.settings.app_env or "").strip().lower()
         if app_env in {"prod", "production"}:
             return False, "Loeschaktionen sind in Produktion dauerhaft deaktiviert."
+        if getattr(self.settings, "demo_mode", False):
+            return False, "Loeschaktionen sind deaktiviert (Demo Mode / Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
         return False, "Loeschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
 
     @staticmethod
