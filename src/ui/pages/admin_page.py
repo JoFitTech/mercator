@@ -101,10 +101,14 @@ def _resolve_share_file_path(project_root: Path, raw_path: str) -> Path:
 def _build_import_success_message(summary: ImportSummary, force_profile_refresh: bool) -> str:
     base = (
         "Import erfolgreich abgeschlossen. "
+        f"Raw neu: {summary.inserted_raw_records}, "
+        f"Raw-Duplikate: {summary.skipped_raw_duplicates}, "
         f"Profile frisch geladen: {summary.fetched_profiles}, "
         f"Cache-Hits: {summary.profile_cache_hits}, "
         f"Profilfehler: {summary.profile_failures}."
     )
+    if summary.raw_storage_error:
+        base = f"{base} WARNUNG: {summary.raw_storage_error}."
     if force_profile_refresh:
         return f"{base} Cache wurde für diesen Lauf ignoriert."
     return base
@@ -114,6 +118,7 @@ def _build_import_metrics(summary: ImportSummary) -> list[tuple[str, int]]:
     return [
         ("Feed Records", summary.fetched_feed_records),
         ("Neue Raw Records", summary.inserted_raw_records),
+        ("Raw Duplikate", summary.skipped_raw_duplicates),
         ("Upserted Clean", summary.upserted_clean_records),
         ("Enrichment-Kandidaten", summary.symbols_considered_for_enrichment),
         ("API2-Versuche", summary.profile_fetch_attempts),
@@ -185,6 +190,17 @@ def compute_admin_capabilities(
         "write_available": mysql_online and mongo_online,
         "persistence_available": bool(settings_service and settings_service.is_persistence_available()),
     }
+
+
+def should_render_danger_zone(settings: AppSettings, pending_sync: bool) -> bool:
+    app_env = str(settings.app_env or "").strip().lower()
+    if app_env in {"prod", "production"}:
+        return False
+    if bool(settings.review_mode or settings.disable_admin_delete):
+        return False
+    if pending_sync:
+        return False
+    return True
 
 
 class AdminDashboardService:
@@ -421,6 +437,26 @@ class AdminDashboardService:
             for collection_name in ["companies", "insider_trades_raw"]:
                 collection = db[collection_name]
                 stats[f"{collection_name}_count"] = collection.count_documents({})
+
+            latest_trade = db["insider_trades_raw"].find_one(
+                {},
+                {"imported_at": 1, "fetched_at": 1},
+                sort=[("imported_at", -1), ("fetched_at", -1)],
+            )
+            latest_company = db["companies"].find_one(
+                {},
+                {"imported_at": 1, "profile_updated_at": 1, "updated_at": 1},
+                sort=[("imported_at", -1), ("profile_updated_at", -1), ("updated_at", -1)],
+            )
+            stats["latest_raw_trade_import_at"] = (
+                (latest_trade or {}).get("imported_at")
+                or (latest_trade or {}).get("fetched_at")
+            )
+            stats["latest_raw_company_import_at"] = (
+                (latest_company or {}).get("imported_at")
+                or (latest_company or {}).get("profile_updated_at")
+                or (latest_company or {}).get("updated_at")
+            )
 
             return stats
         except Exception as e:
@@ -1007,33 +1043,39 @@ def render_admin_page(
     # 3. SYNC STATUS TAB
     with tab_sync:
         st.subheader("Synchronisations-Status")
-        st.caption("Status der Datenspiegelung zwischen MongoDB (Rohdaten) und MySQL (Analyse).")
-        
+        st.caption("Status von MongoDB Raw Store, MySQL Clean Store und Local -> Uni Clean-Sync.")
+
         col1, col2 = st.columns(2)
         mysql_stats = admin_service.get_mysql_stats()
         mongo_stats = admin_service.get_mongo_stats()
         
         with col1:
-            st.markdown("#### MySQL (Analyse)")
+            st.markdown("#### MySQL Clean Store")
             st.metric("Trades", f"{mysql_stats.get('trades_count', 0):,}")
             st.metric("Companies", f"{mysql_stats.get('companies_count', 0):,}")
             st.metric("Größe (MB)", f"{mysql_stats.get('database_size_mb', 0):.2f}")
             
         with col2:
-            st.markdown("#### MongoDB (Rohdaten)")
+            st.markdown("#### MongoDB Raw Store")
             st.metric("Raw Trades", f"{mongo_stats.get('insider_trades_raw_count', 0):,}")
             st.metric("Raw Companies", f"{mongo_stats.get('companies_count', 0):,}")
+            st.caption(f"Letzter Raw-Trade-Import: {mongo_stats.get('latest_raw_trade_import_at') or '-'}")
+            st.caption(f"Letzter Raw-Company-Import: {mongo_stats.get('latest_raw_company_import_at') or '-'}")
 
         raw_trades_count = int(mongo_stats.get("insider_trades_raw_count", 0) or 0)
         clean_trades_count = int(mysql_stats.get("trades_count", 0) or 0)
-        if clean_trades_count > 0 and raw_trades_count == 0:
+        raw_status = "UNAVAILABLE" if not mongo_online else ("EMPTY" if raw_trades_count == 0 else "OK")
+        st.caption(f"Raw-Store-Status: {raw_status}")
+        if raw_status == "EMPTY":
             st.warning(
-                "Sync-Hinweis: Clean-Daten sind vorhanden, aber im Raw-Store wurden aktuell 0 Trades gefunden. "
-                "Bitte Import/Raw-Pipeline prüfen oder Raw->Clean-Sync nur nach erfolgreichem Raw-Import ausführen."
+                "Raw Store ist leer. Fuehre einen echten Import aus. "
+                "Clean-Daten allein erfuellen den Raw-Nachweis nicht."
             )
+        if clean_trades_count > 0 and raw_trades_count == 0:
+            st.info("Naechster Schritt: Import starten und danach Raw/Clean-Counts erneut pruefen.")
 
         st.markdown("---")
-        st.markdown("#### Startup Sync Status (MySQL)")
+        st.markdown("#### MySQL Local -> Uni Sync")
         s1, s2, s3 = st.columns(3)
         with s1:
             st.metric("Pending Uni Sync", "Ja" if pending_startup_sync else "Nein")
@@ -1098,144 +1140,150 @@ def render_admin_page(
         
         with c2:
             st.markdown("#### Gefahrenzone")
-            
-            with st.popover("MySQL-Daten löschen", use_container_width=True):
-                if not mysql_online:
-                    st.info("Löschfunktionen für MySQL sind nur bei aktiver MySQL-Verbindung verfügbar.")
-                if pending_startup_sync:
-                    st.warning("Löschaktionen blockiert, solange ein Pending Startup Sync offen ist.")
-                st.error("### ACHTUNG: Datenverlust")
-                st.write("Dies löscht alle verarbeiteten Insider-Trades und Firmendaten in MySQL.")
-                st.write("Rohdaten in MongoDB bleiben erhalten.")
-                
-                confirm_mysql = st.checkbox("Ich bin mir der Konsequenzen bewusst", key="confirm_mysql_delete_final_v2")
-                if st.button(
-                    "JETZT MySQL LÖSCHEN",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=(not confirm_mysql) or (not mysql_online) or pending_startup_sync,
-                ):
-                    with st.spinner("Lösche MySQL Daten..."):
-                        success, msg = admin_service.clear_mysql_all()
-                        if success:
-                            _show_admin_feedback("success", msg)
-                            st.rerun()
-                        else:
-                            _show_admin_feedback("error", msg)
+            danger_zone_visible = should_render_danger_zone(settings, pending_startup_sync)
+            if not danger_zone_visible:
+                st.info("Destruktive Datenbankaktionen sind in dieser Umgebung deaktiviert.")
+            else:
+                with st.popover("MySQL-Daten löschen", use_container_width=True):
+                    if not mysql_online:
+                        st.info("Löschfunktionen für MySQL sind nur bei aktiver MySQL-Verbindung verfügbar.")
+                    if pending_startup_sync:
+                        st.warning("Löschaktionen blockiert, solange ein Pending Startup Sync offen ist.")
+                    st.error("### ACHTUNG: Datenverlust")
+                    st.write("Dies löscht alle verarbeiteten Insider-Trades und Firmendaten in MySQL.")
+                    st.write("Rohdaten in MongoDB bleiben erhalten.")
+                    
+                    confirm_mysql = st.checkbox("Ich bin mir der Konsequenzen bewusst", key="confirm_mysql_delete_final_v2")
+                    if st.button(
+                        "JETZT MySQL LÖSCHEN",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=(not confirm_mysql) or (not mysql_online) or pending_startup_sync,
+                    ):
+                        with st.spinner("Lösche MySQL Daten..."):
+                            success, msg = admin_service.clear_mysql_all()
+                            if success:
+                                _show_admin_feedback("success", msg)
+                                st.rerun()
+                            else:
+                                _show_admin_feedback("error", msg)
 
-            with st.popover("MongoDB-Rohdaten löschen", use_container_width=True):
-                if not mongo_online:
-                    st.info("Löschfunktionen für MongoDB sind nur bei aktiver MongoDB-Verbindung verfügbar.")
-                st.error("### KRITISCHE AKTION: Rohdatenverlust")
-                st.write("Dies löscht alle importierten Rohdaten in MongoDB.")
-                st.caption("Diese Aktion ist bewusst nur im Adminbereich und mit expliziter Bestätigung erreichbar.")
+                with st.popover("MongoDB-Rohdaten löschen", use_container_width=True):
+                    if not mongo_online:
+                        st.info("Löschfunktionen für MongoDB sind nur bei aktiver MongoDB-Verbindung verfügbar.")
+                    st.error("### KRITISCHE AKTION: Rohdatenverlust")
+                    st.write("Dies löscht alle importierten Rohdaten in MongoDB.")
+                    st.caption("Diese Aktion ist bewusst nur im Adminbereich und mit expliziter Bestätigung erreichbar.")
 
-                confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete_final_v2")
-                if st.button(
-                    "JETZT MongoDB LÖSCHEN",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=(not confirm_mongo) or (not mongo_online),
-                ):
-                    with st.spinner("Lösche MongoDB Daten..."):
-                        success, msg = admin_service.clear_mongo_all()
-                        if success:
-                            _show_admin_feedback("success", msg)
-                            st.rerun()
-                        else:
-                            _show_admin_feedback("error", msg)
+                    confirm_mongo = st.checkbox("Ich möchte wirklich alle Rohdaten löschen", key="confirm_mongo_delete_final_v2")
+                    if st.button(
+                        "JETZT MongoDB LÖSCHEN",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=(not confirm_mongo) or (not mongo_online),
+                    ):
+                        with st.spinner("Lösche MongoDB Daten..."):
+                            success, msg = admin_service.clear_mongo_all()
+                            if success:
+                                _show_admin_feedback("success", msg)
+                                st.rerun()
+                            else:
+                                _show_admin_feedback("error", msg)
 
         # --- Alte Datensätze bereinigen ---
-        st.markdown("---")
-        st.markdown("#### 🗂️ Alte Datensätze bereinigen")
-        st.caption(
-            "Löscht Insider-Trades, deren Filing-Datum älter als der gewählte Schwellenwert ist. "
-            "Sinnvoll ab ca. 12–24 Monaten: Ältere Trades sind für die laufende Analyse irrelevant, "
-            "belasten die DB-Performance und erhöhen den Sync-Aufwand. "
-            "Unternehmensdaten (companies) werden **nicht** berührt."
-        )
-
-        col_thresh, col_preview = st.columns([1, 1])
-        with col_thresh:
-            retention_days = st.number_input(
-                "Aufbewahrungsdauer (Tage)",
-                min_value=30,
-                max_value=3650,
-                value=365,
-                step=30,
-                help="Trades mit filing_date älter als dieser Wert werden gelöscht. Standard: 365 Tage (1 Jahr).",
-                disabled=not write_available,
-                key="retention_days_input",
+        if should_render_danger_zone(settings, pending_startup_sync):
+            st.markdown("---")
+            st.markdown("#### 🗂️ Alte Datensätze bereinigen")
+            st.caption(
+                "Löscht Insider-Trades, deren Filing-Datum älter als der gewählte Schwellenwert ist. "
+                "Sinnvoll ab ca. 12–24 Monaten: Ältere Trades sind für die laufende Analyse irrelevant, "
+                "belasten die DB-Performance und erhöhen den Sync-Aufwand. "
+                "Unternehmensdaten (companies) werden **nicht** berührt."
             )
 
-        with col_preview:
-            if st.button(
-                "Vorschau: Wie viele Datensätze wären betroffen?",
-                use_container_width=True,
-                disabled=not write_available,
-                key="retention_preview_btn",
-            ):
-                mysql_old = admin_service.count_old_mysql_trades(int(retention_days))
-                mongo_old = admin_service.count_old_mongo_trades(int(retention_days))
-                st.session_state["retention_preview"] = {
-                    "days": int(retention_days),
-                    "mysql": mysql_old,
-                    "mongo": mongo_old,
-                }
+            col_thresh, col_preview = st.columns([1, 1])
+            with col_thresh:
+                retention_days = st.number_input(
+                    "Aufbewahrungsdauer (Tage)",
+                    min_value=30,
+                    max_value=3650,
+                    value=365,
+                    step=30,
+                    help="Trades mit filing_date älter als dieser Wert werden gelöscht. Standard: 365 Tage (1 Jahr).",
+                    disabled=not write_available,
+                    key="retention_days_input",
+                )
 
-        if preview := st.session_state.get("retention_preview"):
-            cutoff_date = (datetime.now(timezone.utc) - timedelta(days=preview["days"])).date()
-            p1, p2 = st.columns(2)
-            p1.metric(f"MySQL Trades vor {cutoff_date}", f"{preview['mysql']:,}")
-            p2.metric(f"MongoDB Raw-Trades vor {cutoff_date}", f"{preview['mongo']:,}")
-
-        with st.popover("Alte Trades löschen", use_container_width=True):
-            st.warning(
-                f"Es werden Insider-Trades gelöscht, deren filing_date älter als **{int(st.session_state.get('retention_days_input', 365))} Tage** ist."
-            )
-            st.info(
-                "💡 **Empfehlung:** 365 Tage (1 Jahr) ist ein guter Standard. "
-                "Trades < 6 Monate löschen ist riskant, da sie noch aktiv gehandelt werden könnten. "
-                "Für langfristige Analyse empfiehlt sich ≥ 730 Tage."
-            )
-            confirm_old_mysql = st.checkbox("MySQL: Alte Trades löschen bestätigen", key="confirm_old_mysql")
-            confirm_old_mongo = st.checkbox("MongoDB: Alte Raw-Trades ebenfalls löschen", key="confirm_old_mongo")
-
-            col_del1, col_del2 = st.columns(2)
-            with col_del1:
+            with col_preview:
                 if st.button(
-                    "MySQL alte Trades löschen",
-                    type="primary",
+                    "Vorschau: Wie viele Datensätze wären betroffen?",
                     use_container_width=True,
-                    disabled=(not confirm_old_mysql) or (not mysql_online) or pending_startup_sync,
-                    key="btn_del_old_mysql",
+                    disabled=not write_available,
+                    key="retention_preview_btn",
                 ):
-                    days_val = int(st.session_state.get("retention_days_input", 365))
-                    with st.spinner(f"Lösche MySQL-Trades älter als {days_val} Tage …"):
-                        success, msg = admin_service.delete_old_mysql_trades(days_val)
-                        st.session_state.pop("retention_preview", None)
-                        if success:
-                            _push_admin_feedback("success", msg)
-                        else:
-                            _push_admin_feedback("error", "Löschen fehlgeschlagen.", msg)
-                        st.rerun()
+                    mysql_old = admin_service.count_old_mysql_trades(int(retention_days))
+                    mongo_old = admin_service.count_old_mongo_trades(int(retention_days))
+                    st.session_state["retention_preview"] = {
+                        "days": int(retention_days),
+                        "mysql": mysql_old,
+                        "mongo": mongo_old,
+                    }
 
-            with col_del2:
-                if st.button(
-                    "MongoDB alte Raw-Trades löschen",
-                    use_container_width=True,
-                    disabled=(not confirm_old_mongo) or (not mongo_online),
-                    key="btn_del_old_mongo",
-                ):
-                    days_val = int(st.session_state.get("retention_days_input", 365))
-                    with st.spinner(f"Lösche MongoDB Raw-Trades älter als {days_val} Tage …"):
-                        success, msg = admin_service.delete_old_mongo_trades(days_val)
-                        st.session_state.pop("retention_preview", None)
-                        if success:
-                            _push_admin_feedback("success", msg)
-                        else:
-                            _push_admin_feedback("error", "Löschen fehlgeschlagen.", msg)
-                        st.rerun()
+            if preview := st.session_state.get("retention_preview"):
+                cutoff_date = (datetime.now(timezone.utc) - timedelta(days=preview["days"])).date()
+                p1, p2 = st.columns(2)
+                p1.metric(f"MySQL Trades vor {cutoff_date}", f"{preview['mysql']:,}")
+                p2.metric(f"MongoDB Raw-Trades vor {cutoff_date}", f"{preview['mongo']:,}")
+
+            with st.popover("Alte Trades löschen", use_container_width=True):
+                st.warning(
+                    f"Es werden Insider-Trades gelöscht, deren filing_date älter als **{int(st.session_state.get('retention_days_input', 365))} Tage** ist."
+                )
+                st.info(
+                    "💡 **Empfehlung:** 365 Tage (1 Jahr) ist ein guter Standard. "
+                    "Trades < 6 Monate löschen ist riskant, da sie noch aktiv gehandelt werden könnten. "
+                    "Für langfristige Analyse empfiehlt sich ≥ 730 Tage."
+                )
+                confirm_old_mysql = st.checkbox("MySQL: Alte Trades löschen bestätigen", key="confirm_old_mysql")
+                confirm_old_mongo = st.checkbox("MongoDB: Alte Raw-Trades ebenfalls löschen", key="confirm_old_mongo")
+
+                col_del1, col_del2 = st.columns(2)
+                with col_del1:
+                    if st.button(
+                        "MySQL alte Trades löschen",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=(not confirm_old_mysql) or (not mysql_online) or pending_startup_sync,
+                        key="btn_del_old_mysql",
+                    ):
+                        days_val = int(st.session_state.get("retention_days_input", 365))
+                        with st.spinner(f"Lösche MySQL-Trades älter als {days_val} Tage …"):
+                            success, msg = admin_service.delete_old_mysql_trades(days_val)
+                            st.session_state.pop("retention_preview", None)
+                            if success:
+                                _push_admin_feedback("success", msg)
+                            else:
+                                _push_admin_feedback("error", "Löschen fehlgeschlagen.", msg)
+                            st.rerun()
+
+                with col_del2:
+                    if st.button(
+                        "MongoDB alte Raw-Trades löschen",
+                        use_container_width=True,
+                        disabled=(not confirm_old_mongo) or (not mongo_online),
+                        key="btn_del_old_mongo",
+                    ):
+                        days_val = int(st.session_state.get("retention_days_input", 365))
+                        with st.spinner(f"Lösche MongoDB Raw-Trades älter als {days_val} Tage …"):
+                            success, msg = admin_service.delete_old_mongo_trades(days_val)
+                            st.session_state.pop("retention_preview", None)
+                            if success:
+                                _push_admin_feedback("success", msg)
+                            else:
+                                _push_admin_feedback("error", "Löschen fehlgeschlagen.", msg)
+                            st.rerun()
+        else:
+            st.caption("Retention-Löschfunktionen sind in dieser Umgebung deaktiviert.")
 
     # 5. OEFFENTLICHE FREIGABE
     with tab_public_share:

@@ -195,6 +195,16 @@ def test_load_settings_forces_public_share_off_in_production(monkeypatch) -> Non
     assert settings.public_share.enabled is False
 
 
+def test_load_settings_forces_public_share_off_in_review_mode(monkeypatch) -> None:
+    monkeypatch.setenv("MERCATOR_REVIEW_MODE", "true")
+    monkeypatch.setenv("ENABLE_PUBLIC_SHARE", "true")
+
+    settings = load_settings()
+
+    assert settings.review_mode is True
+    assert settings.public_share.enabled is False
+
+
 def test_load_settings_forces_cloudflare_public_share_to_host_mode(monkeypatch) -> None:
     monkeypatch.setenv("ENABLE_PUBLIC_SHARE", "true")
     monkeypatch.setenv("PUBLIC_SHARE_PROVIDER", "cloudflare")

@@ -16,6 +16,14 @@ from src.services.accumulation_service import AccumulationService
 from src.services.import_service import ImportService
 from src.services.app_settings_service import RuntimeSettings
 from src.config.settings import DEFAULT_GATE_MIN_TRADE_VALUE
+from src.services.transaction_code_classifier import (
+    CORE_BUY,
+    CORE_SELL,
+    EXCLUDE_FROM_CORE,
+    MANUAL_REVIEW,
+    SECONDARY_SIGNAL,
+    TransactionCodeClassifier,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +256,48 @@ def test_accumulation_splits_group_when_gap_exceeds_3_days() -> None:
     result = AccumulationService.tag_trades_with_groups(df, window_days=3)
     groups = result["accumulation_group_id"].unique()
     assert len(groups) == 2
+
+
+@pytest.mark.parametrize(
+    ("tx", "expected"),
+    [
+        ("P-Purchase", CORE_BUY),
+        ("S-Sale", CORE_SELL),
+        ("I-Discretionary", SECONDARY_SIGNAL),
+        ("L-Small", SECONDARY_SIGNAL),
+        ("J-Other", MANUAL_REVIEW),
+        ("V-Voluntary", MANUAL_REVIEW),
+        ("A-Award", EXCLUDE_FROM_CORE),
+        ("M-Exempt", EXCLUDE_FROM_CORE),
+        ("F-Tax", EXCLUDE_FROM_CORE),
+        ("G-Gift", EXCLUDE_FROM_CORE),
+    ],
+)
+def test_transaction_code_classifier_matrix(tx: str, expected: str) -> None:
+    info = TransactionCodeClassifier.classify(tx)
+    assert info.classification == expected
+
+
+@pytest.mark.parametrize("tx", ["A-Award", "M-Exempt", "F-Tax", "G-Gift"])
+def test_gate_evaluator_rejects_excluded_transaction_code_class(tx: str) -> None:
+    evaluator = GateEvaluator()
+    trade = {
+        "symbol": "AAPL",
+        "filing_date": "2026-01-10",
+        "transaction_date": "2026-01-08",
+        "qty": 200,
+        "price": 500.0,
+        "trade_value": 100_000,
+        "form_type": "4",
+        "acquisition_or_disposition": "A",
+        "transaction_type": tx,
+        "filing_age_days": 2,
+        "security_name": "Apple Common Stock",
+        "is_actively_trading": True,
+    }
+    result = evaluator.evaluate(trade)
+    assert result.status == "PRE_GATE_FAIL"
+    assert result.reason in {"excluded_transaction_code_class", "excluded_transaction_type"}
 
 
 

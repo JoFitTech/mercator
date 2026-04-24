@@ -799,6 +799,7 @@ def load_settings() -> AppSettings:
 
     app_env = os.getenv("APP_ENV", "local")
     is_production_env = app_env.strip().lower() in {"prod", "production"}
+    review_mode = _read_bool_env("MERCATOR_REVIEW_MODE", default=False)
 
     disable_admin_delete = _read_bool_env(
         "MERCATOR_DISABLE_ADMIN_DELETE",
@@ -812,10 +813,11 @@ def load_settings() -> AppSettings:
         disable_admin_delete = True
 
     public_share_enabled = _read_bool_env("ENABLE_PUBLIC_SHARE", default=False)
-    if is_production_env and public_share_enabled:
+    if (is_production_env or review_mode) and public_share_enabled:
         LOGGER.warning(
-            "Produktion erkannt (APP_ENV=%s): ENABLE_PUBLIC_SHARE=true ist nicht erlaubt; setze auf false.",
+            "Prod/Review erkannt (APP_ENV=%s, review_mode=%s): ENABLE_PUBLIC_SHARE=true ist nicht erlaubt; setze auf false.",
             app_env,
+            review_mode,
         )
         public_share_enabled = False
 
@@ -854,7 +856,7 @@ def load_settings() -> AppSettings:
                 if item.strip()
             ),
         ),
-        review_mode=_read_bool_env("MERCATOR_REVIEW_MODE", default=False),
+        review_mode=review_mode,
         disable_import=_read_bool_env("MERCATOR_DISABLE_IMPORT", default=False),
         disable_admin_delete=disable_admin_delete,
         ui_test_mode=_read_bool_env("MERCATOR_UI_TEST_MODE", default=False),

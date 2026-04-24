@@ -46,6 +46,8 @@ class ImportSummary:
     profile_fetch_attempts: int
     profile_cache_hits: int
     profile_failures: int
+    skipped_raw_duplicates: int = 0
+    raw_storage_error: str | None = None
 
 
 @dataclass(slots=True)
@@ -117,6 +119,7 @@ class ImportService:
             raise RuntimeError("Import ist deaktiviert (Review Mode / MERCATOR_DISABLE_IMPORT).")
 
         fetched_at = datetime.now(timezone.utc)
+        import_run_id = fetched_at.strftime("import_%Y%m%dT%H%M%S%fZ")
         try:
             raw_feed = self.fmp_client.fetch_latest_insider_trades(page=page, limit=limit)
         except Exception as exc:
@@ -124,6 +127,29 @@ class ImportService:
             raise RuntimeError(f"Der Datenimport konnte nicht gestartet werden: {exc}") from exc
 
         normalized = [normalize_insider_trade(item, fetched_at=fetched_at) for item in raw_feed]
+
+        # Raw-Audit-Metadaten unmittelbar nach API1-Fetch anreichern.
+        for item in normalized:
+            dedupe_key = str(item.get("dedupe_key") or "").strip()
+            item["source"] = "fmp"
+            item["source_endpoint"] = "/stable/insider-trading/latest"
+            item["import_run_id"] = import_run_id
+            item["imported_at"] = fetched_at
+            item["source_hash"] = dedupe_key or None
+            item["trade_hash"] = dedupe_key or None
+            item["normalized_symbol"] = item.get("symbol")
+            item["processing_status"] = "RAW_IMPORTED"
+
+        raw_storage_error: str | None = None
+        try:
+            inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
+        except Exception as exc:
+            # Import darf weiterlaufen (Clean-Pfad), aber Raw-Fehler wird klar ausgewiesen.
+            raw_storage_error = f"Mongo raw storage failed: {exc}"
+            LOGGER.warning(raw_storage_error)
+            inserted_raw = 0
+
+        skipped_raw_duplicates = max(0, len(normalized) - int(inserted_raw))
         if self.tr_ingestion_service is not None:
             self.tr_ingestion_service.refresh_if_stale(force=False)
 
@@ -170,8 +196,6 @@ class ImportService:
             if company_stub:
                 company_batch_by_key[str(company_key)] = company_stub
                 company_lookup_by_key[company_key] = company_stub
-
-        inserted_raw = self.raw_repo.upsert_raw_trades(normalized)
 
         fetched_profiles = 0
         profile_fetch_attempts = 0
@@ -291,6 +315,11 @@ class ImportService:
                         "sync_version": 1,
                         "profile_status": "FETCHED" if mapped else "FAILED",
                         "profile_reason": "api2_v2",
+                        "source": "fmp",
+                        "source_endpoint": "/stable/profile",
+                        "import_run_id": import_run_id,
+                        "imported_at": fetched_at,
+                        "raw_payload": profile_payload,
                     }
                 else:
                     company_obj = self.enrichment_service.enrich_company_profile(symbol)
@@ -302,6 +331,10 @@ class ImportService:
                     company["sync_version"] = 1
                     company["profile_status"] = "FETCHED" if company_obj.sector_resolution_status == "RESOLVED" else "FAILED"
                     company["profile_reason"] = "api_fetch" if company["profile_status"] == "FETCHED" else "unresolved_sector"
+                    company["source"] = "fmp"
+                    company["source_endpoint"] = "/stable/profile"
+                    company["import_run_id"] = import_run_id
+                    company["imported_at"] = fetched_at
 
                 self._apply_trade_republic_match(company)
                 profile_company_batch.append(company)
@@ -321,6 +354,7 @@ class ImportService:
                 for t in matching_trades:
                     t["profile_status"] = "FAILED"
                     t["profile_reason"] = "request_failed"
+                    t["processing_status"] = "API2_FAILED"
                 continue
         if profile_company_batch:
             self._persist_company_batch(profile_company_batch)
@@ -428,6 +462,12 @@ class ImportService:
             
             # Dashboard-Validitätslogik
             item["dashboard_valid"] = self._is_dashboard_valid(item)
+            if str(item.get("gate_status") or "").upper() == GATE_PASS:
+                item["processing_status"] = "CLEAN_UPSERTED"
+            elif str(item.get("gate_status") or "").upper() in {"PRE_GATE_FAIL", "FAIL"}:
+                item["processing_status"] = "PRE_GATE_FAIL"
+            elif str(item.get("validation_status") or "").upper() in {"INVALID", "PRICE_INVALID"}:
+                item["processing_status"] = "VALIDATION_FAILED"
 
         if self.trade_mysql_repo is not None:
             self.trade_mysql_repo.upsert_trades(normalized)
@@ -440,9 +480,10 @@ class ImportService:
             LOGGER.warning("Import läuft im Degraded-Mode ohne MySQL-Upsert.")
 
         LOGGER.info(
-            "Import abgeschlossen: feed=%s raw_inserted=%s clean_upserted=%s symbols_considered=%s attempts=%s cache_hits=%s fetched=%s failures=%s force_refresh=%s",
+            "Import abgeschlossen: feed=%s raw_inserted=%s raw_duplicates=%s clean_upserted=%s symbols_considered=%s attempts=%s cache_hits=%s fetched=%s failures=%s force_refresh=%s",
             len(raw_feed),
             inserted_raw,
+            skipped_raw_duplicates,
             upserted_clean_records,
             symbols_considered_for_enrichment,
             profile_fetch_attempts,
@@ -460,6 +501,8 @@ class ImportService:
             profile_fetch_attempts=profile_fetch_attempts,
             profile_cache_hits=profile_cache_hits,
             profile_failures=profile_failures,
+            skipped_raw_duplicates=skipped_raw_duplicates,
+            raw_storage_error=raw_storage_error,
         )
 
 

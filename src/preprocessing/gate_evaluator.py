@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.services.security_normalization_service import SecurityNormalizationService
+from src.services.transaction_code_classifier import EXCLUDE_FROM_CORE, TransactionCodeClassifier
 
 GATE_PENDING = "PENDING"
 GATE_PASS = "PASS"
@@ -43,6 +44,11 @@ class GateEvaluator:
         transaction_type_raw = str(trade.get("transaction_type") or "").strip()
         transaction_type = transaction_type_raw.upper()
         transaction_code = transaction_type[:1]
+        tx_class = str(
+            trade.get("transaction_code_class")
+            or TransactionCodeClassifier.classify(transaction_type_raw).classification
+        ).upper()
+        trade["transaction_code_class"] = tx_class
         is_actively_trading = trade.get("is_actively_trading")
         trade_value = float(trade.get("trade_value") or trade.get("trade_value_estimated") or 0)
         filing_age_days = trade.get("filing_age_days")
@@ -78,6 +84,9 @@ class GateEvaluator:
         excluded_codes = {value.split("-", 1)[0] for value in excluded_types if value}
         if transaction_type in excluded_types or transaction_code in excluded_codes:
             return GateDecision(status=GATE_FAIL, reason="excluded_transaction_type")
+
+        if tx_class == EXCLUDE_FROM_CORE:
+            return GateDecision(status=GATE_FAIL, reason="excluded_transaction_code_class")
 
         aod = str(trade.get("acquisition_or_disposition") or "").strip().upper()
         if aod not in {value.upper() for value in self.rules.allowed_acquisition_or_disposition}:

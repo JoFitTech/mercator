@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from src.services.import_service import ImportService
 
@@ -49,6 +50,51 @@ class _TradeRepoStub:
 
 class _FmpStub:
     pass
+
+
+class _FmpImportStub:
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(profile_ttl_days=7)
+
+    def fetch_latest_insider_trades(self, page=0, limit=100):
+        return [
+            {
+                "symbol": "AAPL",
+                "reportingName": "Jane Insider",
+                "transactionDate": "2026-01-08",
+                "filingDate": "2026-01-10",
+                "securitiesTransacted": 100,
+                "price": 1200.0,
+                "transactionType": "P-Purchase",
+                "acquisitionOrDisposition": "A",
+                "formType": "4",
+                "securityName": "Apple Common Stock",
+            },
+            {
+                "symbol": "MSFT",
+                "reportingName": "John Insider",
+                "transactionDate": "2026-01-07",
+                "filingDate": "2026-01-10",
+                "securitiesTransacted": 50,
+                "price": 0,
+                "transactionType": "P-Purchase",
+                "acquisitionOrDisposition": "A",
+                "formType": "4",
+                "securityName": "Microsoft Common Stock",
+            },
+        ]
+
+
+class _RawCaptureRepo:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.saved_batches: list[list[dict]] = []
+
+    def upsert_raw_trades(self, trades: list[dict]) -> int:
+        if self.fail:
+            raise RuntimeError("mongo unavailable")
+        self.saved_batches.append([dict(t) for t in trades])
+        return len(trades) - 1  # simuliere 1 Duplikat
 
 
 def _build_service(raw_rows: list[dict], allow_write: bool = True) -> tuple[ImportService, _TradeRepoStub]:
@@ -106,4 +152,55 @@ def test_sync_raw_to_clean_raises_when_write_is_disabled() -> None:
         assert "deaktiviert" in str(exc)
 
     assert raised is True
+
+
+def test_run_hourly_import_saves_raw_with_metadata_and_duplicate_counter() -> None:
+    raw_repo = _RawCaptureRepo(fail=False)
+    trade_repo = _TradeRepoStub()
+    service = ImportService(
+        fmp_client=_FmpImportStub(),
+        gate_evaluator=_GateEvaluatorStub(),
+        raw_repo=raw_repo,
+        company_mongo_repo=_CompanyMongoRepoStub(),
+        trade_mysql_repo=trade_repo,
+        company_mysql_repo=None,
+        allow_write=True,
+    )
+
+    summary = service.run_hourly_import(limit=10)
+
+    assert summary.fetched_feed_records == 2
+    assert summary.inserted_raw_records == 1
+    assert summary.skipped_raw_duplicates == 1
+    assert summary.raw_storage_error is None
+    assert len(raw_repo.saved_batches) == 1
+    saved = raw_repo.saved_batches[0]
+    assert len(saved) == 2
+    assert all(row.get("source") == "fmp" for row in saved)
+    assert all(row.get("source_endpoint") == "/stable/insider-trading/latest" for row in saved)
+    assert all(row.get("import_run_id") for row in saved)
+    assert all(row.get("imported_at") is not None for row in saved)
+    assert all("raw_payload" in row for row in saved)
+
+
+def test_run_hourly_import_reports_raw_storage_error_when_mongo_fails() -> None:
+    raw_repo = _RawCaptureRepo(fail=True)
+    trade_repo = _TradeRepoStub()
+    service = ImportService(
+        fmp_client=_FmpImportStub(),
+        gate_evaluator=_GateEvaluatorStub(),
+        raw_repo=raw_repo,
+        company_mongo_repo=_CompanyMongoRepoStub(),
+        trade_mysql_repo=trade_repo,
+        company_mysql_repo=None,
+        allow_write=True,
+    )
+
+    summary = service.run_hourly_import(limit=10)
+
+    assert summary.fetched_feed_records == 2
+    assert summary.inserted_raw_records == 0
+    assert summary.raw_storage_error is not None
+    assert "mongo" in summary.raw_storage_error.lower()
+
 

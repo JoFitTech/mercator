@@ -11,6 +11,7 @@ from src.ui.pages.admin_page import (
     _public_share_error_feedback,
     _public_share_status_message,
     _resolve_share_file_path,
+    should_render_danger_zone,
 )
 
 
@@ -172,6 +173,14 @@ def test_clear_mysql_companies_blocked_when_pending_startup_sync(monkeypatch) ->
 
     assert success is False
     assert "pending" in message.lower()
+
+
+def test_should_render_danger_zone_is_false_for_production_review_and_disable() -> None:
+    assert should_render_danger_zone(_build_settings(app_env="production"), pending_sync=False) is False
+    assert should_render_danger_zone(_build_settings(review_mode=True), pending_sync=False) is False
+    assert should_render_danger_zone(_build_settings(disable_admin_delete=True), pending_sync=False) is False
+    assert should_render_danger_zone(_build_settings(), pending_sync=True) is False
+    assert should_render_danger_zone(_build_settings(), pending_sync=False) is True
 
 
 def test_count_mysql_api2_missing_candidates_reads_expected_count() -> None:

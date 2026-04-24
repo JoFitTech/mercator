@@ -460,6 +460,20 @@ Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung w
 - Architektur aus `docs/architecture.md` übernehmen.
 - Berichtsfokus: Datenquelle, Datenfluss, Deduplizierung, Gate-Logik, Mehrwert der Zwei-DB-Architektur.
 
+## 5-Minuten Demo-Flow
+1. **Dashboard**: KPI-Überblick und Chart zeigen (Analysecharakter).
+2. **Methodik**: Pipeline, Raw/Clean-Trennung, Gate- und Scoring-Regeln erklären.
+3. **Trades**: Filter anwenden, Gate/Score/Status textlich sichtbar demonstrieren.
+4. **Unternehmen**: Firmenansicht und Trade-Historie zeigen.
+5. **Admin Status**: Mongo Raw Store und MySQL Clean Store getrennt nachweisen; Sync-Status kurz erläutern.
+
+## Troubleshooting (Kurz)
+- **Mongo Raw Count = 0**: echten Import ausführen; Raw-Store wird nur im Importpfad befüllt.
+- **MySQL online, Mongo fallback aktiv**: Mongo-Ziel/Netzwerk prüfen (`MONGO_ACTIVE_TARGET`, URI, DNS).
+- **FMP 403**: API-Key ungültig/gesperrt -> Import stoppen, Key prüfen.
+- **FMP 429**: Rate-Limit erreicht -> später erneut versuchen, Batch/Intervall reduzieren.
+- **Public Share deaktiviert**: In Production/Review wird `ENABLE_PUBLIC_SHARE` serverseitig deaktiviert.
+
 ## TODO / offene Punkte
 
 

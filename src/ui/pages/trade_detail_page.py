@@ -7,6 +7,13 @@ from src.services.accumulation_service import AccumulationService
 from src.services.analysis_service import AnalysisService
 from src.services.database_status_service import DatabaseStatus
 from src.ui.components.page_scaffold import render_page_header, render_empty_state, render_kpi_row
+from src.ui.components.badges import (
+    render_decision_badge,
+    render_gate_badge,
+    render_score_badge,
+    render_tx_code_badge,
+    render_validation_badge,
+)
 from src.ui.components.tables import render_trade_table
 
 
@@ -165,6 +172,13 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
         {"label": "Gate", "value": gate_status},
     ]
     render_kpi_row(kpis)
+
+    with st.container(border=True):
+        render_gate_badge(gate_status)
+        render_validation_badge(_safe_text(trade.get("validation_status"), fallback="UNBEKANNT"))
+        render_score_badge(score_class, score_value=score_val)
+        render_decision_badge(_safe_text(trade.get("decision_status"), fallback="UNKNOWN"))
+        render_tx_code_badge(_safe_text(trade.get("transaction_code_class"), fallback="UNKNOWN"))
 
     # 2. Sektionen (Requirement 5.2)
     c1, c2 = st.columns(2)
