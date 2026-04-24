@@ -208,7 +208,11 @@ class AdminDashboardService:
                 self.mongo_available = False
 
     def _deletes_blocked(self) -> bool:
-        return bool(self.settings.review_mode or self.settings.disable_admin_delete)
+        app_env = str(self.settings.app_env or "").strip().lower()
+        is_production = app_env in {"prod", "production"}
+        return bool(
+            is_production or self.settings.review_mode or self.settings.disable_admin_delete
+        )
 
     def _local_sync_state_repo(self) -> SyncStateRepository | None:
         try:
@@ -252,6 +256,9 @@ class AdminDashboardService:
         return bool(state and state.pending_uni_sync)
 
     def _blocked_message(self) -> tuple[bool, str]:
+        app_env = str(self.settings.app_env or "").strip().lower()
+        if app_env in {"prod", "production"}:
+            return False, "Loeschaktionen sind in Produktion dauerhaft deaktiviert."
         return False, "Loeschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
 
     @staticmethod
@@ -722,6 +729,8 @@ def render_admin_page(
         )
     if settings_service and not persistence_available:
         st.info("Einstellungen im Admin-Bereich werden derzeit nur für diese Sitzung übernommen.")
+    if str(settings.app_env or "").strip().lower() in {"prod", "production"}:
+        st.info("Produktionsmodus aktiv: Destruktive Datenbank-Aktionen sind serverseitig deaktiviert.")
     _render_admin_feedback()
 
     # 0. HEADER MIT SYSTEM-CHECK
@@ -890,6 +899,41 @@ def render_admin_page(
                     except Exception as e:
                         _show_admin_feedback("error", "API2-Backfill fehlgeschlagen.", str(e))
 
+        raw_sync_limit = st.number_input(
+            "Raw->Clean Sync Limit",
+            min_value=10,
+            max_value=1000,
+            value=100,
+            step=10,
+            help="Anzahl der neuesten Raw-Trades aus MongoDB, die ohne API-Call nach MySQL synchronisiert werden.",
+            disabled=(not write_available) or (import_service is None),
+            key="admin_raw_clean_sync_limit",
+        )
+        if st.button(
+            "Raw -> Clean Sync ausführen",
+            use_container_width=True,
+            disabled=(not write_available) or (import_service is None),
+            help=None if write_available else "Sync ist deaktiviert, solange MySQL oder MongoDB nicht verfügbar sind.",
+            key="admin_run_raw_clean_sync",
+        ):
+            if not import_service:
+                _show_admin_feedback("error", "Import-Service nicht verfügbar.")
+            else:
+                with st.spinner("Synchronisiere Raw-Daten nach Clean-Store..."):
+                    try:
+                        sync_summary = import_service.sync_raw_to_clean(limit=int(raw_sync_limit))
+                        _show_admin_feedback(
+                            "success",
+                            (
+                                "Raw->Clean-Sync abgeschlossen: "
+                                f"Raw-Kandidaten {sync_summary.raw_candidates}, "
+                                f"Clean-Upserts {sync_summary.clean_upserted}, "
+                                f"übersprungen ohne dedupe_key {sync_summary.skipped_missing_dedupe}."
+                            ),
+                        )
+                    except Exception as e:
+                        _show_admin_feedback("error", "Raw->Clean-Sync fehlgeschlagen.", str(e))
+
         confirm_api2_cleanup = st.checkbox(
             "Ich bestaetige: API2-fehlt-Datensaetze in MySQL loeschen (inkl. zugehoeriger Trades/Stats)",
             value=False,
@@ -979,6 +1023,14 @@ def render_admin_page(
             st.markdown("#### MongoDB (Rohdaten)")
             st.metric("Raw Trades", f"{mongo_stats.get('insider_trades_raw_count', 0):,}")
             st.metric("Raw Companies", f"{mongo_stats.get('companies_count', 0):,}")
+
+        raw_trades_count = int(mongo_stats.get("insider_trades_raw_count", 0) or 0)
+        clean_trades_count = int(mysql_stats.get("trades_count", 0) or 0)
+        if clean_trades_count > 0 and raw_trades_count == 0:
+            st.warning(
+                "Sync-Hinweis: Clean-Daten sind vorhanden, aber im Raw-Store wurden aktuell 0 Trades gefunden. "
+                "Bitte Import/Raw-Pipeline prüfen oder Raw->Clean-Sync nur nach erfolgreichem Raw-Import ausführen."
+            )
 
         st.markdown("---")
         st.markdown("#### Startup Sync Status (MySQL)")

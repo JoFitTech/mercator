@@ -71,8 +71,9 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
     - Gleiche Person (Reporting CIK/Name)
     - Gleiche Firma (Company CIK/Ticker)
     - Gleiche Richtung (Buy/Sell) und Wertpapierart
-    - Zeitlicher Abstand maximal 1 Kalendertag
+    - Zeitlicher Abstand maximal 3 Kalendertage
 7. Streamlit-Seiten lesen über `AnalysisService` aus den Repositories.
+8. Optional kann im Admin ein `Raw -> Clean Sync` (ohne neue API-Calls) ausgelöst werden.
 
 ## UI & Features
 
@@ -190,6 +191,7 @@ Optionale Import-/Gate-Parameter:
 - `GATE_REQUIRE_PURCHASE_EVENT` (`true`/`false`)
 - `GATE_REQUIRE_COMMON_STOCK` (`true`/`false`)
 - `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
+- `MERCATOR_DEMO_MODE` (`true`/`false`, Default `false`) – blockiert destruktive Admin-Aktionen serverseitig
 
 ## Öffentliche Freigabe (lokale Demo/Test-Shares)
 - Zweck: kurzfristige, öffentliche Freigabe einer **lokal laufenden** Streamlit-Instanz für Demo- und Testzwecke.
@@ -403,6 +405,7 @@ Hinweise:
   - `MERCATOR_DISABLE_IMPORT=true`
   - `MERCATOR_DISABLE_ADMIN_DELETE=true`
   - `MERCATOR_UI_TEST_MODE=true`
+  - Optional fuer Live-Demos: `MERCATOR_DEMO_MODE=true`
 - Setze zusaetzlich externe Ziele/Secrets fuer Datenquellen:
   - `MYSQL_ACTIVE_TARGET`, `MONGO_ACTIVE_TARGET`
   - `LOCAL_MYSQL_HOST`, `LOCAL_MYSQL_PORT`, `LOCAL_MYSQL_DATABASE`, `LOCAL_MYSQL_USER`, `LOCAL_MYSQL_PASSWORD`

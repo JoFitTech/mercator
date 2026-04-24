@@ -177,6 +177,24 @@ def test_load_settings_reads_review_mode_flags(monkeypatch) -> None:
     assert settings.ui_test_mode is True
 
 
+def test_load_settings_forces_admin_delete_block_in_production(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("MERCATOR_DISABLE_ADMIN_DELETE", "false")
+
+    settings = load_settings()
+
+    assert settings.disable_admin_delete is True
+
+
+def test_load_settings_forces_public_share_off_in_production(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("ENABLE_PUBLIC_SHARE", "true")
+
+    settings = load_settings()
+
+    assert settings.public_share.enabled is False
+
+
 def test_load_settings_forces_cloudflare_public_share_to_host_mode(monkeypatch) -> None:
     monkeypatch.setenv("ENABLE_PUBLIC_SHARE", "true")
     monkeypatch.setenv("PUBLIC_SHARE_PROVIDER", "cloudflare")

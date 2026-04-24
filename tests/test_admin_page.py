@@ -63,7 +63,11 @@ class _MySqlClientStub:
         yield self.conn
 
 
-def _build_settings(review_mode: bool = False, disable_admin_delete: bool = False) -> AppSettings:
+def _build_settings(
+    review_mode: bool = False,
+    disable_admin_delete: bool = False,
+    app_env: str = "test",
+) -> AppSettings:
     mysql_settings = Settings(
         mysql_active_target="local",
         mysql_auto_fallback_to_local=True,
@@ -98,7 +102,7 @@ def _build_settings(review_mode: bool = False, disable_admin_delete: bool = Fals
         ),
     )
     return AppSettings(
-        app_env="test",
+        app_env=app_env,
         app_title="Mercator",
         dataset_path="data/raw",
         project_root=__import__("pathlib").Path("."),
@@ -141,6 +145,19 @@ def test_clear_mysql_companies_blocked_in_review_mode() -> None:
 
     assert success is False
     assert "deaktiviert" in message.lower()
+
+
+def test_clear_mysql_companies_blocked_in_production_mode() -> None:
+    service = AdminDashboardService(
+        settings=_build_settings(app_env="production"),
+        mysql_client=_MySqlClientStub(ref_count=0),
+        mongo_available=False,
+    )
+
+    success, message = service.clear_mysql_companies()
+
+    assert success is False
+    assert "produktion" in message.lower()
 
 
 def test_clear_mysql_companies_blocked_when_pending_startup_sync(monkeypatch) -> None:

@@ -24,6 +24,7 @@ from src.ui.pages.company_detail_page import render_company_detail_page
 from src.ui.pages.trade_detail_page import render_trade_detail_page
 from src.ui.pages.admin_page import render_admin_page
 from src.ui.pages.settings_page import render_settings_page
+from src.ui.pages.methodology_page import render_methodology_page
 
 
 def _safe_render_page(area_name: str, render_callable: Callable[[], None]) -> None:

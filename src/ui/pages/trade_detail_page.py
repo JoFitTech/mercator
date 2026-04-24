@@ -193,6 +193,21 @@ def render_trade_detail_page(service: AnalysisService | None, dedupe_key: str | 
             if source_url:
                 st.link_button("SEC-Filing (extern)", source_url, help="Öffnet das Filing in einem neuen Browser-Tab.")
 
+    breakdown_fields = {
+        "Core-Insider": trade.get("core_insider_score"),
+        "Investability": trade.get("investability_score"),
+        "Execution": trade.get("execution_score"),
+        "TR-Score": trade.get("trade_republic_score"),
+        "Final-Score": trade.get("final_score"),
+        "Decision": trade.get("decision_status"),
+        "Final-Klasse": trade.get("final_class"),
+    }
+    visible_breakdown = {k: v for k, v in breakdown_fields.items() if v not in (None, "", "nan")}
+    if visible_breakdown:
+        with st.expander("Scoring-Breakdown", expanded=False):
+            for label, value in visible_breakdown.items():
+                st.write(f"**{label}:** {value}")
+
     # 3. Insider Quality (Requirement 4.4)
     st.markdown("---")
     st.subheader("Insider-Qualität")

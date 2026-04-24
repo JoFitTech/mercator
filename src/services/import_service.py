@@ -56,6 +56,13 @@ class ProfileBackfillSummary:
     failed: int
 
 
+@dataclass(slots=True)
+class RawCleanSyncSummary:
+    raw_candidates: int
+    clean_upserted: int
+    skipped_missing_dedupe: int
+
+
 class ImportService:
     """Orchestriert FMP-Import, Gate-Prüfung und DB-Speicherung."""
 
@@ -538,6 +545,52 @@ class ImportService:
             attempted=attempted,
             refreshed=refreshed,
             failed=failed,
+        )
+
+    def sync_raw_to_clean(self, limit: int = 200) -> RawCleanSyncSummary:
+        """Synchronisiert vorhandene Raw-Trades aus MongoDB nach MySQL (ohne neue API-Aufrufe)."""
+        if not self.allow_write:
+            raise RuntimeError("Raw->Clean-Sync ist deaktiviert (Review Mode / MERCATOR_DISABLE_IMPORT).")
+        if self.trade_mysql_repo is None:
+            raise RuntimeError("Raw->Clean-Sync nicht möglich: MySQL-Repository fehlt.")
+        if not hasattr(self.raw_repo, "list_latest_raw_trades"):
+            raise RuntimeError("Raw->Clean-Sync nicht möglich: Raw-Repository unterstützt keinen Listenabruf.")
+
+        raw_rows = self.raw_repo.list_latest_raw_trades(limit=int(limit))
+        if not raw_rows:
+            return RawCleanSyncSummary(raw_candidates=0, clean_upserted=0, skipped_missing_dedupe=0)
+
+        sync_candidates: list[dict[str, Any]] = []
+        skipped_missing_dedupe = 0
+        for row in raw_rows:
+            dedupe_key = str(row.get("dedupe_key") or "").strip()
+            if not dedupe_key:
+                skipped_missing_dedupe += 1
+                continue
+            sync_candidates.append(dict(row))
+
+        if not sync_candidates:
+            return RawCleanSyncSummary(
+                raw_candidates=len(raw_rows),
+                clean_upserted=0,
+                skipped_missing_dedupe=skipped_missing_dedupe,
+            )
+
+        upserted = int(self.trade_mysql_repo.upsert_trades(sync_candidates))
+        self._update_company_trade_stats(sync_candidates)
+        if hasattr(self.trade_mysql_repo, "bump_dashboard_state"):
+            self.trade_mysql_repo.bump_dashboard_state()
+
+        LOGGER.info(
+            "Raw->Clean-Sync abgeschlossen: raw_candidates=%s clean_upserted=%s skipped_missing_dedupe=%s",
+            len(raw_rows),
+            upserted,
+            skipped_missing_dedupe,
+        )
+        return RawCleanSyncSummary(
+            raw_candidates=len(raw_rows),
+            clean_upserted=upserted,
+            skipped_missing_dedupe=skipped_missing_dedupe,
         )
 
     @staticmethod

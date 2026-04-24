@@ -797,8 +797,30 @@ def load_settings() -> AppSettings:
     execution_mode_raw = _read_string_env("PUBLIC_SHARE_EXECUTION_MODE", default="host")
     execution_mode = _normalize_public_share_execution_mode(public_share_provider, execution_mode_raw)
 
+    app_env = os.getenv("APP_ENV", "local")
+    is_production_env = app_env.strip().lower() in {"prod", "production"}
+
+    disable_admin_delete = _read_bool_env(
+        "MERCATOR_DISABLE_ADMIN_DELETE",
+        default=is_production_env,
+    )
+    if is_production_env and not disable_admin_delete:
+        LOGGER.warning(
+            "Produktion erkannt (APP_ENV=%s): MERCATOR_DISABLE_ADMIN_DELETE=false ist nicht erlaubt; setze auf true.",
+            app_env,
+        )
+        disable_admin_delete = True
+
+    public_share_enabled = _read_bool_env("ENABLE_PUBLIC_SHARE", default=False)
+    if is_production_env and public_share_enabled:
+        LOGGER.warning(
+            "Produktion erkannt (APP_ENV=%s): ENABLE_PUBLIC_SHARE=true ist nicht erlaubt; setze auf false.",
+            app_env,
+        )
+        public_share_enabled = False
+
     app_settings = AppSettings(
-        app_env=os.getenv("APP_ENV", "local"),
+        app_env=app_env,
         app_title=os.getenv("APP_TITLE", "Mercator"),
         dataset_path=os.getenv("DATASET_PATH", "data/raw/"),
         project_root=project_root,
@@ -834,7 +856,7 @@ def load_settings() -> AppSettings:
         ),
         review_mode=_read_bool_env("MERCATOR_REVIEW_MODE", default=False),
         disable_import=_read_bool_env("MERCATOR_DISABLE_IMPORT", default=False),
-        disable_admin_delete=_read_bool_env("MERCATOR_DISABLE_ADMIN_DELETE", default=False),
+        disable_admin_delete=disable_admin_delete,
         ui_test_mode=_read_bool_env("MERCATOR_UI_TEST_MODE", default=False),
         trade_republic_universe_url=_read_string_env(
             "TRADE_REPUBLIC_UNIVERSE_URL",
@@ -842,7 +864,7 @@ def load_settings() -> AppSettings:
         ),
         trade_republic_refresh_ttl_hours=_read_int_env("TRADE_REPUBLIC_REFRESH_TTL_HOURS", default=24),
         public_share=PublicShareConfig(
-            enabled=_read_bool_env("ENABLE_PUBLIC_SHARE", default=False),
+            enabled=public_share_enabled,
             provider=public_share_provider,
             execution_mode=execution_mode,
             local_url=_read_string_env("PUBLIC_SHARE_LOCAL_URL", default="http://localhost:8501"),

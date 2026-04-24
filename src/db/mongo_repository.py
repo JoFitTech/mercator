@@ -51,6 +51,12 @@ class InsiderTradeMongoRepository:
         """Liefert die Anzahl aller Rohdatensätze."""
         return self.collection.count_documents({})
 
+    def list_latest_raw_trades(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Liefert die neuesten Rohtrades für den Raw->Clean-Sync."""
+        max_limit = max(1, min(int(limit), 5000))
+        docs = list(self.collection.find({}, {"_id": 0}).sort("fetched_at", -1).limit(max_limit))
+        return [dict(doc) for doc in docs if isinstance(doc, dict)]
+
 
 class CompanyMongoRepository:
     """Verwaltet Unternehmensprofile in der Collection `companies` mit TTL-Logik."""
