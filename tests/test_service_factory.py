@@ -112,6 +112,7 @@ def test_build_all_disables_import_service_when_fmp_key_invalid(monkeypatch) -> 
                 profile_ttl_days=7,
                 lookup_mode="cik_primary_symbol_fallback",
                 profile_gate_filter_statuses=("PASS",),
+                api2_firing_mode="ONLY PASS",
             )
 
         def load_score_gate_policy(self):

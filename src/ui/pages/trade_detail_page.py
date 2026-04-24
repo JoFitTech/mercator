@@ -73,7 +73,7 @@ def _render_group_trade_detail(service: AnalysisService, group_context: dict[str
         render_empty_state("Für diese Akkumulationsgruppe wurden keine Einzeltrades gefunden.")
         return True
 
-    grouped = AccumulationService.tag_trades_with_groups(trades.copy(), window_days=1)
+    grouped = AccumulationService.tag_trades_with_groups(trades.copy(), window_days=3)
     if group_id and "accumulation_group_id" in grouped.columns:
         selected = grouped[grouped["accumulation_group_id"].astype(str) == group_id].copy()
         if selected.empty:

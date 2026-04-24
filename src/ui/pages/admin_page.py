@@ -714,7 +714,7 @@ def render_admin_page(
                     api2_mode = st.selectbox(
                         "API2-Firing Mode",
                         options=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"],
-                        index=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"].index(runtime_settings.api2_firing_mode) if runtime_settings.api2_firing_mode in ["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"] else 1,
+                        index=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"].index(runtime_settings.api2_firing_mode) if runtime_settings.api2_firing_mode in ["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"] else 0,
                         help=(
                             "ONLY PASS: Enrichment nur für PASS-Trades. "
                             "PASS + PENDING: Für PASS und PENDING. "

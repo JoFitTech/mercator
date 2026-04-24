@@ -20,6 +20,7 @@ HEADER_NAV_OPTIONS: dict[str, str] = {
 }
 
 SIDEBAR_NAV_OPTIONS: dict[str, str] = {
+    "Methodik": "Methodik",
     "Einstellungen": "Einstellungen",
     "Admin": "Admin",
 }

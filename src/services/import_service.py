@@ -68,7 +68,7 @@ class ImportService:
         trade_mysql_repo: InsiderTradeMySqlRepository | None,
         company_mysql_repo: CompanyMySqlRepository | None,
         profile_fetch_statuses: tuple[str, ...] = (GATE_PASS, GATE_PENDING),
-        api2_firing_mode: str = "PASS + PENDING",
+        api2_firing_mode: str = "ONLY PASS",
         allow_write: bool = True,
         tr_ingestion_service: TradeRepublicUniverseIngestionService | None = None,
         tr_matching_service: TradeRepublicUniverseMatchingService | None = None,
@@ -134,8 +134,8 @@ class ImportService:
         elif mode == "DISABLED":
             effective_profile_fetch_statuses = set()
         else:
-            # Fallback
-            effective_profile_fetch_statuses = {GATE_PASS, GATE_PENDING}
+            # Fallback: nur Gate-PASS (spec-konform)
+            effective_profile_fetch_statuses = {GATE_PASS}
 
         # 1. Schritt: Alle Trades normalisieren, evaluieren und Stubs erstellen
         unique_company_stubs: dict[str, dict[str, Any]] = {}

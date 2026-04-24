@@ -10,6 +10,19 @@ Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. D
 4. Ergebnisse interaktiv in Streamlit visualisieren
 5. Methodik und Datenfluss für akademische Zwecke transparent machen
 
+## Nachweis der Kursanforderungen
+
+| Anforderung | Umsetzung |
+|---|---|
+| Öffentliche Datenquelle / API | FMP API (insider-trading/latest, /profile-cik, /historical-price-eod/full) |
+| Pandas-Verarbeitung | Normalisierung, Gate-Filter, 3-Tage-Akkumulation in `AccumulationService` |
+| MySQL | Clean Store: Trades, Profile, Gate-Entscheide in `mercator_local` |
+| MongoDB | Raw Store: JSON-Rohdaten je API-Antwort in `mercator` |
+| Lesen aus beiden DBs | Dashboard/Explorer lesen aus MySQL; Admin zeigt MongoDB-Rohzähler |
+| Interaktive Streamlit-Widgets | Filter, Selectbox, Datumsbereich, Toggle, Paginierung auf allen Seiten |
+| Mindestens ein sinnvoller Chart | Sektor-Verteilung (Torte) und Netto-Signal-Chart (Balken) im Dashboard |
+| Analytischer Mehrwert | Gate-Prüfung, Score-Modell (A-E), 3-Tage-Akkumulation, Trends über Zeit |
+
 ## Uni-Kontext und Scope
 Mercator ist bewusst als akademisches MVP ausgelegt:
 - Fokus auf nachvollziehbaren Datenfluss
@@ -173,7 +186,7 @@ Kompatibilität:
 - Mongo-Fallback ist transparent und greift nur bei `MONGO_ACTIVE_TARGET=uni` optional auf `local` zurück.
 
 Optionale Import-/Gate-Parameter:
-- `GATE_MIN_TRADE_VALUE` (Default `10000`)
+- `GATE_MIN_TRADE_VALUE` (Default `100000` – Mindestwert $100.000)
 - `GATE_REQUIRE_PURCHASE_EVENT` (`true`/`false`)
 - `GATE_REQUIRE_COMMON_STOCK` (`true`/`false`)
 - `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
@@ -445,7 +458,6 @@ Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung w
 - Berichtsfokus: Datenquelle, Datenfluss, Deduplizierung, Gate-Logik, Mehrwert der Zwei-DB-Architektur.
 
 ## TODO / offene Punkte
-- Zentrale Liste: `docs/todos_offene_fragen.md`.
 
 
 ## FMP API Spec

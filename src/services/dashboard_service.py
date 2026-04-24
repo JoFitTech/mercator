@@ -422,7 +422,7 @@ class DashboardService:
         if core_df.empty:
             return pd.DataFrame()
 
-        grouped_df = AccumulationService.tag_trades_with_groups(core_df, window_days=1)
+        grouped_df = AccumulationService.tag_trades_with_groups(core_df, window_days=3)
         if grouped_df.empty or "accumulation_group_id" not in grouped_df.columns:
             return pd.DataFrame()
 

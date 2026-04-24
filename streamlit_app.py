@@ -122,6 +122,8 @@ def main():
         _safe_render_page("Unternehmen", lambda: render_companies_page(factory.create_company_repository(), db_status=db_status))
     elif nav_target == "Einstellungen":
         _safe_render_page("Einstellungen", lambda: render_settings_page(app_settings_service, db_status=db_status))
+    elif nav_target == "Methodik":
+        _safe_render_page("Methodik", render_methodology_page)
     elif nav_target == "Admin":
         _safe_render_page("Admin", lambda: render_admin_page(
             settings=settings,

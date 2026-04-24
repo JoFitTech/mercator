@@ -60,11 +60,33 @@ def render_methodology_page() -> None:
     
     st.markdown("### Technische Endpunkte")
     st.code(
-        "GET /insider-trading/latest\n"
-        "GET /profile-cik?cik={CIK}\n"
-        "GET /profile?symbol={SYMBOL}",
+        "GET /insider-trading/latest           # API1: Feed-Ingestion\n"
+        "GET /profile-cik?cik={CIK}           # API2: Company Profile (primär)\n"
+        "GET /profile?symbol={SYMBOL}         # API2: Fallback\n"
+        "GET /historical-price-eod/full       # API3: Kurshistorie (Gate-Passer, 500 Tage)",
         language="text",
     )
+
+    st.markdown("---")
+    with st.expander("Fachliche Regeln (Gate, Akkumulation, Scoring)", expanded=False):
+        st.markdown(
+            """
+            **Gate-Filter (lokal, kein API-Call):**
+            - Mindestwert: **$100.000** pro Trade
+            - Formtyp: muss Form 4 sein
+            - Erlaubte Transaktionen: Acquisition (A) oder Disposition (D)
+            - Ausgeschlossene Typen: Gratis-Zuteilungen (A-Award, M-Exempt)
+            - Validierungsstatus: VALID
+
+            **3-Tage-Akkumulation:**
+            - Gleiche Person + Gleiche Firma + Gleiche Richtung (A/D) + max. 3 Kalendertage Abstand
+            - Keine A/D-Mischung innerhalb einer Gruppe
+
+            **API2/API3-Gating:**
+            - API2 (Profile): nur für Gate-PASS Kandidaten (Default: ONLY PASS)
+            - API3 (Kurshistorie): nur nach erfolgreichem API2-Profil für Gate-PASS Kandidaten
+            """
+        )
 
     st.markdown("---")
     st.info(

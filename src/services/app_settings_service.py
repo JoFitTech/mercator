@@ -26,7 +26,7 @@ class RuntimeSettings:
     profile_gate_filter_statuses: tuple[str, ...]
     profile_ttl_days: int
     lookup_mode: str
-    api2_firing_mode: str = "PASS + PENDING"
+    api2_firing_mode: str = "ONLY PASS"
     auto_import_enabled: bool = False
     auto_import_interval_minutes: int = 15
     auto_import_on_start: bool = False
@@ -77,7 +77,7 @@ class AppSettingsService:
             profile_gate_filter_statuses=self.defaults.fmp.profile_gate_filter_statuses,
             profile_ttl_days=self.defaults.fmp.profile_ttl_days,
             lookup_mode=self.defaults.fmp.lookup_mode,
-            api2_firing_mode="PASS + PENDING",
+            api2_firing_mode="ONLY PASS",
             auto_import_enabled=False,
             auto_import_interval_minutes=15,
             auto_import_on_start=False,

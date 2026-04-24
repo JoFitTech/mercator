@@ -1,6 +1,6 @@
 ﻿{
     "last_exit_code":  null,
-    "public_url":  "https://needle-written-rebates-closer.trycloudflare.com",
+    "public_url":  null,
     "execution_mode":  "host",
     "extra_args":  [
                        "--protocol",
@@ -9,9 +9,9 @@
                        "4"
                    ],
     "local_url":  "http://localhost:8501",
-    "status":  "STARTING",
-    "pid":  2652,
+    "status":  "STOPPED",
+    "pid":  null,
     "provider":  "cloudflare",
     "last_error":  null,
-    "started_at":  "2026-04-23T21:03:32.9423214Z"
+    "started_at":  "2026-04-24T06:53:59.2733893Z"
 }
