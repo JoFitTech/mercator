@@ -254,6 +254,85 @@ class AdminDashboardService:
     def _blocked_message(self) -> tuple[bool, str]:
         return False, "Loeschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
 
+    @staticmethod
+    def _api2_missing_where_clause() -> str:
+        """Konsistente Kriterien fuer fehlende/unvollstaendige API2-Profile."""
+        return (
+            "c.current_symbol IS NOT NULL "
+            "AND c.current_symbol <> '' "
+            "AND ("
+            "COALESCE(c.profile_status, 'NOT_REQUESTED') IN ('NOT_REQUESTED', 'FAILED') "
+            "OR COALESCE(c.sector_resolution_status, 'UNRESOLVED') = 'UNRESOLVED' "
+            "OR c.sector IS NULL OR TRIM(c.sector) = '' "
+            "OR c.market_cap IS NULL"
+            ")"
+        )
+
+    def count_mysql_api2_missing_candidates(self) -> int:
+        """Zaehlt MySQL-Unternehmen, deren API2-Profil fehlt oder unvollstaendig ist."""
+        if not self.mysql_client:
+            return 0
+        try:
+            where_clause = self._api2_missing_where_clause()
+            sql = f"SELECT COUNT(*) AS missing_count FROM companies c WHERE {where_clause}"
+            with self.mysql_client.connection(include_database=True) as conn:
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute(sql)
+                    result = cursor.fetchone() or {}
+                    return int(result.get("missing_count", 0) or 0)
+        except Exception as exc:
+            LOGGER.warning("count_mysql_api2_missing_candidates Fehler: %s", exc)
+            return 0
+
+    def delete_mysql_api2_missing_datasets(self) -> tuple[bool, str]:
+        """Loescht Datensaetze mit fehlenden API2-Profilen inkl. zugehoeriger Trade-Referenzen in MySQL."""
+        if not self.mysql_client:
+            return False, "MySQL-Verbindung nicht verfuegbar."
+        if self._deletes_blocked():
+            return self._blocked_message()
+        if self._pending_sync_blocks_deletes():
+            return (
+                False,
+                "Loeschaktionen blockiert: Es besteht ein offener Startup-Pending-Sync (local -> uni).",
+            )
+
+        try:
+            where_clause = self._api2_missing_where_clause()
+            with self.mysql_client.connection(include_database=True) as conn:
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute(f"SELECT COUNT(*) AS missing_count FROM companies c WHERE {where_clause}")
+                    missing_count = int((cursor.fetchone() or {}).get("missing_count", 0) or 0)
+                    if missing_count == 0:
+                        return True, "Keine API2-fehlt-Datensaetze gefunden."
+
+                    cursor.execute(
+                        "DELETE t FROM insider_trades t "
+                        "INNER JOIN companies c ON c.company_key = t.company_key "
+                        f"WHERE {where_clause}"
+                    )
+                    trades_deleted = int(cursor.rowcount or 0)
+
+                    cursor.execute(
+                        "DELETE ts FROM company_trade_stats ts "
+                        "INNER JOIN companies c ON c.company_key = ts.company_key "
+                        f"WHERE {where_clause}"
+                    )
+                    stats_deleted = int(cursor.rowcount or 0)
+
+                    cursor.execute(f"DELETE FROM companies c WHERE {where_clause}")
+                    companies_deleted = int(cursor.rowcount or 0)
+                    conn.commit()
+
+            msg = (
+                "API2-fehlt-Cleanup abgeschlossen: "
+                f"Unternehmen {companies_deleted}, Trades {trades_deleted}, Stats {stats_deleted}."
+            )
+            LOGGER.info(msg)
+            return True, msg
+        except Exception as exc:
+            LOGGER.error("delete_mysql_api2_missing_datasets Fehler: %s", exc)
+            return False, f"Fehler beim API2-fehlt-Cleanup: {exc}"
+
     def get_mysql_stats(self) -> dict:
         """Holt Statistiken für MySQL-Datenbank."""
         if not self.mysql_client:
@@ -775,6 +854,11 @@ def render_admin_page(
 
         st.markdown("---")
         st.markdown("#### Manueller Import")
+        api2_missing_count = admin_service.count_mysql_api2_missing_candidates() if mysql_online else 0
+        st.caption(
+            "Bulk-Backfill fuer fehlende API2-Profile: "
+            f"aktuell {api2_missing_count} Kandidaten in MySQL."
+        )
         backfill_limit = st.number_input(
             "API2-Backfill Batch-Größe",
             min_value=10,
@@ -805,6 +889,29 @@ def render_admin_page(
                         )
                     except Exception as e:
                         _show_admin_feedback("error", "API2-Backfill fehlgeschlagen.", str(e))
+
+        confirm_api2_cleanup = st.checkbox(
+            "Ich bestaetige: API2-fehlt-Datensaetze in MySQL loeschen (inkl. zugehoeriger Trades/Stats)",
+            value=False,
+            key="admin_confirm_api2_missing_cleanup",
+            disabled=not mysql_online,
+        )
+        if st.button(
+            "Alle API2-fehlt-Datensaetze loeschen",
+            use_container_width=True,
+            disabled=(not mysql_online) or (api2_missing_count <= 0) or (not confirm_api2_cleanup),
+            help=(
+                "Nur verfuegbar mit MySQL-Verbindung, vorhandenen Kandidaten und bestaetigter Checkbox."
+                if mysql_online
+                else "Loeschung ist nur bei aktiver MySQL-Verbindung verfuegbar."
+            ),
+        ):
+            success, message = admin_service.delete_mysql_api2_missing_datasets()
+            if success:
+                _show_admin_feedback("success", message)
+                st.rerun()
+            else:
+                _show_admin_feedback("error", message)
 
         force_profile_refresh = st.checkbox(
             "Profil-Refresh erzwingen",

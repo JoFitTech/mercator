@@ -26,14 +26,20 @@ class _CursorStub:
     def __exit__(self, exc_type, exc, tb):
         return False
 
-    def execute(self, sql: str) -> None:
+    def execute(self, sql: str, params=None) -> None:
         normalized = " ".join(sql.split())
         self.executed_sql.append(normalized)
         if normalized.upper().startswith("DELETE FROM COMPANIES"):
             self.rowcount = 5
+        elif normalized.upper().startswith("DELETE T FROM INSIDER_TRADES"):
+            self.rowcount = 7
+        elif normalized.upper().startswith("DELETE TS FROM COMPANY_TRADE_STATS"):
+            self.rowcount = 4
+        elif normalized.upper().startswith("SELECT COUNT(*) AS MISSING_COUNT FROM COMPANIES"):
+            self.rowcount = 0
 
     def fetchone(self):
-        return {"ref_count": self.ref_count}
+        return {"ref_count": self.ref_count, "missing_count": self.ref_count}
 
 
 class _ConnectionStub:
@@ -146,6 +152,50 @@ def test_clear_mysql_companies_blocked_when_pending_startup_sync(monkeypatch) ->
     monkeypatch.setattr(service, "_pending_sync_blocks_deletes", lambda: True)
 
     success, message = service.clear_mysql_companies()
+
+    assert success is False
+    assert "pending" in message.lower()
+
+
+def test_count_mysql_api2_missing_candidates_reads_expected_count() -> None:
+    service = AdminDashboardService(
+        settings=_build_settings(),
+        mysql_client=_MySqlClientStub(ref_count=11),
+        mongo_available=False,
+    )
+
+    missing = service.count_mysql_api2_missing_candidates()
+
+    assert missing == 11
+
+
+def test_delete_mysql_api2_missing_datasets_deletes_related_rows() -> None:
+    service = AdminDashboardService(
+        settings=_build_settings(),
+        mysql_client=_MySqlClientStub(ref_count=3),
+        mongo_available=False,
+    )
+
+    success, message = service.delete_mysql_api2_missing_datasets()
+
+    assert success is True
+    assert "API2-fehlt-Cleanup abgeschlossen" in message
+    executed = service.mysql_client.conn.cursor_instance.executed_sql
+    assert any("DELETE t FROM insider_trades" in sql for sql in executed)
+    assert any("DELETE ts FROM company_trade_stats" in sql for sql in executed)
+    assert any("DELETE FROM companies c" in sql for sql in executed)
+    assert service.mysql_client.conn.committed is True
+
+
+def test_delete_mysql_api2_missing_datasets_blocked_when_pending_sync(monkeypatch) -> None:
+    service = AdminDashboardService(
+        settings=_build_settings(),
+        mysql_client=_MySqlClientStub(ref_count=3),
+        mongo_available=False,
+    )
+    monkeypatch.setattr(service, "_pending_sync_blocks_deletes", lambda: True)
+
+    success, message = service.delete_mysql_api2_missing_datasets()
 
     assert success is False
     assert "pending" in message.lower()

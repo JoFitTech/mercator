@@ -1,6 +1,6 @@
 ﻿{
     "last_exit_code":  null,
-    "public_url":  null,
+    "public_url":  "https://actual-deleted-platinum-optimal.trycloudflare.com",
     "execution_mode":  "host",
     "extra_args":  [
                        "--protocol",
@@ -9,9 +9,9 @@
                        "4"
                    ],
     "local_url":  "http://localhost:8501",
-    "status":  "STOPPED",
-    "pid":  null,
+    "status":  "STARTING",
+    "pid":  20804,
     "provider":  "cloudflare",
     "last_error":  null,
-    "started_at":  "2026-04-24T06:53:59.2733893Z"
+    "started_at":  "2026-04-24T07:22:55.6639098Z"
 }
