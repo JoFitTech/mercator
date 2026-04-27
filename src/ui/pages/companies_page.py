@@ -56,7 +56,7 @@ def _clamp_page(current_page: int, total_rows: int, page_size: int) -> tuple[int
 
 def render_companies_page(repository: CompanyMySqlRepository | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Unternehmens-Übersicht."""
-    render_page_header("Unternehmen", "Unternehmen mit Insider-Aktivitaet und Profilstatus.")
+    render_page_header("Unternehmen", "Unternehmen mit Insider-Aktivität und Profilstatus.")
     if repository is None:
         st.warning("Unternehmensdaten sind derzeit nicht verfügbar, da MySQL nicht erreichbar ist.")
         return
@@ -143,7 +143,7 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
 
     unresolved_count = int(df.get("profile_status", pd.Series(dtype="object")).fillna("").astype(str).str.upper().ne("FETCHED").sum()) if "profile_status" in df.columns else 0
     if unresolved_count > 0:
-        st.caption(f"Hinweis: Unvollstaendige Profile ({unresolved_count})")
+        st.caption(f"Hinweis: Unvollständige Profile ({unresolved_count})")
 
     # 4. Tabelle (Requirement 6.3)
     st.subheader("Unternehmens-Verzeichnis")
@@ -207,12 +207,12 @@ def render_companies_page(repository: CompanyMySqlRepository | None, db_status: 
             c1, c2 = st.columns(2)
             with c1:
                 if st.button(
-                    "Unternehmensdetails oeffnen",
+                    "Unternehmensdetails öffnen",
                     type="primary",
                     use_container_width=True,
                     disabled=not can_navigate,
                     key=f"companies_open_detail_{selected_idx}",
-                    help="Navigation benoetigt ein gueltiges Symbol." if not can_navigate else None,
+                    help="Navigation benötigt ein gültiges Symbol." if not can_navigate else None,
                 ):
                     st.session_state["selected_company_symbol"] = symbol_value
                     st.session_state["nav_target"] = "Unternehmens-Detail"

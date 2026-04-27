@@ -197,6 +197,21 @@ def test_count_mysql_api2_missing_candidates_reads_expected_count() -> None:
     assert missing == 11
 
 
+def test_api2_missing_count_query_includes_unknown_sector_markers() -> None:
+    service = AdminDashboardService(
+        settings=_build_settings(),
+        mysql_client=_MySqlClientStub(ref_count=1),
+        mongo_available=False,
+    )
+
+    service.count_mysql_api2_missing_candidates()
+
+    executed = service.mysql_client.conn.cursor_instance.executed_sql
+    count_sql = next(sql for sql in executed if "SELECT COUNT(*) AS missing_count FROM companies c WHERE" in sql)
+    assert "unknown / api2 fehlt" in count_sql.lower()
+    assert "api2 fehlt/unknown" in count_sql.lower()
+
+
 def test_delete_mysql_api2_missing_datasets_deletes_related_rows() -> None:
     service = AdminDashboardService(
         settings=_build_settings(),

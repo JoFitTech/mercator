@@ -91,7 +91,11 @@ class AnalysisService:
         if cached is not None and now - cached[0] < AnalysisService._TICKER_CACHE_TTL:
             return cached[1]
 
-        symbols = self.trade_repo.fetch_all_symbols()
+        symbols: list[object] = []
+        if hasattr(self.trade_repo, "fetch_all_symbols"):
+            symbols.extend(self.trade_repo.fetch_all_symbols() or [])
+        if hasattr(self.company_repo, "fetch_all_symbols"):
+            symbols.extend(self.company_repo.fetch_all_symbols() or [])
         result = sanitize_symbol_options(symbols)
         AnalysisService._ticker_options_cache = (now, result)
         return result

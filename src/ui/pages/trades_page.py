@@ -78,6 +78,11 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
     normalized["min_value"] = int(normalized.get("min_value") or 0)
     normalized["accumulate_trades"] = bool(normalized.get("accumulate_trades", True))
     normalized["show_single_trades"] = bool(normalized.get("show_single_trades", False))
+    # Beide Modi sollen sich ausschliessen; Einzeltrades haben Vorrang.
+    if normalized["show_single_trades"]:
+        normalized["accumulate_trades"] = False
+    elif normalized["accumulate_trades"]:
+        normalized["show_single_trades"] = False
     raw_acc_limit = normalized.get("accumulation_limit", 2000)
     try:
         normalized["accumulation_limit"] = max(200, min(10000, int(raw_acc_limit)))
@@ -96,7 +101,7 @@ def _sync_trade_filter_widgets_from_state(force: bool = False) -> None:
 
 
 def _mark_trade_filter_widget_resync_pending() -> None:
-    """Markiert, dass Widget-Werte erst im naechsten Render-Zyklus aus dem kanonischen State gezogen werden."""
+    """Markiert, dass Widget-Werte erst im nächsten Render-Zyklus aus dem kanonischen State gezogen werden."""
     st.session_state[TRADES_WIDGET_RESYNC_PENDING_KEY] = True
 
 
@@ -119,7 +124,7 @@ def _read_trade_filters_from_widgets() -> dict:
 
 
 def _reset_trade_filters_and_widgets() -> None:
-    """Setzt kanonischen Filter-State zurück und triggert Widget-Resync im naechsten Rerun."""
+    """Setzt kanonischen Filter-State zurück und triggert Widget-Resync im nächsten Rerun."""
     st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
     _mark_trade_filter_widget_resync_pending()
     st.session_state["trades_current_page"] = 1
@@ -211,7 +216,7 @@ def _store_cached_accumulation(cache_key: str, df: pd.DataFrame) -> None:
 
 def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatus | None = None) -> None:
     """Rendert die Trades-Seite."""
-    render_page_header("Trades", "Insider-Transaktionen filtern, bewerten und oeffnen.")
+    render_page_header("Trades", "Insider-Transaktionen filtern, bewerten und öffnen.")
     if service is None:
         st.warning(
             "Trades können derzeit nicht geladen werden, da die Analyse-Datenbank nicht verfügbar ist."
@@ -241,7 +246,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
             f7.slider("Min. Score", 0, 100, key="trades_filter_min_score")
             f8.number_input("Min. Wert ($)", step=10000, key="trades_filter_min_value")
 
-            with st.expander("Sekundaere Filter & Darstellung", expanded=False):
+            with st.expander("Sekundäre Filter & Darstellung", expanded=False):
                 st.toggle("Trades aggregieren", key="trades_filter_accumulate_trades")
                 st.toggle("Einzeltrades anzeigen", key="trades_filter_show_single_trades")
                 st.caption("Aggregation gruppiert nach Symbol, Insider und Richtung im 3-Tage-Fenster.")
@@ -436,7 +441,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
         "Sortierung: standardmäßig nach Datum (neueste zuerst). "
         "Sie können zusätzlich über Spaltenüberschriften sortieren."
     )
-    st.caption("Auswahlhilfe: 1) Zeile markieren 2) Aktion in der Leiste darunter ausfuehren.")
+    st.caption("Auswahlhilfe: 1) Zeile markieren 2) Aktion in der Leiste darunter ausführen.")
 
     selected_idx = get_single_selected_row_index(event, len(trades_df))
     if selected_idx is not None:
@@ -474,7 +479,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
                         st.rerun()
                 elif dedupe_key:
                     if st.button(
-                        "Trade oeffnen",
+                        "Trade öffnen",
                         type="primary",
                         use_container_width=True,
                         key=f"open_trade_detail_{selected_idx}",
@@ -484,7 +489,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
                         st.rerun()
                 else:
                     st.button(
-                        "Trade oeffnen",
+                        "Trade öffnen",
                         type="primary",
                         use_container_width=True,
                         disabled=True,
@@ -493,7 +498,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
                     )
             with c2:
                 if st.button(
-                    "Unternehmen oeffnen",
+                    "Unternehmen öffnen",
                     use_container_width=True,
                     disabled=not can_open_company,
                     key=f"open_company_detail_{selected_idx}",

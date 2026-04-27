@@ -70,7 +70,11 @@ class GateEvaluator:
         if price <= 0:
             trade["validation_status"] = "PRICE_INVALID"
             return GateDecision(status=GATE_FAIL, reason="invalid_price")
-        if validation_status in {"PRICE_INVALID", "INVALID"}:
+        if validation_status == "PRICE_INVALID":
+            # Behalte PRICE_INVALID semantisch — nicht zu INVALID überschreiben
+            trade["validation_status"] = "PRICE_INVALID"
+            return GateDecision(status=GATE_FAIL, reason="invalid_price")
+        if validation_status == "INVALID":
             trade["validation_status"] = "INVALID"
             return GateDecision(status=GATE_FAIL, reason="invalid_validation_status")
 

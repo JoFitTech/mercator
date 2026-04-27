@@ -187,15 +187,19 @@ class ImportService:
             if company_key and company_key not in unique_company_stubs:
                 unique_company_stubs[company_key] = item
 
-        # 2. Schritt: Einmaliges Upsert pro Firma
+        # 2. Schritt: Einmaliges Upsert pro Firma (Stub zuerst persistieren)
         company_batch_by_key: dict[str, dict[str, Any]] = {}
         company_lookup_by_key: dict[str, dict[str, Any]] = {}
+        initial_stubs: list[dict[str, Any]] = []
         for company_key, item in unique_company_stubs.items():
             self._apply_trade_republic_match(item)
             company_stub = self._build_company_stub(item, fetched_at)
             if company_stub:
                 company_batch_by_key[str(company_key)] = company_stub
                 company_lookup_by_key[company_key] = company_stub
+                initial_stubs.append(company_stub)
+        if initial_stubs:
+            self._persist_company_batch(initial_stubs)
 
         fetched_profiles = 0
         profile_fetch_attempts = 0
@@ -246,15 +250,26 @@ class ImportService:
         # Hole alle Cache-Profile auf einmal (statt N Einzelabfragen)
         cached_profiles_bulk: dict[str, dict[str, Any]] = {}
         if company_keys_for_cache_lookup and not force_profile_refresh:
-            try:
-                cached_profiles_bulk = self.company_mongo_repo.get_recent_profiles_bulk(
-                    sorted(company_keys_for_cache_lookup),
-                    ttl_days=self.fmp_client.config.profile_ttl_days,
-                )
-            except Exception:
-                LOGGER.exception("Bulk-Cache-Abfrage fehlgeschlagen; fahre ohne Cache-Hits fort")
-                cached_profiles_bulk = {}
-        
+            if hasattr(self.company_mongo_repo, "get_recent_profiles_bulk"):
+                try:
+                    cached_profiles_bulk = self.company_mongo_repo.get_recent_profiles_bulk(
+                        sorted(company_keys_for_cache_lookup),
+                        ttl_days=self.fmp_client.config.profile_ttl_days,
+                    )
+                except Exception:
+                    LOGGER.exception("Bulk-Cache-Abfrage fehlgeschlagen; fahre ohne Cache-Hits fort")
+                    cached_profiles_bulk = {}
+            else:
+                # Fallback: einzelne Cache-Abfragen
+                ttl_days = self.fmp_client.config.profile_ttl_days
+                for _ck in company_keys_for_cache_lookup:
+                    try:
+                        _cached = self.company_mongo_repo.get_recent_profile(_ck, ttl_days)
+                        if _cached:
+                            cached_profiles_bulk[_ck] = _cached
+                    except Exception:
+                        pass
+
         # Verarbeite die Symbole mit den gecachten Profilen
         for symbol in symbols_to_enrich:
             matching_trades = trades_by_symbol.get(symbol, [])
@@ -457,8 +472,6 @@ class ImportService:
 
             is_invalid_clean = (
                 not symbol_value
-                or qty_value is None
-                or qty_numeric <= 0
                 or validation_status in {"INVALID", "PRICE_INVALID"}
             )
 

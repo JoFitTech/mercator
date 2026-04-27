@@ -412,7 +412,7 @@ def test_admin_import_summary_helpers_include_new_profile_counters() -> None:
     assert metrics["Profilfehler"] == 2
 
 
-def test_dashboard_sector_chart_uses_vega_lite_without_plotly(monkeypatch) -> None:
+def test_dashboard_sector_chart_uses_vega_lite_bar_chart(monkeypatch) -> None:
     calls: list[dict] = []
 
     def _fake_vega_lite_chart(data, spec, **kwargs):  # noqa: ANN001
@@ -425,13 +425,13 @@ def test_dashboard_sector_chart_uses_vega_lite_without_plotly(monkeypatch) -> No
         {"sector": "Unknown", "count": 1, "volume": 120_000},
     ])
 
-    dashboard_page._render_sector_pie_chart(df)
+    dashboard_page._render_sector_bar_chart(df)
 
     assert len(calls) == 1
     rendered_df = calls[0]["data"]
     assert list(rendered_df["sector"]) == ["Technology"]
-    assert calls[0]["spec"]["mark"]["type"] == "bar"
-    assert calls[0]["spec"]["encoding"]["x"]["field"] == "count"
+    assert calls[0]["spec"]["mark"]["type"] == "arc"
+    assert calls[0]["spec"]["encoding"]["theta"]["field"] == "count"
     assert calls[0]["kwargs"]["use_container_width"] is True
 
 
@@ -450,7 +450,7 @@ def test_dashboard_sector_chart_shows_info_when_only_unknown(monkeypatch) -> Non
         {"sector": "Unknown", "count": 1, "volume": 100_000},
     ])
 
-    dashboard_page._render_sector_pie_chart(df)
+    dashboard_page._render_sector_bar_chart(df)
 
     assert len(calls) == 0
     assert any("ausgegliedert" in msg for msg in info_calls)
@@ -467,7 +467,10 @@ def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:
     net_df = pd.DataFrame([
         {"sector": "Technology", "delta": 4, "buy_count": 5, "sell_count": 1, "buy_volume": 5_000, "sell_volume": 2_000}
     ])
-    cap_df = pd.DataFrame([{"bucket": "Large Cap", "companies": 12}])
+    cap_df = pd.DataFrame([
+        {"bucket": "Large Cap", "companies": 12},
+        {"bucket": "Unknown", "companies": 3},
+    ])
 
     dashboard_page._render_net_sector_signal_chart(net_df)
     dashboard_page._render_market_cap_distribution_chart(cap_df)
@@ -476,6 +479,21 @@ def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:
     assert calls[0]["spec"]["mark"]["type"] == "bar"
     assert calls[0]["spec"]["encoding"]["x"]["field"] == "delta"
     assert calls[1]["spec"]["encoding"]["x"]["field"] == "companies"
+    assert "Unknown" not in list(calls[1]["data"]["bucket"])
+
+
+def test_dashboard_market_cap_chart_shows_info_when_only_unknown(monkeypatch) -> None:
+    calls: list[dict] = []
+    info_calls: list[str] = []
+
+    monkeypatch.setattr(dashboard_page.st, "vega_lite_chart", lambda data, spec, **kwargs: calls.append({"data": data, "spec": spec, "kwargs": kwargs}))
+    monkeypatch.setattr(dashboard_page.st, "info", lambda text: info_calls.append(str(text)))
+
+    only_unknown_df = pd.DataFrame([{"bucket": "Unknown", "companies": 5}])
+    dashboard_page._render_market_cap_distribution_chart(only_unknown_df)
+
+    assert len(calls) == 0
+    assert any("ausgeblendet" in msg for msg in info_calls)
 
 
 def test_public_share_admin_status_messages_cover_running_stale_and_warning() -> None:

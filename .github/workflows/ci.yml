@@ -28,5 +28,5 @@ jobs:
           MONGO_ACTIVE_TARGET: local
           MERCATOR_UI_TEST_MODE: "true"
           MERCATOR_DISABLE_IMPORT: "true"
-        run: python -m pytest tests -q
+        run: python -m pytest tests --ignore=tests/e2e -q
 

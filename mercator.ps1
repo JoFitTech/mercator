@@ -488,7 +488,7 @@ function Invoke-ShareStart {
         $health = Invoke-WebRequest -Uri $localUrl -Method Get -TimeoutSec 4 -UseBasicParsing
         if (-not $health.StatusCode) { throw "Lokale App antwortet nicht." }
     } catch {
-        throw "Lokale App unter $localUrl nicht erreichbar. Bitte zuerst .\mercator.ps1 start ausführen."
+        throw "Lokale App unter $localUrl nicht erreichbar. Bitte zuerst '.\mercator.ps1 start' oder '.\mercator.ps1 restart' ausführen und warten bis die App bereit ist."
     }
 
     $existingPid = Get-PublicSharePid -PidPath $paths.PidPath

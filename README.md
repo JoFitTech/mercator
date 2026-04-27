@@ -30,6 +30,7 @@ Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. D
 Mercator ist bewusst als akademisches MVP ausgelegt:
 - Fokus auf nachvollziehbaren Datenfluss
 - klare Trennung von Roh- und Zieldaten
+- lokaler Präsentationsmodus funktioniert ohne Uni-Netz (Fallback auf lokale Datenbanken)
 - keine Produkt-/Enterprise-Nebenziele
 - Alle Komponenten wurden konsequent auf den Projektnamen `mercator` umgestellt (Docker-Container, UI-Branding, Datenbanken). Altbestände (`finanzport-*`) werden automatisch bereinigt.
 
@@ -69,7 +70,7 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 2. Rohobjekte werden normalisiert, typisiert und dedupliziert.
 3. Rohdaten landen in MongoDB (`insider_trades_raw`).
 4. Gate-Pass-Kandidaten lösen den Profilabruf über `/profile` aus. `/search-cik` und `/profile-cik` werden nur als optionale Fallbacks bei Identitäts- oder Symbolauflösungsproblemen verwendet. Profilantworten werden per TTL-Cache wiederverwendet.
-5. Bereinigte Trades und Profile werden in MySQL gespeichert.
+5. Bereinigte/analysierbare Trades und Profile werden in MySQL gespeichert; invalidierte Trades (`INVALID`, `PRICE_INVALID`) verbleiben im Raw-Kontext und werden nicht als Clean-Datensätze upserted.
 6. `AccumulationService` aggregiert Trades in der UI-Schicht (Explorer, Ticker-Detail) nach fachlichen Regeln:
     - Gleiche Person (Reporting CIK/Name)
     - Gleiche Firma (Company CIK/Ticker)

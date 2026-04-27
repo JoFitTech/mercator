@@ -57,46 +57,46 @@ def apply_ui_theme() -> None:
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
         :root {
-            --mercator-navy-950: #000002;
-            --mercator-navy-900: #031126;
-            --mercator-navy-800: #0F1A26;
+            --mercator-navy-950: #0F172A;
+            --mercator-navy-900: #0F172A;
+            --mercator-navy-800: #1E293B;
 
-            --mercator-blue-700: #2B4D68;
-            --mercator-blue-600: #355D7E;
-            --mercator-blue-500: #4A7898;
-            --mercator-blue-300: #85A9B4;
+            --mercator-blue-700: #1D4ED8;
+            --mercator-blue-600: #2563EB;
+            --mercator-blue-500: #2563EB;
+            --mercator-blue-300: #93C5FD;
 
-            --mercator-ice-50: #F4F7F8;
-            --mercator-ice-100: #E9EFF1;
-            --mercator-ice-200: #D6DFE2;
-            --mercator-steel-300: #C1CCD1;
-            --mercator-steel-500: #6B777F;
+            --mercator-ice-50: #F8FAFC;
+            --mercator-ice-100: #F1F5F9;
+            --mercator-ice-200: #E2E8F0;
+            --mercator-steel-300: #CBD5E1;
+            --mercator-steel-500: #64748B;
 
-            --mercator-text-strong: #0F1A26;
-            --mercator-text: #28323D;
-            --mercator-text-muted: #56646E;
+            --mercator-text-strong: #0F172A;
+            --mercator-text: #0F172A;
+            --mercator-text-muted: #64748B;
 
-            --mercator-success: #1E9E6F;
-            --mercator-success-bg: #E6F7F0;
-            --mercator-danger: #C0392B;
-            --mercator-danger-bg: #FDECEA;
-            --mercator-warning: #B9770E;
-            --mercator-warning-bg: #FEF5E7;
-            --mercator-info: #2E86C1;
-            --mercator-info-bg: #EAF3FB;
+            --mercator-success: #15803D;
+            --mercator-success-bg: #DCFCE7;
+            --mercator-danger: #B91C1C;
+            --mercator-danger-bg: #FEE2E2;
+            --mercator-warning: #B45309;
+            --mercator-warning-bg: #FFEDD5;
+            --mercator-info: #0369A1;
+            --mercator-info-bg: #E0F2FE;
 
-            --mercator-focus-ring: rgba(53, 93, 126, 0.32);
-            --mercator-success-ring: rgba(47, 143, 122, 0.24);
+            --mercator-focus-ring: rgba(37, 99, 235, 0.28);
+            --mercator-success-ring: rgba(21, 128, 61, 0.24);
 
             --mercator-border: var(--mercator-steel-300);
-            --mercator-border-strong: #A8B5BC;
+            --mercator-border-strong: #94A3B8;
             --mercator-surface: #FFFFFF;
             --mercator-surface-muted: var(--mercator-ice-100);
             --mercator-surface-soft: var(--mercator-ice-50);
             --mercator-radius-sm: 0.55rem;
             --mercator-radius-md: 0.8rem;
             --mercator-radius-lg: 1rem;
-            --mercator-shadow-subtle: 0 2px 10px rgba(3, 17, 38, 0.06);
+            --mercator-shadow-subtle: 0 2px 10px rgba(15, 23, 42, 0.06);
         }
 
         html, body, [class*="css"] {
@@ -222,7 +222,7 @@ def apply_ui_theme() -> None:
             background: var(--mercator-blue-600) !important;
             color: #FFFFFF !important;
             border-color: var(--mercator-blue-700) !important;
-            box-shadow: 0 2px 8px rgba(53, 93, 126, 0.22);
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.22);
         }
 
         /* Streamlit Tabs: aktive/hover Farben erzwingen (kein Default-Rot) */
@@ -343,7 +343,7 @@ def apply_ui_theme() -> None:
         /* Links */
         a {
             color: var(--mercator-blue-700);
-            text-decoration-color: rgba(43, 77, 104, 0.35);
+            text-decoration-color: rgba(29, 78, 216, 0.35);
         }
 
         a:hover {

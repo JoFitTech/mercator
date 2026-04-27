@@ -378,6 +378,7 @@ class CompanyMySqlRepository(CompanyRepository):
                     COALESCE(c.profile_status, 'NOT_REQUESTED') IN ('NOT_REQUESTED', 'FAILED')
                     OR COALESCE(c.sector_resolution_status, 'UNRESOLVED') = 'UNRESOLVED'
                     OR c.sector IS NULL OR TRIM(c.sector) = ''
+                    OR LOWER(TRIM(COALESCE(c.sector, ''))) IN ('unknown', 'unknown / api2 fehlt', 'api2 fehlt/unknown', 'api2 fehlt', 'n/a')
                     OR c.market_cap IS NULL
               )
             ORDER BY COALESCE(c.last_seen_at, c.updated_at) DESC

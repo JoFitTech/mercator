@@ -38,7 +38,7 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
 
     if not symbol:
         render_empty_state("Kein Unternehmen ausgewählt.")
-        if st.button("Zurück zur Unternehmen-Übersicht"):
+        if st.button("Zurück zur Unternehmen-ÜÜbersicht"):
             st.session_state["nav_target"] = "Unternehmen"
             st.rerun()
         return
@@ -49,7 +49,7 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
             result = service.get_ticker_detail(symbol, accumulate=False)
         except Exception as e:
             st.error(f"Fehler beim Laden der Unternehmensdaten: {str(e)[:100]}")
-            if st.button("Zurück zur Übersicht"):
+            if st.button("Zurück zur ÜÜbersicht"):
                 st.session_state["nav_target"] = "Unternehmen"
                 st.rerun()
             return
@@ -110,6 +110,6 @@ def render_company_detail_page(service: AnalysisService | None, symbol: str | No
             st.info("Bitte eine Zeile auswählen, um in den Trade-Detailmodus zu wechseln.")
 
     # Zurück Button
-    if st.button("Zurück zur Übersicht", use_container_width=True):
+    if st.button("Zurück zur ÜÜbersicht", use_container_width=True):
         st.session_state["nav_target"] = "Unternehmen"
         st.rerun()

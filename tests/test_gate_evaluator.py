@@ -38,8 +38,12 @@ def test_gate_evaluator_returns_fail_for_missing_price() -> None:
 
 
 def test_gate_evaluator_returns_fail_for_price_invalid_status() -> None:
-    decision = GateEvaluator().evaluate({**_valid_trade(), "validation_status": "PRICE_INVALID"})
+    """PRICE_INVALID darf nicht zu INVALID überschrieben werden."""
+    trade = {**_valid_trade(), "validation_status": "PRICE_INVALID"}
+    decision = GateEvaluator().evaluate(trade)
     assert decision.status == GATE_FAIL
+    # Semantik muss erhalten bleiben — kein Überschreiben mit INVALID
+    assert trade["validation_status"] == "PRICE_INVALID"
 
 
 def test_gate_evaluator_returns_fail_for_excluded_transaction_type() -> None:

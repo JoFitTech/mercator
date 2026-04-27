@@ -110,8 +110,12 @@ class DashboardService:
         market_caps = self.trade_repo.fetch_dashboard_market_cap_distribution(filters=filters)
         
         # Top-Tabellen direkt aus Query-Pfaden laden (NICHT aus 20_000-Trade-DF!)
-        top_buys_df = self.trade_repo.fetch_dashboard_top_trades(direction="BUY", filters=filters, limit=5)
-        top_sells_df = self.trade_repo.fetch_dashboard_top_trades(direction="SELL", filters=filters, limit=5)
+        if hasattr(self.trade_repo, "fetch_dashboard_top_trades"):
+            top_buys_df = self.trade_repo.fetch_dashboard_top_trades(direction="BUY", filters=filters, limit=5)
+            top_sells_df = self.trade_repo.fetch_dashboard_top_trades(direction="SELL", filters=filters, limit=5)
+        else:
+            top_buys_df = pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"])
+            top_sells_df = pd.DataFrame(columns=["trade_date", "accumulated_trade_value_estimated"])
         
         # Sector-Verteilungen verarbeiten
         buy_sector = sector_dist[sector_dist["direction"] == "BUY"][["sector", "count", "volume"]] if not sector_dist.empty else pd.DataFrame(columns=["sector", "count", "volume"])
@@ -140,11 +144,11 @@ class DashboardService:
             [{"bucket": bucket, "companies": companies} for bucket, companies in expected_buckets.items()]
         )
         
-        decision_snapshot = self.trade_repo.fetch_dashboard_decision_snapshot(filters=filters)
+        decision_snapshot = self.trade_repo.fetch_dashboard_decision_snapshot(filters=filters) if hasattr(self.trade_repo, "fetch_dashboard_decision_snapshot") else {}
         missing_summary = self._compute_missing_data_summary_from_snapshot(snapshot, filters)
         enriched_kpis = self._compute_enriched_kpis_from_snapshot(snapshot, filters, decision_snapshot)
 
-        last_update_value = self.trade_repo.fetch_dashboard_last_update(filters=filters)
+        last_update_value = self.trade_repo.fetch_dashboard_last_update(filters=filters) if hasattr(self.trade_repo, "fetch_dashboard_last_update") else None
         if isinstance(last_update_value, pd.Timestamp):
             last_update = last_update_value.date().strftime("%d.%m.%Y")
         elif hasattr(last_update_value, "strftime"):

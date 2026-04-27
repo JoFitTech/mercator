@@ -105,19 +105,30 @@ def _is_unknown_or_api2_missing_sector(value: object) -> bool:
     }
 
 
-def _render_sector_pie_chart(df: pd.DataFrame) -> None:
-    """Kompatibilitaets-Wrapper: rendert horizontalen Balken statt Pie/Arc."""
+def _render_sector_bar_chart(df: pd.DataFrame) -> None:
+    """Rendert Pie-Chart für Sektor-Verteilung."""
     chart_df = df.copy()
     sector_series = chart_df["sector"] if "sector" in chart_df.columns else pd.Series(["" for _ in range(len(chart_df))], index=chart_df.index)
     chart_df = chart_df[~sector_series.apply(_is_unknown_or_api2_missing_sector)]
     if chart_df.empty:
         st.info("Nur API2 fehlt/Unknown-Sektoren vorhanden; diese werden im Hauptchart ausgegliedert/ausgeblendet.")
         return
-    render_horizontal_bar_chart(
+
+    st.vega_lite_chart(
         chart_df,
-        category_col="sector",
-        value_col="count",
-        title="",
+        {
+            "mark": {"type": "arc"},
+            "encoding": {
+                "theta": {"field": "count", "type": "quantitative"},
+                "color": {"field": "sector", "type": "nominal", "title": "Sektor"},
+                "tooltip": [
+                    {"field": "sector", "type": "nominal", "title": "Sektor"},
+                    {"field": "count", "type": "quantitative", "title": "Anzahl"},
+                ],
+            },
+            "view": {"stroke": None},
+        },
+        use_container_width=True,
     )
 
 
@@ -151,6 +162,11 @@ def _render_net_sector_signal_chart(df: pd.DataFrame) -> None:
 
 def _render_market_cap_distribution_chart(df: pd.DataFrame) -> None:
     chart_df = df.copy()
+    if "bucket" in chart_df.columns:
+        chart_df = chart_df[~chart_df["bucket"].apply(_is_unknown_or_api2_missing_sector)]
+    if chart_df.empty:
+        st.info("Nur API2 fehlt/Unknown-Einträge vorhanden; diese werden im Verteilungs-Chart ausgeblendet.")
+        return
     st.vega_lite_chart(
         chart_df,
         {
@@ -188,30 +204,6 @@ def _navigate_to_company(symbol: str | None) -> None:
         st.session_state["selected_company_symbol"] = str(symbol).strip()
         st.session_state["nav_target"] = "Unternehmens-Detail"
     st.rerun()
-
-
-def _render_missing_profile_actions(payload: dict, import_service: ImportService | None) -> None:
-    missing_summary = payload.get("missing_data_summary", {})
-    reasons_by_symbol = missing_summary.get("reasons_by_symbol", {})
-    if not reasons_by_symbol:
-        return
-
-    st.markdown("#### Fehlende Profilinformationen")
-    for symbol, reasons in reasons_by_symbol.items():
-        col1, col2 = st.columns([0.9, 0.1], vertical_alignment="center")
-        with col1:
-            st.caption(f"**{symbol}:** {', '.join(reasons)}")
-        with col2:
-            if st.button("↻", key=f"refresh_profile_{symbol}", help=f"API2-Profil für {symbol} neu laden", use_container_width=True):
-                if import_service is None:
-                    st.warning("Reload aktuell nicht verfügbar (ImportService fehlt).")
-                    continue
-                result = import_service.refresh_company_profile_for_symbol(symbol)
-                if result.get("ok"):
-                    st.toast(result.get("message", "Profil aktualisiert."), icon="✅")
-                    st.rerun()
-                else:
-                    st.warning(result.get("message", "Profil-Reload fehlgeschlagen."))
 
 
 def _render_top_list(title: str, df: pd.DataFrame, table_key: str, side: str) -> None:
@@ -339,7 +331,7 @@ def render_dashboard_page(
     render_kpi_row(kpis)
 
     with st.container(border=True):
-        mode_label = "Lokaler Praesentationsmodus" if db_status and db_status.mongo.used_fallback else "Standardmodus"
+        mode_label = "Lokaler Präsentationsmodus" if db_status and db_status.mongo.used_fallback else "Standardmodus"
         st.caption(
             f"Zeitraum: {_format_period_label(filters)} | Letzte Aktualisierung: {payload.get('last_update') or '—'} | Datenmodus: {mode_label}"
         )
@@ -358,7 +350,7 @@ def render_dashboard_page(
         if buy_sector_df.empty:
             st.info("Keine BUY-Daten im Zeitraum.")
         else:
-            _render_sector_pie_chart(buy_sector_df)
+            _render_sector_bar_chart(buy_sector_df)
         st.caption(f"Gesamt Buy Volumen: {format_currency(payload.get('total_buy_volume', 0))}")
 
     with c2:
@@ -366,7 +358,7 @@ def render_dashboard_page(
         if sell_sector_df.empty:
             st.info("Keine SELL-Daten im Zeitraum.")
         else:
-            _render_sector_pie_chart(sell_sector_df)
+            _render_sector_bar_chart(sell_sector_df)
         st.caption(f"Gesamt Sell Volumen: {format_currency(payload.get('total_sell_volume', 0))}")
 
     unknown_buy = int(buy_sector_df[buy_sector_df.get("sector", "").apply(_is_unknown_or_api2_missing_sector)]["count"].sum()) if not buy_sector_df.empty and "sector" in buy_sector_df.columns and "count" in buy_sector_df.columns else 0
@@ -389,8 +381,8 @@ def render_dashboard_page(
         st.info("Keine Market-Cap-Daten verfügbar.")
     else:
         _render_market_cap_distribution_chart(market_cap_df)
+    st.caption("Hinweis: B = Billion (englisch) = Milliarde (deutsch). Beispiel: 2B = 2 Milliarden USD.")
 
-    _render_missing_profile_actions(payload, import_service)
 
     top_buys = payload.get("top_buys", pd.DataFrame())
     top_sells = payload.get("top_sells", pd.DataFrame())

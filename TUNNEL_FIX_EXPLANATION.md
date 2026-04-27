@@ -4,7 +4,7 @@
 
 **Symptom**: "Tunnel läuft, aber die öffentliche URL ist aktuell nicht erreichbar"
 
-Der Tunnel startet erfolgreich und generiert eine öffentliche URL (z.B. `https://indication-desire-section-cio.trycloudflare.com`), aber die App zeigt trotzdem den **WARNING/WARNING-Status** für diese URL.
+Der Tunnel startet erfolgreich und generiert eine öffentliche URL (z.B. `https://<random>.trycloudflare.com`), aber die App zeigt trotzdem den **WARNING/WARNING-Status** für diese URL.
 
 ### Root-Cause
 

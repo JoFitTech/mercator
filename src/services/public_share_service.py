@@ -148,16 +148,17 @@ class CloudflareQuickTunnelProvider:
         if resolved:
             return resolved
 
-        repo_root = Path(__file__).resolve().parents[2]
-        local_candidates = (
-            Path.cwd() / "cloudflared",
-            Path.cwd() / "cloudflared.exe",
-            repo_root / "cloudflared",
-            repo_root / "cloudflared.exe",
-        )
-        for candidate in local_candidates:
-            if self._is_executable_file(candidate):
-                return str(candidate)
+        if self.cloudflared_bin.lower() in {"cloudflared", "cloudflared.exe"}:
+            repo_root = Path(__file__).resolve().parents[2]
+            local_candidates = (
+                Path.cwd() / "cloudflared",
+                Path.cwd() / "cloudflared.exe",
+                repo_root / "cloudflared",
+                repo_root / "cloudflared.exe",
+            )
+            for candidate in local_candidates:
+                if self._is_executable_file(candidate):
+                    return str(candidate)
         return None
 
     def _build_missing_binary_session(self, local_url: str) -> TunnelSession:

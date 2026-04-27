@@ -42,3 +42,9 @@ tests/e2e/screenshots/
 tests/e2e/traces/
 playwright-report/
 test-results/
+
+# Runtime-State (Tunnel, PID, Status)
+.mercator/
+*.pid
+PUBLIC_TUNNEL_URL.txt
+

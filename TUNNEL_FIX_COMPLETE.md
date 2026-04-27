@@ -74,7 +74,7 @@ PUBLIC_SHARE_HEALTHCHECK_TIMEOUT_SECONDS=2.0
 ```
 Status: RUNNING ✓
 Message: (no error)
-Public URL: https://xxxx.trycloudflare.com is usable
+Public URL: https://<random>.trycloudflare.com is usable
 ```
 
 ### Scenario 2: Streamlit stopped, Tunnel still running ⚠️

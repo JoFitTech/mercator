@@ -65,6 +65,8 @@ def should_call_exchange_variants(trade: dict[str, Any], preliminary_score: floa
     gate_ok = str(trade.get("gate_status") or "").upper() in {"PASS", "PENDING"}
     direction = str(trade.get("acquisition_or_disposition") or "").upper()
     tx_code = str(trade.get("transaction_type") or "").strip().upper()[:1]
+    if not tx_code:
+        tx_code = "P" if direction == "A" else "S" if direction == "D" else ""
     tx_class = str(trade.get("transaction_code_class") or "").upper()
     unresolved = bool(context.get("listing_unresolved"))
     in_corridor = preliminary_score >= float(context.get("watchlist_min_score", 55))
@@ -91,6 +93,8 @@ def score_trade(trade: dict[str, Any]) -> ScoreResult:
     avg_20d_dollar_volume = float(trade.get("avg_20d_dollar_volume") or 0)
     direction = str(trade.get("acquisition_or_disposition") or "").upper()
     tx_code = str(trade.get("transaction_type") or "").strip().upper()[:1]
+    if not tx_code:
+        tx_code = "P" if direction == "A" else "S" if direction == "D" else ""
     tx_class = str(trade.get("transaction_code_class") or "").upper()
     role = str(trade.get("type_of_owner") or "UNKNOWN").upper()
     filing_age = _filing_age_days(trade)

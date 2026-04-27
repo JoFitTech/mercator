@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+from src.preprocessing.gate_evaluator import GateEvaluator
 from src.services.import_service import ImportService
 
 
@@ -202,5 +203,27 @@ def test_run_hourly_import_reports_raw_storage_error_when_mongo_fails() -> None:
     assert summary.inserted_raw_records == 0
     assert summary.raw_storage_error is not None
     assert "mongo" in summary.raw_storage_error.lower()
+
+
+def test_run_hourly_import_excludes_price_invalid_from_clean_mysql_upsert() -> None:
+    raw_repo = _RawCaptureRepo(fail=False)
+    trade_repo = _TradeRepoStub()
+    service = ImportService(
+        fmp_client=_FmpImportStub(),
+        gate_evaluator=GateEvaluator(),
+        raw_repo=raw_repo,
+        company_mongo_repo=_CompanyMongoRepoStub(),
+        trade_mysql_repo=trade_repo,
+        company_mysql_repo=None,
+        allow_write=True,
+        api2_firing_mode="DISABLED",
+    )
+
+    summary = service.run_hourly_import(limit=10)
+
+    assert summary.fetched_feed_records == 2
+    assert summary.upserted_clean_records == 1
+    assert len(trade_repo.last_batch) == 1
+    assert trade_repo.last_batch[0].get("symbol") == "AAPL"
 
 
