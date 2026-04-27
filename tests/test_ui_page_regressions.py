@@ -407,9 +407,32 @@ def test_dashboard_sector_chart_uses_vega_lite_without_plotly(monkeypatch) -> No
     dashboard_page._render_sector_pie_chart(df)
 
     assert len(calls) == 1
+    rendered_df = calls[0]["data"]
+    assert list(rendered_df["sector"]) == ["Technology"]
     assert calls[0]["spec"]["mark"]["type"] == "arc"
     assert calls[0]["spec"]["encoding"]["theta"]["field"] == "count"
     assert calls[0]["kwargs"]["use_container_width"] is True
+
+
+def test_dashboard_sector_chart_shows_info_when_only_unknown(monkeypatch) -> None:
+    calls: list[dict] = []
+    info_calls: list[str] = []
+
+    def _fake_vega_lite_chart(data, spec, **kwargs):  # noqa: ANN001
+        calls.append({"data": data, "spec": spec, "kwargs": kwargs})
+
+    monkeypatch.setattr(dashboard_page.st, "vega_lite_chart", _fake_vega_lite_chart)
+    monkeypatch.setattr(dashboard_page.st, "info", lambda text: info_calls.append(str(text)))
+
+    df = pd.DataFrame([
+        {"sector": "Unknown / API2 fehlt", "count": 2, "volume": 200_000},
+        {"sector": "Unknown", "count": 1, "volume": 100_000},
+    ])
+
+    dashboard_page._render_sector_pie_chart(df)
+
+    assert len(calls) == 0
+    assert any("ausgegliedert" in msg for msg in info_calls)
 
 
 def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:

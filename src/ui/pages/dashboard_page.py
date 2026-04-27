@@ -98,8 +98,24 @@ def _fmt_currency(value: float | int | None) -> str:
     return f"${float(value):,.0f}"
 
 
+def _is_unknown_or_api2_missing_sector(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {
+        "unknown",
+        "unknown / api2 fehlt",
+        "api2 fehlt/unknown",
+        "api2 fehlt",
+        "n/a",
+    }
+
+
 def _render_sector_pie_chart(df: pd.DataFrame) -> None:
     chart_df = df.copy()
+    sector_series = chart_df["sector"] if "sector" in chart_df.columns else pd.Series(["" for _ in range(len(chart_df))], index=chart_df.index)
+    chart_df = chart_df[~sector_series.apply(_is_unknown_or_api2_missing_sector)]
+    if chart_df.empty:
+        st.info("Nur API2 fehlt/Unknown-Sektoren vorhanden; diese werden im Kuchendiagramm ausgegliedert.")
+        return
     chart_df["tooltip_volume"] = chart_df.get("volume", 0).apply(_fmt_currency)
     chart_df["tooltip_count"] = chart_df.get("count", 0)
     st.vega_lite_chart(
