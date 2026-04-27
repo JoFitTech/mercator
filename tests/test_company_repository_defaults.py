@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from src.db.repositories.company_repository import CompanyRepository
+from src.db.repositories.company_repository import CompanyRepository, CompanyMySqlRepository
 from src.services.import_service import ImportService
 
 
@@ -85,3 +85,57 @@ def test_import_service_stub_sets_unresolved_sector_status() -> None:
     assert company_repo.last_payload["sector_resolution_status"] == "UNRESOLVED"
 
 
+class _CursorStub:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.rows = rows
+        self.executed_sql: str | None = None
+        self.executed_params: tuple[Any, ...] | None = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params):
+        self.executed_sql = str(sql)
+        self.executed_params = tuple(params)
+
+    def fetchall(self):
+        return self.rows
+
+
+class _ConnectionStub:
+    def __init__(self, cursor: _CursorStub) -> None:
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def cursor(self):
+        return self._cursor
+
+
+class _ClientForBackfill:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.cursor_stub = _CursorStub(rows)
+
+    def get_connection(self):
+        return _ConnectionStub(self.cursor_stub)
+
+
+def test_backfill_candidates_query_is_mysql_strict_mode_compatible() -> None:
+    client = _ClientForBackfill(rows=[("msft",), ("aapl",)])
+    repo = CompanyMySqlRepository(cast(Any, client))
+
+    symbols = repo.list_profile_backfill_candidates(limit=50)
+
+    assert symbols == ["MSFT", "AAPL"]
+    assert client.cursor_stub.executed_sql is not None
+    assert "SELECT DISTINCT" not in client.cursor_stub.executed_sql
+    assert "GROUP BY c.current_symbol" in client.cursor_stub.executed_sql
+    assert "ORDER BY MAX(COALESCE(c.last_seen_at, c.updated_at)) DESC" in client.cursor_stub.executed_sql
+    assert client.cursor_stub.executed_params == (50,)

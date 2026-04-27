@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -105,7 +106,29 @@ def _is_unknown_or_api2_missing_sector(value: object) -> bool:
     }
 
 
-def _render_sector_bar_chart(df: pd.DataFrame) -> None:
+def _build_sector_color_scale(*sector_frames: pd.DataFrame) -> dict[str, list[str]] | None:
+    sectors: set[str] = set()
+    for frame in sector_frames:
+        if frame.empty or "sector" not in frame.columns:
+            continue
+        for raw_sector in frame["sector"].dropna().tolist():
+            sector = str(raw_sector).strip()
+            if not sector or _is_unknown_or_api2_missing_sector(sector):
+                continue
+            sectors.add(sector)
+
+    if not sectors:
+        return None
+
+    domain = sorted(sectors, key=lambda value: value.lower())
+    palette = list(CHART_PALETTE.get("categorical", []))
+    if not palette:
+        return None
+    range_colors = [palette[idx % len(palette)] for idx in range(len(domain))]
+    return {"domain": domain, "range": range_colors}
+
+
+def _render_sector_bar_chart(df: pd.DataFrame, color_scale: dict[str, list[str]] | None = None) -> None:
     """Rendert Pie-Chart für Sektor-Verteilung."""
     chart_df = df.copy()
     sector_series = chart_df["sector"] if "sector" in chart_df.columns else pd.Series(["" for _ in range(len(chart_df))], index=chart_df.index)
@@ -114,13 +137,17 @@ def _render_sector_bar_chart(df: pd.DataFrame) -> None:
         st.info("Nur API2 fehlt/Unknown-Sektoren vorhanden; diese werden im Hauptchart ausgegliedert/ausgeblendet.")
         return
 
+    color_encoding: dict[str, Any] = {"field": "sector", "type": "nominal", "title": "Sektor"}
+    if color_scale:
+        color_encoding["scale"] = color_scale
+
     st.vega_lite_chart(
         chart_df,
         {
             "mark": {"type": "arc"},
             "encoding": {
                 "theta": {"field": "count", "type": "quantitative"},
-                "color": {"field": "sector", "type": "nominal", "title": "Sektor"},
+                "color": color_encoding,
                 "tooltip": [
                     {"field": "sector", "type": "nominal", "title": "Sektor"},
                     {"field": "count", "type": "quantitative", "title": "Anzahl"},
@@ -343,6 +370,7 @@ def render_dashboard_page(
 
     buy_sector_df = payload.get("sector_distribution_buy", pd.DataFrame())
     sell_sector_df = payload.get("sector_distribution_sell", pd.DataFrame())
+    sector_color_scale = _build_sector_color_scale(buy_sector_df, sell_sector_df)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -350,7 +378,7 @@ def render_dashboard_page(
         if buy_sector_df.empty:
             st.info("Keine BUY-Daten im Zeitraum.")
         else:
-            _render_sector_bar_chart(buy_sector_df)
+            _render_sector_bar_chart(buy_sector_df, color_scale=sector_color_scale)
         st.caption(f"Gesamt Buy Volumen: {format_currency(payload.get('total_buy_volume', 0))}")
 
     with c2:
@@ -358,7 +386,7 @@ def render_dashboard_page(
         if sell_sector_df.empty:
             st.info("Keine SELL-Daten im Zeitraum.")
         else:
-            _render_sector_bar_chart(sell_sector_df)
+            _render_sector_bar_chart(sell_sector_df, color_scale=sector_color_scale)
         st.caption(f"Gesamt Sell Volumen: {format_currency(payload.get('total_sell_volume', 0))}")
 
     unknown_buy = int(buy_sector_df[buy_sector_df.get("sector", "").apply(_is_unknown_or_api2_missing_sector)]["count"].sum()) if not buy_sector_df.empty and "sector" in buy_sector_df.columns and "count" in buy_sector_df.columns else 0

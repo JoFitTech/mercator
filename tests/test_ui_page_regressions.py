@@ -425,35 +425,37 @@ def test_dashboard_sector_chart_uses_vega_lite_bar_chart(monkeypatch) -> None:
         {"sector": "Unknown", "count": 1, "volume": 120_000},
     ])
 
-    dashboard_page._render_sector_bar_chart(df)
+    dashboard_page._render_sector_bar_chart(
+        df,
+        color_scale={"domain": ["Technology", "Health Care"], "range": ["#111111", "#222222"]},
+    )
 
     assert len(calls) == 1
     rendered_df = calls[0]["data"]
     assert list(rendered_df["sector"]) == ["Technology"]
     assert calls[0]["spec"]["mark"]["type"] == "arc"
     assert calls[0]["spec"]["encoding"]["theta"]["field"] == "count"
+    assert calls[0]["spec"]["encoding"]["color"]["scale"]["domain"] == ["Technology", "Health Care"]
+    assert calls[0]["spec"]["encoding"]["color"]["scale"]["range"] == ["#111111", "#222222"]
     assert calls[0]["kwargs"]["use_container_width"] is True
 
 
-def test_dashboard_sector_chart_shows_info_when_only_unknown(monkeypatch) -> None:
-    calls: list[dict] = []
-    info_calls: list[str] = []
-
-    def _fake_vega_lite_chart(data, spec, **kwargs):  # noqa: ANN001
-        calls.append({"data": data, "spec": spec, "kwargs": kwargs})
-
-    monkeypatch.setattr(dashboard_page.st, "vega_lite_chart", _fake_vega_lite_chart)
-    monkeypatch.setattr(dashboard_page.st, "info", lambda text: info_calls.append(str(text)))
-
-    df = pd.DataFrame([
-        {"sector": "Unknown / API2 fehlt", "count": 2, "volume": 200_000},
-        {"sector": "Unknown", "count": 1, "volume": 100_000},
+def test_sector_color_scale_is_shared_and_stable_across_buy_and_sell() -> None:
+    buy_df = pd.DataFrame([
+        {"sector": "Technology", "count": 3},
+        {"sector": "Health Care", "count": 2},
+    ])
+    sell_df = pd.DataFrame([
+        {"sector": "Industrials", "count": 4},
+        {"sector": "Technology", "count": 1},
+        {"sector": "Unknown", "count": 2},
     ])
 
-    dashboard_page._render_sector_bar_chart(df)
+    scale = dashboard_page._build_sector_color_scale(buy_df, sell_df)
 
-    assert len(calls) == 0
-    assert any("ausgegliedert" in msg for msg in info_calls)
+    assert scale is not None
+    assert scale["domain"] == ["Health Care", "Industrials", "Technology"]
+    assert len(scale["range"]) == 3
 
 
 def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:

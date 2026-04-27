@@ -121,9 +121,25 @@ class InsiderTradeRepository:
         columns = [description[0] for description in cursor.description] if cursor.description else []
         return [dict(zip(columns, row, strict=False)) for row in rows]
 
+    @staticmethod
+    def _coerce_bool(value: Any, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        normalized = str(value).strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+        return default
+
     def _build_trade_params(self, trade: dict[str, Any]) -> dict[str, Any]:
         params = {k: trade.get(k) for k in self._upsert_fields}
         params["score"] = trade.get("score", trade.get("score_value"))
+        params["dashboard_valid"] = self._coerce_bool(trade.get("dashboard_valid"), default=False)
         params["trade_republic_universe_status"] = trade.get("trade_republic_universe_status") or "UNKNOWN"
         params["trade_republic_match_method"] = trade.get("trade_republic_match_method") or "NONE"
         params["trade_republic_match_confidence"] = trade.get("trade_republic_match_confidence") or "LOW"

@@ -192,6 +192,24 @@ def test_upsert_trade_sets_trade_republic_defaults() -> None:
     assert params["trade_republic_match_confidence"] == "LOW"
 
 
+def test_upsert_trade_defaults_dashboard_valid_to_false_when_missing() -> None:
+    mock_client = MagicMock()
+    repo = InsiderTradeRepository(mock_client)
+
+    repo.upsert_trade(
+        {
+            "company_key": "SYM:ABC",
+            "symbol_at_trade": "ABC",
+            "dedupe_key": "abc_2",
+            "fetched_at": "2026-01-01 00:00:00",
+            "dashboard_valid": None,
+        }
+    )
+
+    _, params = mock_client.execute.call_args[0]
+    assert params["dashboard_valid"] is False
+
+
 def test_upsert_sql_contains_v2_api3_columns() -> None:
     repo = InsiderTradeRepository(MagicMock())
     sql = repo._upsert_sql

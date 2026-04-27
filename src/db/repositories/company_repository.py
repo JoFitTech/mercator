@@ -370,7 +370,7 @@ class CompanyRepository:
 class CompanyMySqlRepository(CompanyRepository):
     def list_profile_backfill_candidates(self, limit: int = 100) -> list[str]:
         sql = """
-            SELECT DISTINCT c.current_symbol
+            SELECT c.current_symbol
             FROM companies c
             WHERE c.current_symbol IS NOT NULL
               AND c.current_symbol <> ''
@@ -381,7 +381,8 @@ class CompanyMySqlRepository(CompanyRepository):
                     OR LOWER(TRIM(COALESCE(c.sector, ''))) IN ('unknown', 'unknown / api2 fehlt', 'api2 fehlt/unknown', 'api2 fehlt', 'n/a')
                     OR c.market_cap IS NULL
               )
-            ORDER BY COALESCE(c.last_seen_at, c.updated_at) DESC
+            GROUP BY c.current_symbol
+            ORDER BY MAX(COALESCE(c.last_seen_at, c.updated_at)) DESC
             LIMIT %s
         """
         with self._client.get_connection() as conn:
