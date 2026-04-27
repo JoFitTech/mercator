@@ -45,9 +45,10 @@ def render_settings_page(
             g1, g2 = st.columns(2)
             min_trade_value = g1.number_input(
                 "Mindest-Trade-Wert ($)",
-                min_value=0,
-                value=int(policy.gate_min_trade_value),
-                help="Trades unter diesem Wert werden im Pre-Gate aussortiert."
+                min_value=100000,
+                step=10000,
+                value=max(100000, int(policy.gate_min_trade_value)),
+                help="Finale Spec: Trades unter 100.000 USD werden im Pre-Gate aussortiert."
             )
             gate_form_type = g2.text_input(
                 "Erforderlicher Form Type", 
@@ -97,7 +98,7 @@ def render_settings_page(
                     gate_security_name_required=gate_security_name,
                     gate_allowed_acquisition_or_disposition=tuple(v.strip().upper() for v in allowed_aod.split(",") if v.strip()),
                     gate_excluded_transaction_types=tuple(v.strip() for v in excluded_tt.split(",") if v.strip()),
-                    gate_min_trade_value=int(min_trade_value)
+                    gate_min_trade_value=max(100000, int(min_trade_value))
                 )
                 runtime_settings_service.save_score_gate_policy(new_policy)
                 _render_save_feedback(persistence_available, "Gate-Einstellungen")

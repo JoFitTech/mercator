@@ -45,7 +45,8 @@ def _build_settings() -> AppSettings:
     )
 
 
-def test_score_gate_policy_persistence_roundtrip() -> None:
+def test_score_gate_policy_persistence_roundtrip(monkeypatch) -> None:
+    monkeypatch.setattr(AppSettingsService, "_session_state", staticmethod(lambda: None))
     runtime_repo = _RuntimeRepoStub(storage={})
     service = AppSettingsService(runtime_repo=runtime_repo, filter_repo=None, defaults=_build_settings())
 
@@ -64,3 +65,47 @@ def test_score_classification_thresholds() -> None:
     assert classify_score(69.9, policy)[0] == "FAIL"
     assert classify_score(70.0, policy)[0] == "HOLD"
     assert classify_score(90.0, policy)[0] == "PASS"
+
+
+def test_load_score_gate_policy_normalizes_db_value_below_100k(monkeypatch) -> None:
+    monkeypatch.setattr(AppSettingsService, "_session_state", staticmethod(lambda: None))
+    runtime_repo = _RuntimeRepoStub(storage={
+        "score_gate_policy": ScoreGatePolicy(gate_min_trade_value=0).to_dict()
+    })
+    service = AppSettingsService(runtime_repo=runtime_repo, filter_repo=None, defaults=_build_settings())
+
+    loaded = service.load_score_gate_policy()
+
+    assert loaded.gate_min_trade_value == 100_000
+
+
+def test_load_score_gate_policy_normalizes_session_scoregatepolicy_object(monkeypatch) -> None:
+    session_payload = {"_session_score_gate_policy": ScoreGatePolicy(gate_min_trade_value=0)}
+    monkeypatch.setattr(
+        AppSettingsService,
+        "_session_state",
+        staticmethod(lambda: session_payload),
+    )
+    service = AppSettingsService(runtime_repo=None, filter_repo=None, defaults=_build_settings())
+
+    loaded = service.load_score_gate_policy()
+
+    assert loaded.gate_min_trade_value == 100_000
+
+
+def test_save_score_gate_policy_normalizes_value_before_persisting(monkeypatch) -> None:
+    runtime_repo = _RuntimeRepoStub(storage={})
+    session_payload: dict = {}
+    monkeypatch.setattr(
+        AppSettingsService,
+        "_session_state",
+        staticmethod(lambda: session_payload),
+    )
+    service = AppSettingsService(runtime_repo=runtime_repo, filter_repo=None, defaults=_build_settings())
+
+    service.save_score_gate_policy(ScoreGatePolicy(gate_min_trade_value=0))
+
+    assert session_payload["_session_score_gate_policy"]["gate_min_trade_value"] == 100_000
+    assert runtime_repo.storage["score_gate_policy"]["gate_min_trade_value"] == 100_000
+
+

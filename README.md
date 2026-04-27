@@ -14,7 +14,7 @@ Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. D
 
 | Anforderung | Umsetzung |
 |---|---|
-| Öffentliche Datenquelle / API | FMP API (insider-trading/latest, /profile-cik, /historical-price-eod/full) |
+| Öffentliche Datenquelle / API | FMP API (/insider-trading/latest, /profile, /historical-price-eod/full; /search-cik und /profile-cik nur als Fallbacks) |
 | Pandas-Verarbeitung | Normalisierung, Gate-Filter, 3-Tage-Akkumulation in `AccumulationService` |
 | MySQL | Clean Store: Trades, Profile, Gate-Entscheide in `mercator_local` |
 | MongoDB | Raw Store: JSON-Rohdaten je API-Antwort in `mercator` |
@@ -65,7 +65,7 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 1. `ImportService` lädt `Latest Insider Trading` von FMP (`page=0`, `limit=100`).
 2. Rohobjekte werden normalisiert, typisiert und dedupliziert.
 3. Rohdaten landen in MongoDB (`insider_trades_raw`).
-4. Gate-Pass-Kandidaten lösen optionalen Profilabruf aus (`/profile-cik` primär, `/profile` als Fallback), inkl. TTL-Cache.
+4. Gate-Pass-Kandidaten lösen den Profilabruf über `/profile` aus. `/search-cik` und `/profile-cik` werden nur als optionale Fallbacks bei Identitäts- oder Symbolauflösungsproblemen verwendet. Profilantworten werden per TTL-Cache wiederverwendet.
 5. Bereinigte Trades und Profile werden in MySQL gespeichert.
 6. `AccumulationService` aggregiert Trades in der UI-Schicht (Explorer, Ticker-Detail) nach fachlichen Regeln:
     - Gleiche Person (Reporting CIK/Name)
@@ -74,6 +74,7 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
     - Zeitlicher Abstand maximal 3 Kalendertage
 7. Streamlit-Seiten lesen über `AnalysisService` aus den Repositories.
 8. Optional kann im Admin ein `Raw -> Clean Sync` (ohne neue API-Calls) ausgelöst werden.
+9. Normale UI-Filter und Tabellenansichten lösen keine neuen FMP-API2/API3-Calls aus.
 
 ## UI & Features
 

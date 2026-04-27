@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from src.config.settings import AppSettings
@@ -14,6 +14,12 @@ from src.db.repositories.settings_repository import (
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
+
+
+def _normalize_score_gate_policy(policy: ScoreGatePolicy) -> ScoreGatePolicy:
+    if policy.gate_min_trade_value < 100_000:
+        return replace(policy, gate_min_trade_value=100_000)
+    return policy
 
 
 @dataclass(slots=True)
@@ -124,26 +130,26 @@ class AppSettingsService:
             return self.defaults_runtime()
 
     def defaults_score_gate_policy(self) -> ScoreGatePolicy:
-        return ScoreGatePolicy(
+        return _normalize_score_gate_policy(ScoreGatePolicy(
             gate_validation_status_required="VALID",
             gate_form_type_required="4",
             gate_security_name_required="",
             gate_allowed_acquisition_or_disposition=tuple(self.defaults.gate.allowed_acquisition_or_disposition),
             gate_excluded_transaction_types=("A-Award", "M-Exempt"),
             gate_min_trade_value=int(self.defaults.gate.min_trade_value),
-        )
+        ))
 
     def load_score_gate_policy(self) -> ScoreGatePolicy:
         session = self._session_state()
         if session and self.SESSION_SCORE_POLICY_KEY in session:
             payload = session[self.SESSION_SCORE_POLICY_KEY]
             if isinstance(payload, ScoreGatePolicy):
-                return payload
+                return _normalize_score_gate_policy(payload)
             if isinstance(payload, dict):
                 base = asdict(self.defaults_score_gate_policy())
                 base.update({k: v for k, v in payload.items() if k in base})
                 try:
-                    return ScoreGatePolicy(**base)
+                    return _normalize_score_gate_policy(ScoreGatePolicy(**base))
                 except Exception:
                     LOGGER.warning("Session-Score/Gate-Policy ist ungueltig. Verwende Defaults.")
                     return self.defaults_score_gate_policy()
@@ -167,20 +173,17 @@ class AppSettingsService:
             if isinstance(base.get(key), list):
                 base[key] = tuple(base[key])
         try:
-            policy = ScoreGatePolicy(**base)
+            policy = _normalize_score_gate_policy(ScoreGatePolicy(**base))
         except Exception as exc:
             LOGGER.warning(
                 "Score/Gate-Policy Payload ungueltig. Verwende Defaults. error=%s",
                 exc,
             )
             return self.defaults_score_gate_policy()
-        # Defensive Normalisierung: gespeicherter Wert <100000 wird auf 100000 angehoben.
-        if policy.gate_min_trade_value < 100_000:
-            from dataclasses import replace as dc_replace
-            policy = dc_replace(policy, gate_min_trade_value=100_000)
         return policy
 
     def save_score_gate_policy(self, policy: ScoreGatePolicy) -> None:
+        policy = _normalize_score_gate_policy(policy)
         session = self._session_state()
         if session is not None:
             session[self.SESSION_SCORE_POLICY_KEY] = policy.to_dict()
