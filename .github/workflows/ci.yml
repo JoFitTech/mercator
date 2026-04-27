@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          FMP_API_KEY: test_key
+          MYSQL_ACTIVE_TARGET: local
+          MONGO_ACTIVE_TARGET: local
+          MERCATOR_UI_TEST_MODE: "true"
+          MERCATOR_DISABLE_IMPORT: "true"
+        run: python -m pytest tests -q
+

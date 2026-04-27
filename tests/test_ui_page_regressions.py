@@ -237,7 +237,7 @@ def test_trade_table_keeps_row_order_for_selection_mapping(monkeypatch) -> None:
 def test_ui_missing_values_are_sanitized_for_detail_and_company_views() -> None:
     assert company_safe_text("nan") == "Nicht verfügbar"
     assert trade_safe_text("None") == "Nicht verfügbar"
-    assert _format_market_cap(None) == "Nicht verfügbar"
+    assert _format_market_cap(None) == "—"
 
 
 def test_navigate_to_trades_sets_nav_target_and_reruns(monkeypatch) -> None:
@@ -262,6 +262,7 @@ def test_system_status_sidebar_shows_mongo_reason_when_offline(monkeypatch) -> N
     monkeypatch.setattr(app_navigation.st, "expander", lambda *_args, **_kwargs: _Ctx())
     monkeypatch.setattr(app_navigation.st, "markdown", lambda text: captured.append(text))
     monkeypatch.setattr(app_navigation.st, "caption", lambda text: captured.append(text))
+    monkeypatch.setattr(app_navigation.st, "code", lambda text, **kwargs: None)
 
     status = DatabaseStatus(
         mysql=MySqlStatus("local", "local", True, False, []),
@@ -272,6 +273,26 @@ def test_system_status_sidebar_shows_mongo_reason_when_offline(monkeypatch) -> N
 
     assert any("MongoDB: Offline" in line for line in captured)
     assert any("Grund: Mongo URI ungültig" in line for line in captured)
+
+
+def test_system_status_sidebar_truncates_long_technical_message(monkeypatch) -> None:
+    captured: list[str] = []
+
+    monkeypatch.setattr(app_navigation.st, "sidebar", _Ctx())
+    monkeypatch.setattr(app_navigation.st, "expander", lambda *_args, **_kwargs: _Ctx())
+    monkeypatch.setattr(app_navigation.st, "markdown", lambda text: captured.append(str(text)))
+    monkeypatch.setattr(app_navigation.st, "caption", lambda text: captured.append(str(text)))
+    monkeypatch.setattr(app_navigation.st, "code", lambda text, **kwargs: None)
+
+    long_message = "ServerSelectionTimeoutError: " + ("x" * 500)
+    status = DatabaseStatus(
+        mysql=MySqlStatus("local", "local", True, False, []),
+        mongo=MongoStatus("uni", None, False, False, [long_message]),
+    )
+
+    app_navigation.render_system_status_sidebar(db_status=status, mysql_res=None)
+    reason_line = next((line for line in captured if line.startswith("Grund:")), "")
+    assert len(reason_line) < 170
 
 
 def test_format_period_label_without_none_artifacts() -> None:
@@ -409,8 +430,8 @@ def test_dashboard_sector_chart_uses_vega_lite_without_plotly(monkeypatch) -> No
     assert len(calls) == 1
     rendered_df = calls[0]["data"]
     assert list(rendered_df["sector"]) == ["Technology"]
-    assert calls[0]["spec"]["mark"]["type"] == "arc"
-    assert calls[0]["spec"]["encoding"]["theta"]["field"] == "count"
+    assert calls[0]["spec"]["mark"]["type"] == "bar"
+    assert calls[0]["spec"]["encoding"]["x"]["field"] == "count"
     assert calls[0]["kwargs"]["use_container_width"] is True
 
 
@@ -546,3 +567,54 @@ def test_dashboard_payload_error_hides_kpis(monkeypatch) -> None:
     dashboard_page.render_dashboard_page(service=_DashboardServiceStub(), import_service=None, settings=None, runtime_settings_service=None, db_status=None)
 
     assert called["kpis"] == 0
+
+
+def test_dashboard_kpi_row_has_max_five_primary_cards(monkeypatch) -> None:
+    class _SessionState(dict):
+        def __getattr__(self, item):
+            return self[item]
+
+        def __setattr__(self, key, value):
+            self[key] = value
+
+    class _DashboardServiceStub:
+        def build_dashboard_payload(self, filters: dict | None = None) -> dict:
+            return {
+                "payload_error_message": "",
+                "kpi_actionable_buys": 1,
+                "kpi_buy_candidates": 2,
+                "kpi_watchlist": 3,
+                "kpi_sell_warnings": 4,
+                "kpi_tr_not_found": 5,
+                "kpi_exchange_resolution_issues": 6,
+                "kpi_relevant_trades_count": 1,
+                "sector_distribution_buy": pd.DataFrame(),
+                "sector_distribution_sell": pd.DataFrame(),
+                "net_sector_signal": pd.DataFrame(),
+                "market_cap_distribution": pd.DataFrame(),
+                "top_buys": pd.DataFrame(),
+                "top_sells": pd.DataFrame(),
+                "missing_data_summary": {},
+            }
+
+    monkeypatch.setattr(dashboard_page.st, "session_state", _SessionState())
+    monkeypatch.setattr(dashboard_page.st, "date_input", lambda *args, **kwargs: (date(2026, 1, 1), date(2026, 1, 2)))
+    monkeypatch.setattr(dashboard_page.st, "button", lambda *args, **kwargs: False)
+    monkeypatch.setattr(dashboard_page.st, "spinner", lambda *args, **kwargs: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(dashboard_page.st, "container", lambda *args, **kwargs: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(dashboard_page.st, "columns", lambda *args, **kwargs: [__import__("contextlib").nullcontext(), __import__("contextlib").nullcontext()])
+    monkeypatch.setattr(dashboard_page.st, "info", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "caption", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "markdown", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "code", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page.st, "expander", lambda *args, **kwargs: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(dashboard_page, "render_page_header", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dashboard_page, "summarize_filters", lambda *args, **kwargs: None)
+
+    captured = {"kpis": []}
+    monkeypatch.setattr(dashboard_page, "render_kpi_row", lambda kpis, *args, **kwargs: captured.__setitem__("kpis", kpis))
+
+    dashboard_page.render_dashboard_page(service=_DashboardServiceStub(), import_service=None, settings=None, runtime_settings_service=None, db_status=None)
+    assert len(captured["kpis"]) <= 5
+
+

@@ -171,37 +171,23 @@ class FmpClient:
         payload = self._request(HISTORICAL_PRICE_EOD_FULL_ENDPOINT, params=params)
         return payload if isinstance(payload, list) else []
     def fetch_insider_trade_statistics(self, symbol: str) -> dict[str, Any]:
-        """Vorbereitete Methode für Insider-Statistiken (MAY)."""
+        """Optionale MANUAL/BACKFILL-Methode; nicht im operativen Import-Kernpfad."""
         params = {"symbol": symbol, "apikey": self.config.api_key}
         try:
-            self._track_call()
-            response = self._session.get(
-                f"{self.config.base_url}{INSIDER_STATISTICS_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
+            payload = self._request(INSIDER_STATISTICS_ENDPOINT, params=params)
+        except Exception as exc:
             LOGGER.debug("Insider-Statistiken (optional) fehlgeschlagen für %s: %s", symbol, exc)
             return {}
-        
-        payload = response.json()
+
         return payload if isinstance(payload, dict) else {}
 
     def fetch_company_screener(self, **kwargs) -> list[dict[str, Any]]:
-        """Vorbereitete Methode für Company Screener (MAY)."""
+        """Optionale MANUAL/BACKFILL-Methode; nicht im operativen Import-Kernpfad."""
         params = {**kwargs, "apikey": self.config.api_key}
         try:
-            self._track_call()
-            response = self._session.get(
-                f"{self.config.base_url}{COMPANY_SCREENER_ENDPOINT}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.RequestException as exc:
+            payload = self._request(COMPANY_SCREENER_ENDPOINT, params=params)
+        except Exception as exc:
             LOGGER.debug("Company Screener (optional) fehlgeschlagen: %s", exc)
             return []
-        
-        payload = response.json()
+
         return payload if isinstance(payload, list) else []

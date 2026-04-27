@@ -68,7 +68,7 @@ class GateEvaluator:
             trade["validation_status"] = "INVALID"
             return GateDecision(status=GATE_FAIL, reason="invalid_quantity")
         if price <= 0:
-            trade["validation_status"] = "INVALID"
+            trade["validation_status"] = "PRICE_INVALID"
             return GateDecision(status=GATE_FAIL, reason="invalid_price")
         if validation_status in {"PRICE_INVALID", "INVALID"}:
             trade["validation_status"] = "INVALID"

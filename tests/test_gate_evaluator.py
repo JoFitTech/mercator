@@ -31,8 +31,10 @@ def test_gate_evaluator_returns_fail_for_missing_symbol() -> None:
 
 
 def test_gate_evaluator_returns_fail_for_missing_price() -> None:
-    decision = GateEvaluator().evaluate({**_valid_trade(), "price": None})
+    trade = {**_valid_trade(), "price": None}
+    decision = GateEvaluator().evaluate(trade)
     assert decision.status == GATE_FAIL
+    assert trade["validation_status"] == "PRICE_INVALID"
 
 
 def test_gate_evaluator_returns_fail_for_price_invalid_status() -> None:

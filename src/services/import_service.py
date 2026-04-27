@@ -447,6 +447,36 @@ class ImportService:
                     item["sector_resolution_status"] = comp.get("sector_resolution_status")
                     item["market_cap"] = comp.get("market_cap")
 
+            symbol_value = str(item.get("symbol") or item.get("symbol_at_trade") or "").strip()
+            qty_value = item.get("qty")
+            validation_status = str(item.get("validation_status") or "").upper()
+            try:
+                qty_numeric = float(qty_value or 0)
+            except (TypeError, ValueError):
+                qty_numeric = 0.0
+
+            is_invalid_clean = (
+                not symbol_value
+                or qty_value is None
+                or qty_numeric <= 0
+                or validation_status in {"INVALID", "PRICE_INVALID"}
+            )
+
+            if is_invalid_clean:
+                item["score"] = 0
+                item["score_value"] = 0
+                item["score_class"] = "E"
+                item["core_insider_score"] = 0
+                item["investability_score"] = 0
+                item["execution_score"] = 0
+                item["trade_republic_score"] = 0
+                item["final_score"] = 0
+                item["final_class"] = "E"
+                item["decision_status"] = "INVALID"
+                item["dashboard_valid"] = False
+                item["processing_status"] = "VALIDATION_FAILED"
+                continue
+
             res = self.scoring_service.compute_trade_score(item)
             item["score"] = res["score"]
             item["score_value"] = res["score"]
@@ -462,12 +492,12 @@ class ImportService:
             
             # Dashboard-Validitätslogik
             item["dashboard_valid"] = self._is_dashboard_valid(item)
-            if str(item.get("gate_status") or "").upper() == GATE_PASS:
+            if str(item.get("validation_status") or "").upper() in {"INVALID", "PRICE_INVALID"}:
+                item["processing_status"] = "VALIDATION_FAILED"
+            elif str(item.get("gate_status") or "").upper() == GATE_PASS:
                 item["processing_status"] = "CLEAN_UPSERTED"
             elif str(item.get("gate_status") or "").upper() in {"PRE_GATE_FAIL", "FAIL"}:
                 item["processing_status"] = "PRE_GATE_FAIL"
-            elif str(item.get("validation_status") or "").upper() in {"INVALID", "PRICE_INVALID"}:
-                item["processing_status"] = "VALIDATION_FAILED"
 
         if self.trade_mysql_repo is not None:
             self.trade_mysql_repo.upsert_trades(normalized)

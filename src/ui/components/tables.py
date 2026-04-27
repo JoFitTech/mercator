@@ -6,6 +6,8 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from src.ui.components.formatting import EMPTY_VALUE
+
 
 def _is_missing_value(value: object) -> bool:
     if value is None:
@@ -18,6 +20,11 @@ def _is_missing_value(value: object) -> bool:
 
 def _safe_text(value: object, fallback: str) -> str:
     return fallback if _is_missing_value(value) else str(value).strip()
+
+
+def _status_text(value: object) -> str:
+    text = _safe_text(value, EMPTY_VALUE)
+    return text.upper() if text != EMPTY_VALUE else text
 
 
 def render_smart_table(
@@ -64,10 +71,15 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         df["direction"] = "UNKNOWN"
 
     visible_cols = [
-        "transaction_date", "symbol_at_trade", "reporting_name", "direction",
-        "trade_value", "accumulated_trade_count", "transaction_code_class", "gate_status", "filing_age_days",
-        "market_cap", "industry", "score", "score_class", "decision_status",
-        "technical_state", "liquidity_state", "validation_status",
+        "symbol_at_trade",
+        "reporting_name",
+        "direction",
+        "trade_value",
+        "score",
+        "gate_status",
+        "validation_status",
+        "decision_status",
+        "transaction_date",
     ]
 
     # Sicherstellen dass sichtbare Spalten existieren
@@ -75,7 +87,7 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         if col not in df.columns:
             df[col] = None
 
-    df["symbol_at_trade"] = df["symbol_at_trade"].apply(lambda value: _safe_text(value, "–"))
+    df["symbol_at_trade"] = df["symbol_at_trade"].apply(lambda value: _safe_text(value, EMPTY_VALUE))
     df["reporting_name"] = df["reporting_name"].apply(lambda value: _safe_text(value, "Unbekannter Insider"))
     df["trade_value"] = pd.to_numeric(df.get("trade_value", df.get("trade_value_estimated")), errors="coerce")
     if "accumulated_trade_value_estimated" in df.columns:
@@ -84,29 +96,23 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     if "accumulated_trade_count" in df.columns:
         df["accumulated_trade_count"] = pd.to_numeric(df["accumulated_trade_count"], errors="coerce")
     df["score"] = pd.to_numeric(df["score"], errors="coerce")
-    df["gate_status"] = df["gate_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
-    df["validation_status"] = df["validation_status"].apply(lambda value: _safe_text(value, "Nicht verfügbar"))
+    df["gate_status"] = df["gate_status"].apply(_status_text)
+    df["validation_status"] = df["validation_status"].apply(_status_text)
+    if "decision_status" in df.columns:
+        df["decision_status"] = df["decision_status"].apply(_status_text)
+    else:
+        df["decision_status"] = EMPTY_VALUE
     df["transaction_date"] = pd.to_datetime(df["transaction_date"], errors="coerce")
 
     col_config = {
         "symbol_at_trade": st.column_config.TextColumn("Symbol", width="small", pinned=True),
         "reporting_name": st.column_config.TextColumn("Insider", width="medium"),
         "direction": st.column_config.TextColumn("Richtung", width="small"),
-        "sector": st.column_config.TextColumn("Sektor", width="medium"),
         "trade_value": st.column_config.NumberColumn("Trade Value", format="$%.0f", width="small"),
-        "accumulated_trade_count": st.column_config.NumberColumn("#Trades", format="%d", width="small"),
-        "transaction_code_class": st.column_config.TextColumn("Tx Code Class", width="small"),
-        "core_insider_score": st.column_config.NumberColumn("Core Insider", format="%.1f", width="small"),
-        "final_score": st.column_config.NumberColumn("Final Score", format="%.1f", width="small"),
-        "final_class": st.column_config.TextColumn("Class", width="small"),
-        "decision_status": st.column_config.TextColumn("Decision", width="small"),
-        "tr_availability_state": st.column_config.TextColumn("TR Status", width="small"),
-        "primary_exchange": st.column_config.TextColumn("Listing", width="small"),
-        "filing_age_days": st.column_config.NumberColumn("Filing Age", width="small"),
-        "earnings_distance_days": st.column_config.NumberColumn("Earnings Dist.", width="small"),
         "score": st.column_config.NumberColumn("Score", format="%.1f", width="small"),
         "gate_status": st.column_config.TextColumn("Gate-Status", width="small"),
         "validation_status": st.column_config.TextColumn("Validierungsstatus", width="small"),
+        "decision_status": st.column_config.TextColumn("Entscheidung", width="small"),
         "transaction_date": st.column_config.DateColumn("Datum", width="small", format="DD.MM.YY"),
     }
 

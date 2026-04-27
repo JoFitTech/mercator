@@ -1,8 +1,41 @@
-"""Zentralisierte Status-Badges für Mercator (Spec: Status nie nur über Farbe)."""
+"""Zentralisierte Status-Badges fuer Mercator (Status nie nur ueber Farbe)."""
 
 from __future__ import annotations
 
 import streamlit as st
+
+
+def status_to_label(status: str) -> str:
+    normalized = str(status or "").strip().upper()
+    labels = {
+        "PASS": "PASS",
+        "PRE_GATE_FAIL": "PRE GATE FAIL",
+        "INVALID": "INVALID",
+        "PRICE_INVALID": "PRICE INVALID",
+        "ACTIONABLE_BUY": "ACTIONABLE BUY",
+        "BUY_CANDIDATE": "BUY CANDIDATE",
+        "WATCHLIST": "WATCHLIST",
+        "SELL_WARNING": "SELL WARNING",
+    }
+    return labels.get(normalized, normalized or "UNBEKANNT")
+
+
+def status_to_semantic_color(status: str) -> str:
+    normalized = str(status or "").strip().upper()
+    if normalized in {"PASS", "ACTIONABLE_BUY", "BUY_CANDIDATE"}:
+        return "success"
+    if normalized in {"WATCHLIST", "PENDING", "MANUAL_REVIEW"}:
+        return "warning"
+    if normalized in {"INVALID", "PRICE_INVALID", "PRE_GATE_FAIL", "FAIL", "ERROR", "SELL_WARNING"}:
+        return "error"
+    return "info"
+
+
+def render_status_badge(status: str, kind: str = "generic") -> None:
+    _ = kind  # fuer kuenftige badge-Varianten reserviert
+    label = status_to_label(status)
+    semantic = status_to_semantic_color(status)
+    status_badge(label, status_type=semantic)
 
 
 def status_badge(label: str, status_type: str = "INFO", help: str | None = None) -> None:
@@ -19,7 +52,9 @@ def status_badge(label: str, status_type: str = "INFO", help: str | None = None)
         "NEUTRAL": {"bg": "var(--mercator-ice-100)", "text": "var(--mercator-text-muted)", "border": "var(--mercator-border)"},
     }
 
-    config = colors.get(status_type.upper(), colors["INFO"])
+    normalized_type = str(status_type or "INFO").upper()
+    alias_map = {"SUCCESS": "PASS", "WARNING": "PENDING", "ERROR": "FAIL"}
+    config = colors.get(alias_map.get(normalized_type, normalized_type), colors["INFO"])
     title_attr = f' title="{help}"' if help else ""
 
     st.markdown(

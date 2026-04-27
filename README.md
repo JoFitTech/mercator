@@ -10,6 +10,9 @@ Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. D
 4. Ergebnisse interaktiv in Streamlit visualisieren
 5. Methodik und Datenfluss für akademische Zwecke transparent machen
 
+## Architektur (Kurzdiagramm)
+`FMP API -> Validation/Gates -> Mongo Raw + MySQL Clean -> Streamlit UI`
+
 ## Nachweis der Kursanforderungen
 
 | Anforderung | Umsetzung |
@@ -20,7 +23,7 @@ Mercator ist eine interaktive Datenanwendung für das Modul **Datenbanken 2**. D
 | MongoDB | Raw Store: JSON-Rohdaten je API-Antwort in `mercator` |
 | Lesen aus beiden DBs | Dashboard/Explorer lesen aus MySQL; Admin zeigt MongoDB-Rohzähler |
 | Interaktive Streamlit-Widgets | Filter, Selectbox, Datumsbereich, Toggle, Paginierung auf allen Seiten |
-| Mindestens ein sinnvoller Chart | Sektor-Verteilung (Torte) und Netto-Signal-Chart (Balken) im Dashboard |
+| Mindestens ein sinnvoller Chart | Buy-/Sell-Sektoren als horizontale Balkendiagramme + Netto-Signal-Chart im Dashboard |
 | Analytischer Mehrwert | Gate-Prüfung, Score-Modell (A-E), 3-Tage-Akkumulation, Trends über Zeit |
 
 ## Uni-Kontext und Scope
@@ -280,10 +283,18 @@ Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen foku
 - Bei Uni-Ausfall mit erlaubtem Fallback wird der Wechsel auf `local` explizit ausgewiesen.
 - Mongo nutzt denselben transparenten Resolver-Mechanismus wie MySQL (requested target, active target, fallback-Flag, Meldungen).
 - Wenn nur MongoDB ausfällt, bleibt die App für MySQL-basierte Auswertungen nutzbar; Rohdatenspeicherung/Import ist dann eingeschränkt.
+- Bei Uni-Ausfall mit lokalem Fallback erscheint bewusst eine kurze Demo-Meldung:
+  - `Uni-Datenbank nicht erreichbar. Lokaler Präsentationsmodus aktiv.`
+  - Technische Details bleiben im Expander sichtbar.
 
 ## Start der Anwendung
 ```bash
 streamlit run streamlit_app.py
+```
+
+## Tests
+```bash
+python -m pytest
 ```
 
 ## Schnelleinstieg – Cheat Sheet

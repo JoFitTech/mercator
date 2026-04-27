@@ -26,6 +26,90 @@ from src.services.transaction_code_classifier import (
 )
 
 
+def test_invalid_symbol_and_qty_are_excluded_from_downstream_scoring(monkeypatch) -> None:
+    class _RawRepo:
+        def upsert_raw_trades(self, trades: list[dict]) -> int:
+            return len(trades)
+
+    class _CompanyMongoRepo:
+        def get_recent_profiles_bulk(self, keys, ttl_days=7):  # noqa: ANN001, ARG002
+            return {}
+
+    class _FmpClient:
+        class config:
+            profile_ttl_days = 7
+
+        def fetch_latest_insider_trades(self, page=0, limit=100):  # noqa: ARG002
+            return [{"id": 1}, {"id": 2}]
+
+    calls = {"scoring": 0}
+
+    class _ScoringStub:
+        def compute_trade_score(self, trade):  # noqa: ANN001
+            calls["scoring"] += 1
+            return {
+                "score": 99,
+                "score_class": "A",
+                "core_insider_score": 99,
+                "investability_score": 99,
+                "execution_score": 99,
+                "trade_republic_score": 99,
+                "final_score": 99,
+                "final_class": "A",
+                "decision_status": "ACTIONABLE_BUY",
+                "filing_age_days": 1,
+            }
+
+    rows = [
+        {
+            "symbol": "",
+            "filing_date": "2026-01-10",
+            "transaction_date": "2026-01-09",
+            "qty": 10,
+            "price": 10,
+            "trade_value_estimated": 100_000,
+            "trade_value": 100_000,
+            "form_type": "4",
+            "transaction_type": "P-Purchase",
+            "acquisition_or_disposition": "A",
+            "security_name": "Common Stock",
+            "is_actively_trading": True,
+            "company_key": "CK1",
+            "dedupe_key": "DK1",
+        },
+        {
+            "symbol": "AAPL",
+            "filing_date": "2026-01-10",
+            "transaction_date": "2026-01-09",
+            "qty": 0,
+            "price": 10,
+            "trade_value_estimated": 100_000,
+            "trade_value": 100_000,
+            "form_type": "4",
+            "transaction_type": "P-Purchase",
+            "acquisition_or_disposition": "A",
+            "security_name": "Common Stock",
+            "is_actively_trading": True,
+            "company_key": "CK2",
+            "dedupe_key": "DK2",
+        },
+    ]
+    monkeypatch.setattr("src.services.import_service.normalize_insider_trade", lambda item, fetched_at: rows.pop(0))
+
+    service = ImportService(
+        fmp_client=_FmpClient(),
+        gate_evaluator=GateEvaluator(),
+        raw_repo=_RawRepo(),
+        company_mongo_repo=_CompanyMongoRepo(),
+        trade_mysql_repo=None,
+        company_mysql_repo=None,
+        scoring_service=_ScoringStub(),
+    )
+
+    service.run_hourly_import()
+    assert calls["scoring"] == 0
+
+
 # ---------------------------------------------------------------------------
 # 1. Gate-Minimum muss 100.000 sein
 # ---------------------------------------------------------------------------

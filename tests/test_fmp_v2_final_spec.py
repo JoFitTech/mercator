@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from src.preprocessing.gate_evaluator import GATE_FAIL, GATE_PASS, GATE_PENDING, GateEvaluator
 from src.services.accumulation_service import AccumulationService
@@ -36,9 +36,17 @@ def _trade(**overrides):
 
 def test_validation_price_qty_symbol_rules() -> None:
     evaluator = GateEvaluator()
-    assert evaluator.evaluate(_trade(price=0)).status == GATE_FAIL
-    assert evaluator.evaluate(_trade(qty=0)).status == GATE_FAIL
-    assert evaluator.evaluate(_trade(symbol="")).status == GATE_FAIL
+    price_invalid_trade = _trade(price=0)
+    assert evaluator.evaluate(price_invalid_trade).status == GATE_FAIL
+    assert price_invalid_trade.get("validation_status") == "PRICE_INVALID"
+
+    qty_invalid_trade = _trade(qty=0)
+    assert evaluator.evaluate(qty_invalid_trade).status == GATE_FAIL
+    assert qty_invalid_trade.get("validation_status") == "INVALID"
+
+    symbol_invalid_trade = _trade(symbol="")
+    assert evaluator.evaluate(symbol_invalid_trade).status == GATE_FAIL
+    assert symbol_invalid_trade.get("validation_status") == "INVALID"
 
 
 def test_form_type_and_minimum_signal_rules() -> None:
@@ -104,6 +112,22 @@ def test_api3_mapping_and_sorting() -> None:
 
     signal = HistoricalMarketDataService(Stub()).load_signal("AAPL")
     assert signal.avg_20d_volume is not None
+
+
+def test_api3_uses_exact_500_day_lookback() -> None:
+    captured = {}
+
+    class Stub:
+        def fetch_historical_price_eod_full(self, symbol, date_from, date_to):
+            captured["symbol"] = symbol
+            captured["from"] = date_from
+            captured["to"] = date_to
+            return [{"date": "2026-01-01", "close": 10, "volume": 100}]
+
+    reference = date(2026, 4, 27)
+    HistoricalMarketDataService(Stub()).load_signal("AAPL", today=reference)
+    assert captured["to"] == reference.isoformat()
+    assert captured["from"] == (reference - timedelta(days=500)).isoformat()
 
 
 def test_scoring_sell_warning_for_s_code() -> None:

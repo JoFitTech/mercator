@@ -20,6 +20,8 @@ from src.ui.components.page_scaffold import (
     summarize_filters,
 )
 from src.ui.components.tables import get_single_selected_row_index, render_dashboard_top_table, sort_dashboard_top_rows
+from src.ui.components.charts import render_horizontal_bar_chart
+from src.ui.components.formatting import format_currency
 from src.ui.ui_theme import CHART_PALETTE
 
 
@@ -92,12 +94,6 @@ def _navigate_to_trades() -> None:
     st.rerun()
 
 
-def _fmt_currency(value: float | int | None) -> str:
-    if value is None:
-        return "$0"
-    return f"${float(value):,.0f}"
-
-
 def _is_unknown_or_api2_missing_sector(value: object) -> bool:
     normalized = str(value or "").strip().lower()
     return normalized in {
@@ -110,30 +106,18 @@ def _is_unknown_or_api2_missing_sector(value: object) -> bool:
 
 
 def _render_sector_pie_chart(df: pd.DataFrame) -> None:
+    """Kompatibilitaets-Wrapper: rendert horizontalen Balken statt Pie/Arc."""
     chart_df = df.copy()
     sector_series = chart_df["sector"] if "sector" in chart_df.columns else pd.Series(["" for _ in range(len(chart_df))], index=chart_df.index)
     chart_df = chart_df[~sector_series.apply(_is_unknown_or_api2_missing_sector)]
     if chart_df.empty:
-        st.info("Nur API2 fehlt/Unknown-Sektoren vorhanden; diese werden im Kuchendiagramm ausgegliedert.")
+        st.info("Nur API2 fehlt/Unknown-Sektoren vorhanden; diese werden im Hauptchart ausgegliedert/ausgeblendet.")
         return
-    chart_df["tooltip_volume"] = chart_df.get("volume", 0).apply(_fmt_currency)
-    chart_df["tooltip_count"] = chart_df.get("count", 0)
-    st.vega_lite_chart(
+    render_horizontal_bar_chart(
         chart_df,
-        {
-            "mark": {"type": "arc", "outerRadius": 105},
-            "encoding": {
-                "theta": {"field": "count", "type": "quantitative"},
-                "color": {"field": "sector", "type": "nominal", "legend": {"title": "Sektor"}, "scale": {"range": CHART_PALETTE["categorical"]}},
-                "tooltip": [
-                    {"field": "sector", "type": "nominal", "title": "Sektor"},
-                    {"field": "tooltip_count", "type": "quantitative", "title": "Trades"},
-                    {"field": "tooltip_volume", "type": "nominal", "title": "Volumen"},
-                ],
-            },
-            "view": {"stroke": None},
-        },
-        use_container_width=True,
+        category_col="sector",
+        value_col="count",
+        title="",
     )
 
 
@@ -346,10 +330,19 @@ def render_dashboard_page(
         {"label": "Buy Candidates", "value": str(payload.get("kpi_buy_candidates", 0))},
         {"label": "Watchlist", "value": str(payload.get("kpi_watchlist", 0))},
         {"label": "Sell Warnings", "value": str(payload.get("kpi_sell_warnings", 0))},
-        {"label": "TR Not Found", "value": str(payload.get("kpi_tr_not_found", 0))},
-        {"label": "Exchange Issues", "value": str(payload.get("kpi_exchange_resolution_issues", 0))},
+        {
+            "label": "Data Issues",
+            "value": str(int(payload.get("kpi_tr_not_found", 0)) + int(payload.get("kpi_exchange_resolution_issues", 0))),
+            "help": "Datenprobleme: TR/Exchange/Profile",
+        },
     ]
     render_kpi_row(kpis)
+
+    with st.container(border=True):
+        mode_label = "Lokaler Praesentationsmodus" if db_status and db_status.mongo.used_fallback else "Standardmodus"
+        st.caption(
+            f"Zeitraum: {_format_period_label(filters)} | Letzte Aktualisierung: {payload.get('last_update') or '—'} | Datenmodus: {mode_label}"
+        )
     if payload.get("kpi_relevant_trades_count", 0) == 0:
         render_empty_state(
             "Für den ausgewählten Zeitraum liegen keine auswertbaren Trades vor. "
@@ -361,20 +354,25 @@ def render_dashboard_page(
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("#### Buy-Sektoren-Verteilung")
+        st.markdown("#### Buy-Sektoren")
         if buy_sector_df.empty:
             st.info("Keine BUY-Daten im Zeitraum.")
         else:
             _render_sector_pie_chart(buy_sector_df)
-        st.caption(f"Gesamt Buy Volumen: {_fmt_currency(payload.get('total_buy_volume', 0))}")
+        st.caption(f"Gesamt Buy Volumen: {format_currency(payload.get('total_buy_volume', 0))}")
 
     with c2:
-        st.markdown("#### Sell-Sektoren-Verteilung")
+        st.markdown("#### Sell-Sektoren")
         if sell_sector_df.empty:
             st.info("Keine SELL-Daten im Zeitraum.")
         else:
             _render_sector_pie_chart(sell_sector_df)
-        st.caption(f"Gesamt Sell Volumen: {_fmt_currency(payload.get('total_sell_volume', 0))}")
+        st.caption(f"Gesamt Sell Volumen: {format_currency(payload.get('total_sell_volume', 0))}")
+
+    unknown_buy = int(buy_sector_df[buy_sector_df.get("sector", "").apply(_is_unknown_or_api2_missing_sector)]["count"].sum()) if not buy_sector_df.empty and "sector" in buy_sector_df.columns and "count" in buy_sector_df.columns else 0
+    unknown_sell = int(sell_sector_df[sell_sector_df.get("sector", "").apply(_is_unknown_or_api2_missing_sector)]["count"].sum()) if not sell_sector_df.empty and "sector" in sell_sector_df.columns and "count" in sell_sector_df.columns else 0
+    if unknown_buy or unknown_sell:
+        st.caption(f"Hinweis: {unknown_buy} BUY und {unknown_sell} SELL ohne belastbare API2-Sektorzuordnung sind im Hauptchart ausgeblendet.")
 
     st.markdown("#### Netto-Sektor-Signal")
     st.caption("Positiv = BUY-Überhang, negativ = SELL-Überhang im gewählten Zeitraum.")
