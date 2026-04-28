@@ -19,8 +19,10 @@ from src.app import navigation as app_navigation
 from src.services.database_status_service import DatabaseStatus, MongoStatus, MySqlStatus
 from src.services.public_share_service import TunnelStatus
 from src.ui.pages.trades_page import (
+    TRADES_FILTER_PANEL_EXPANDED_KEY,
     TRADES_WIDGET_RESYNC_PENDING_KEY,
     TRADE_FILTER_DEFAULTS,
+    _count_active_trade_filters,
     _build_single_trade_drilldown_filters,
     _build_query_filters,
     _clamp_page as _clamp_trades_page,
@@ -151,7 +153,18 @@ def test_trades_reset_filters_syncs_canonical_and_widget_state(monkeypatch) -> N
     assert trades_page.st.session_state["trades_filter_min_score"] == 33
     assert trades_page.st.session_state["trades_filter_min_value"] == 200000
     assert trades_page.st.session_state[TRADES_WIDGET_RESYNC_PENDING_KEY] is True
+    assert trades_page.st.session_state[TRADES_FILTER_PANEL_EXPANDED_KEY] is True
     assert trades_page.st.session_state["trades_current_page"] == 1
+
+
+def test_count_active_trade_filters_counts_only_non_default_filters() -> None:
+    assert _count_active_trade_filters(dict(TRADE_FILTER_DEFAULTS)) == 0
+    assert _count_active_trade_filters({
+        **TRADE_FILTER_DEFAULTS,
+        "symbol": "AAPL",
+        "min_score": 50,
+        "show_single_trades": True,
+    }) == 3
 
 
 def test_build_single_trade_drilldown_filters_sets_group_scope_and_single_trade_mode() -> None:

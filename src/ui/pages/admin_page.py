@@ -293,6 +293,7 @@ class AdminDashboardService:
             "COALESCE(c.profile_status, 'NOT_REQUESTED') IN ('NOT_REQUESTED', 'FAILED') "
             "OR COALESCE(c.sector_resolution_status, 'UNRESOLVED') = 'UNRESOLVED' "
             "OR c.sector IS NULL OR TRIM(c.sector) = '' "
+            "OR LOWER(TRIM(c.sector)) IN ('unknown / api2 fehlt', 'api2 fehlt/unknown', 'api2 fehlt', 'unknown', 'n/a') "
             "OR c.market_cap IS NULL"
             ")"
         )
@@ -863,7 +864,7 @@ def render_admin_page(
         actions=actions
     )
     
-    if results and results[0]:
+    if isinstance(results, (list, tuple)) and results and results[0]:
         st.session_state["show_system_check"] = True
 
     if st.session_state.get("show_system_check", False):
@@ -1136,17 +1137,19 @@ def render_admin_page(
         mongo_stats = admin_service.get_mongo_stats()
         
         with col1:
-            st.markdown("#### MySQL Clean Store")
-            st.metric("Trades", f"{mysql_stats.get('trades_count', 0):,}")
-            st.metric("Companies", f"{mysql_stats.get('companies_count', 0):,}")
-            st.metric("Größe (MB)", f"{mysql_stats.get('database_size_mb', 0):.2f}")
+            with st.container(border=True):
+                st.markdown("#### MySQL Clean Store")
+                st.metric("Trades", f"{mysql_stats.get('trades_count', 0):,}")
+                st.metric("Companies", f"{mysql_stats.get('companies_count', 0):,}")
+                st.metric("Größe (MB)", f"{mysql_stats.get('database_size_mb', 0):.2f}")
             
         with col2:
-            st.markdown("#### MongoDB Raw Store")
-            st.metric("Raw Trades", f"{mongo_stats.get('insider_trades_raw_count', 0):,}")
-            st.metric("Raw Companies", f"{mongo_stats.get('companies_count', 0):,}")
-            st.caption(f"Letzter Raw-Trade-Import: {mongo_stats.get('latest_raw_trade_import_at') or '-'}")
-            st.caption(f"Letzter Raw-Company-Import: {mongo_stats.get('latest_raw_company_import_at') or '-'}")
+            with st.container(border=True):
+                st.markdown("#### MongoDB Raw Store")
+                st.metric("Raw Trades", f"{mongo_stats.get('insider_trades_raw_count', 0):,}")
+                st.metric("Raw Companies", f"{mongo_stats.get('companies_count', 0):,}")
+                st.caption(f"Letzter Raw-Trade-Import: {mongo_stats.get('latest_raw_trade_import_at') or '-'}")
+                st.caption(f"Letzter Raw-Company-Import: {mongo_stats.get('latest_raw_company_import_at') or '-'}")
 
         raw_trades_count = int(mongo_stats.get("insider_trades_raw_count", 0) or 0)
         clean_trades_count = int(mysql_stats.get("trades_count", 0) or 0)
@@ -1161,21 +1164,24 @@ def render_admin_page(
             st.info("Naechster Schritt: Import starten und danach Raw/Clean-Counts erneut pruefen.")
 
         st.markdown("---")
-        st.markdown("#### Data Issues (Admin-only)")
-        data_issues = admin_service.get_data_issues_snapshot(limit=25) if mysql_online else None
-        if not mysql_online:
-            st.info("Data-Issues-Diagnose ist nur mit aktiver MySQL-Verbindung verfuegbar.")
-        else:
-            di1, di2, di3, di4 = st.columns(4)
-            di1.metric("TR nicht gefunden", f"{int((data_issues or {}).get('tr_not_found_count', 0)):,}")
-            di2.metric("Exchange-Issues", f"{int((data_issues or {}).get('exchange_resolution_issues_count', 0)):,}")
-            di3.metric("Fehlende Profile", f"{int((data_issues or {}).get('missing_profiles_count', 0)):,}")
-            di4.metric("Symbole mit Issues", f"{int((data_issues or {}).get('issue_symbols_count', 0)):,}")
-            issue_rows = (data_issues or {}).get("issue_rows", [])
-            if issue_rows:
-                st.dataframe(issue_rows, use_container_width=True, hide_index=True)
+        with st.container(border=True):
+            st.markdown("#### Data Issues (Admin-only)")
+            st.caption("Technische Diagnose bleibt im Admin-Bereich kompakt und bei Bedarf aufklappbar.")
+            data_issues = admin_service.get_data_issues_snapshot(limit=25) if mysql_online else None
+            if not mysql_online:
+                st.info("Data-Issues-Diagnose ist nur mit aktiver MySQL-Verbindung verfuegbar.")
             else:
-                st.caption("Keine Data-Issues erkannt.")
+                di1, di2, di3, di4 = st.columns(4)
+                di1.metric("TR nicht gefunden", f"{int((data_issues or {}).get('tr_not_found_count', 0)):,}")
+                di2.metric("Exchange-Issues", f"{int((data_issues or {}).get('exchange_resolution_issues_count', 0)):,}")
+                di3.metric("Fehlende Profile", f"{int((data_issues or {}).get('missing_profiles_count', 0)):,}")
+                di4.metric("Symbole mit Issues", f"{int((data_issues or {}).get('issue_symbols_count', 0)):,}")
+                issue_rows = (data_issues or {}).get("issue_rows", [])
+                if issue_rows:
+                    with st.expander("Betroffene Symbole anzeigen", expanded=False):
+                        st.dataframe(issue_rows, use_container_width=True, hide_index=True, height=280)
+                else:
+                    st.caption("Keine Data-Issues erkannt.")
 
         st.markdown("---")
         st.markdown("#### MySQL Local -> Uni Sync")

@@ -35,6 +35,7 @@ TRADE_FILTER_DEFAULTS = {
 TRADE_PAGE_SIZES = [50, 100, 200]
 ACCUMULATION_CACHE_TTL_SECONDS = 20.0
 TRADES_WIDGET_RESYNC_PENDING_KEY = "trades_filters_resync_pending"
+TRADES_FILTER_PANEL_EXPANDED_KEY = "trades_filters_panel_expanded"
 
 
 def _trade_filter_widget_keys() -> dict[str, str]:
@@ -68,14 +69,17 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
     if isinstance(date_range, date):
         normalized["date_range"] = (date_range, date_range)
     elif isinstance(date_range, (list, tuple)) and len(date_range) > 0:
-        date_from = date_range[0] if isinstance(date_range[0], date) else TRADE_FILTER_DEFAULTS["date_range"][0]
+        default_date_from, default_date_to = TRADE_FILTER_DEFAULTS["date_range"]
+        date_from = date_range[0] if isinstance(date_range[0], date) else default_date_from
         second = date_range[1] if len(date_range) > 1 else date_from
         date_to = second if isinstance(second, date) else date_from
         normalized["date_range"] = (date_from, date_to) if date_to >= date_from else (date_to, date_from)
     else:
         normalized["date_range"] = TRADE_FILTER_DEFAULTS["date_range"]
-    normalized["min_score"] = max(0, int(normalized.get("min_score") or 0))
-    normalized["min_value"] = max(0, int(normalized.get("min_value") or 0))
+    min_score_value = normalized.get("min_score", 0)
+    min_value_value = normalized.get("min_value", 0)
+    normalized["min_score"] = max(0, int(min_score_value if isinstance(min_score_value, (int, float, str)) else 0))
+    normalized["min_value"] = max(0, int(min_value_value if isinstance(min_value_value, (int, float, str)) else 0))
     normalized["accumulate_trades"] = bool(normalized.get("accumulate_trades", True))
     normalized["show_single_trades"] = bool(normalized.get("show_single_trades", False))
     # Beide Modi sollen sich ausschliessen; Einzeltrades haben Vorrang.
@@ -85,7 +89,8 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
         normalized["show_single_trades"] = False
     raw_acc_limit = normalized.get("accumulation_limit", 2000)
     try:
-        normalized["accumulation_limit"] = max(200, min(10000, int(raw_acc_limit)))
+        limit_value = raw_acc_limit if isinstance(raw_acc_limit, (int, float, str)) else 2000
+        normalized["accumulation_limit"] = max(200, min(10000, int(limit_value)))
     except (TypeError, ValueError):
         normalized["accumulation_limit"] = 2000
     return normalized
@@ -126,9 +131,41 @@ def _read_trade_filters_from_widgets() -> dict:
 def _reset_trade_filters_and_widgets() -> None:
     """Setzt kanonischen Filter-State zurück und triggert Widget-Resync im nächsten Rerun."""
     st.session_state["trades_filters"] = dict(TRADE_FILTER_DEFAULTS)
+    st.session_state[TRADES_FILTER_PANEL_EXPANDED_KEY] = True
     _mark_trade_filter_widget_resync_pending()
     st.session_state["trades_current_page"] = 1
     st.session_state["trades_feedback"] = ("success", "Alle Trades-Filter wurden zurückgesetzt.")
+
+
+def _ensure_trade_filter_panel_state() -> bool:
+    """Initialisiert den einklappbaren Filterbereich robust im Session-State."""
+    if TRADES_FILTER_PANEL_EXPANDED_KEY not in st.session_state:
+        st.session_state[TRADES_FILTER_PANEL_EXPANDED_KEY] = True
+    return bool(st.session_state.get(TRADES_FILTER_PANEL_EXPANDED_KEY, True))
+
+
+def _count_active_trade_filters(active_filters: dict | None) -> int:
+    """Zählt sichtbare Abweichungen vom Standardzustand für den Filterstatus."""
+    normalized = _normalize_trades_filters(active_filters)
+    defaults = _normalize_trades_filters(TRADE_FILTER_DEFAULTS)
+    tracked_fields = (
+        "symbol",
+        "reporting_name",
+        "direction",
+        "gate_status",
+        "validation_status",
+        "date_range",
+        "min_score",
+        "min_value",
+        "accumulation_limit",
+    )
+    count = sum(1 for field in tracked_fields if normalized.get(field) != defaults.get(field))
+    if (
+        normalized.get("accumulate_trades") != defaults.get("accumulate_trades")
+        or normalized.get("show_single_trades") != defaults.get("show_single_trades")
+    ):
+        count += 1
+    return count
 
 
 def _build_single_trade_drilldown_filters(current_filters: dict | None, selected_trade: pd.Series) -> dict:
@@ -178,6 +215,8 @@ def _clamp_page(current_page: int, total_rows: int, page_size: int) -> tuple[int
 
 
 def _to_date_or_none(value: object) -> date | None:
+    if not isinstance(value, (date, str, int, float, pd.Timestamp)):
+        return None
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
         return None
@@ -229,50 +268,69 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     st.session_state["trades_filters"] = _normalize_trades_filters(st.session_state["trades_filters"])
     resync_pending = bool(st.session_state.pop(TRADES_WIDGET_RESYNC_PENDING_KEY, False))
     _sync_trade_filter_widgets_from_state(force=resync_pending)
+    filter_panel_expanded = _ensure_trade_filter_panel_state()
+    active_filter_count = _count_active_trade_filters(st.session_state["trades_filters"])
 
-    with st.expander("Filter und Suche", expanded=True):
-        with st.form("trades_filters_form", clear_on_submit=False):
-            f1, f2, f3 = st.columns(3)
-            f1.text_input("Symbol", key="trades_filter_symbol", help="Ticker-Symbol (z.B. AAPL)")
-            f2.text_input("Insider-Name", key="trades_filter_reporting_name", help="Name des Insiders")
-            f3.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="trades_filter_direction")
-
-            f4, f5, f6 = st.columns(3)
-            f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL", "PRE_GATE_FAIL"], key="trades_filter_gate_status")
-            f5.selectbox("Validierungsstatus", options=["Alle", "VALID", "INVALID", "PRICE_INVALID"], key="trades_filter_validation_status")
-            f6.date_input("Zeitraum (Transaktionsdatum)", key="trades_filter_date_range")
-
-            f7, f8 = st.columns(2)
-            f7.slider("Min. Score", 0, 100, key="trades_filter_min_score")
-            f8.number_input("Min. Wert ($)", step=10000, key="trades_filter_min_value")
-
-            with st.expander("Sekundäre Filter & Darstellung", expanded=False):
-                st.toggle("Trades aggregieren", key="trades_filter_accumulate_trades")
-                st.toggle("Einzeltrades anzeigen", key="trades_filter_show_single_trades")
-                st.caption("Aggregation gruppiert nach Symbol, Insider und Richtung im 3-Tage-Fenster.")
-                st.number_input(
-                    "Akkumulations-Limit (Rohtrades)",
-                    min_value=200,
-                    max_value=10000,
-                    step=100,
-                    key="trades_filter_accumulation_limit",
-                    help="Maximale Anzahl Rohtrades, die im Akkumulationsmodus geladen und gruppiert werden.",
-                )
-
-            apply_pressed = st.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
-        _, b2 = st.columns(2)
-        if apply_pressed:
-            new_filters = _read_trade_filters_from_widgets()
-            previous_filters = _normalize_trades_filters(st.session_state.get("trades_filters"))
-            st.session_state["trades_filters"] = new_filters
-            if new_filters != previous_filters:
-                st.session_state["trades_current_page"] = 1
-            st.session_state["trades_feedback"] = ("success", "Filter wurden angewendet.")
+    panel_left, panel_right = st.columns([0.78, 0.22], vertical_alignment="center")
+    with panel_left:
+        state_label = "offen" if filter_panel_expanded else "eingeklappt"
+        st.caption(f"Filter und Suche · {state_label} · aktive Abweichungen vom Standard: {active_filter_count}")
+    with panel_right:
+        if st.button(
+            "Filter ausblenden" if filter_panel_expanded else "Filter anzeigen",
+            key="trades_toggle_filter_panel",
+            use_container_width=True,
+        ):
+            st.session_state[TRADES_FILTER_PANEL_EXPANDED_KEY] = not filter_panel_expanded
             st.rerun()
-        if b2.button("Filter zurücksetzen", use_container_width=True, key="trades_reset_filters"):
-            _reset_trade_filters_and_widgets()
-            st.rerun()
-            return
+
+    if filter_panel_expanded:
+        with st.container(border=True):
+            st.markdown("#### Filter und Suche")
+            with st.form("trades_filters_form", clear_on_submit=False):
+                f1, f2, f3 = st.columns(3)
+                f1.text_input("Symbol", key="trades_filter_symbol", help="Ticker-Symbol (z.B. AAPL)")
+                f2.text_input("Insider-Name", key="trades_filter_reporting_name", help="Name des Insiders")
+                f3.selectbox("Richtung", options=["Alle", "BUY", "SELL"], key="trades_filter_direction")
+
+                f4, f5, f6 = st.columns(3)
+                f4.selectbox("Gate-Status", options=["Alle", "PASS", "PENDING", "FAIL", "PRE_GATE_FAIL"], key="trades_filter_gate_status")
+                f5.selectbox("Validierungsstatus", options=["Alle", "VALID", "INVALID", "PRICE_INVALID"], key="trades_filter_validation_status")
+                f6.date_input("Zeitraum (Transaktionsdatum)", key="trades_filter_date_range")
+
+                f7, f8 = st.columns(2)
+                f7.slider("Min. Score", 0, 100, key="trades_filter_min_score")
+                f8.number_input("Min. Wert ($)", step=10000, key="trades_filter_min_value")
+
+                with st.expander("Sekundäre Filter & Darstellung", expanded=False):
+                    st.toggle("Trades aggregieren", key="trades_filter_accumulate_trades")
+                    st.toggle("Einzeltrades anzeigen", key="trades_filter_show_single_trades")
+                    st.caption("Aggregation gruppiert nach Symbol, Insider und Richtung im 3-Tage-Fenster.")
+                    st.number_input(
+                        "Akkumulations-Limit (Rohtrades)",
+                        min_value=200,
+                        max_value=10000,
+                        step=100,
+                        key="trades_filter_accumulation_limit",
+                        help="Maximale Anzahl Rohtrades, die im Akkumulationsmodus geladen und gruppiert werden.",
+                    )
+
+                apply_pressed = st.form_submit_button("Filter anwenden", type="primary", use_container_width=True)
+            _, b2 = st.columns(2)
+            if apply_pressed:
+                new_filters = _read_trade_filters_from_widgets()
+                previous_filters = _normalize_trades_filters(st.session_state.get("trades_filters"))
+                st.session_state["trades_filters"] = new_filters
+                if new_filters != previous_filters:
+                    st.session_state["trades_current_page"] = 1
+                st.session_state["trades_feedback"] = ("success", "Filter wurden angewendet.")
+                st.rerun()
+            if b2.button("Filter zurücksetzen", use_container_width=True, key="trades_reset_filters"):
+                _reset_trade_filters_and_widgets()
+                st.rerun()
+    else:
+        with st.container(border=True):
+            st.caption("Filterbereich ist eingeklappt. Alle aktiven Filter bleiben unverändert wirksam.")
 
     # 2. Daten laden
     active_filters = _normalize_trades_filters(st.session_state["trades_filters"])
@@ -310,6 +368,7 @@ def render_trades_page(service: AnalysisService | None, db_status: DatabaseStatu
     p1, p2 = st.columns([1, 1])
     effective_accumulate = bool(active_filters.get("accumulate_trades", True)) and not bool(active_filters.get("show_single_trades", False))
     raw_trades_df = pd.DataFrame()
+    trades_df = pd.DataFrame()
 
     if effective_accumulate:
         p1.info("Aggregierte Sicht aktiv")
