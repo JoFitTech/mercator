@@ -38,6 +38,11 @@ class CompanyProfileEnrichmentService:
     def map_profile_fields(profile: dict[str, Any] | None) -> dict[str, Any]:
         if not profile:
             return {}
+        description = (
+            profile.get("description")
+            or profile.get("companyDescription")
+            or profile.get("profileDescription")
+        )
         return {
             "company_name": profile.get("companyName") or profile.get("company_name"),
             "market_cap": profile.get("mktCap") or profile.get("marketCap") or profile.get("market_cap"),
@@ -45,8 +50,12 @@ class CompanyProfileEnrichmentService:
             "cik": profile.get("cik") or profile.get("companyCik"),
             "isin": profile.get("isin"),
             "cusip": profile.get("cusip"),
-            "exchange": profile.get("exchange"),
+            "exchange": profile.get("exchangeShortName") or profile.get("exchange"),
             "country": profile.get("country"),
             "sector": profile.get("sector"),
+            "website": profile.get("website"),
+            "description": description,
+            "ceo": profile.get("ceo"),
+            "full_time_employees": profile.get("fullTimeEmployees") or profile.get("full_time_employees"),
             "profile_price": profile.get("price"),
         }

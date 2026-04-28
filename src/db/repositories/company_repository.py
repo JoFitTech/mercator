@@ -181,9 +181,11 @@ class CompanyRepository:
             SELECT
                 c.current_symbol,
                 c.company_name,
+                c.profile_status,
                 c.sector,
                 c.industry,
                 c.market_cap,
+                c.description,
                 COALESCE(ts.trade_count, 0) AS trade_count,
                 ts.last_trade_date
             FROM companies c
@@ -225,6 +227,7 @@ class CompanyRepository:
                 c.sector,
                 c.industry,
                 c.market_cap,
+                c.description,
                 COALESCE(ts.trade_count, 0) AS trade_count,
                 ts.last_trade_date
             FROM companies c

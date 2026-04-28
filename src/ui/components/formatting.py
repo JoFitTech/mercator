@@ -11,6 +11,30 @@ import pandas as pd
 EMPTY_VALUE = "—"
 
 
+_MISSING_STATUS_VALUES = {
+    "",
+    "-",
+    "—",
+    "N/A",
+    "NONE",
+    "NULL",
+    "NICHT VERFUEGBAR",
+    "NICHT VERFUGBAR",
+}
+
+_INCOMPLETE_PROFILE_STATUSES = {
+    "",
+    "FAILED",
+    "NOT_REQUESTED",
+    "NOT_FOUND",
+    "UNRESOLVED",
+    "-",
+    "—",
+    "NICHT VERFUEGBAR",
+    "NICHT VERFUGBAR",
+}
+
+
 
 def _is_empty(value: Any) -> bool:
     if value is None:
@@ -22,6 +46,67 @@ def _is_empty(value: Any) -> bool:
         pass
     text = str(value).strip()
     return text == "" or text.lower() in {"none", "nan", "n/a", "null"}
+
+
+def _is_missing_ui_value(value: Any) -> bool:
+    return _is_empty(value)
+
+
+def _ui_text(value: Any, fallback: str = EMPTY_VALUE) -> str:
+    return fallback if _is_missing_ui_value(value) else str(value).strip()
+
+
+def _normalize_profile_status(value: Any) -> str:
+    if _is_missing_ui_value(value):
+        return ""
+    return str(value).strip().upper()
+
+
+def _profile_status_label(value: Any) -> str:
+    status = _normalize_profile_status(value)
+    if status == "FETCHED":
+        return "Profil geladen"
+    if status == "FAILED":
+        return "Profil fehlgeschlagen"
+    if status == "NOT_REQUESTED":
+        return "Noch nicht geladen"
+    if status in _MISSING_STATUS_VALUES:
+        return "Unvollstaendig"
+    return status
+
+
+def _missing_profile_fields(profile: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    normalized_status = _normalize_profile_status(profile.get("profile_status"))
+    if normalized_status in _INCOMPLETE_PROFILE_STATUSES:
+        missing.append("Profilstatus")
+    if _is_missing_ui_value(profile.get("sector")):
+        missing.append("Sektor")
+    if _is_missing_ui_value(profile.get("industry")):
+        missing.append("Industrie")
+    if _is_missing_ui_value(profile.get("market_cap")):
+        missing.append("Market Cap")
+    if _is_missing_ui_value(profile.get("company_name")):
+        missing.append("Unternehmensname")
+    if "description" in profile and _is_missing_ui_value(profile.get("description")):
+        missing.append("Beschreibung")
+    return missing
+
+
+def _is_incomplete_profile(profile: dict[str, Any]) -> bool:
+    return bool(_missing_profile_fields(profile))
+
+
+def _normalize_website_url(value: Any) -> str | None:
+    if _is_missing_ui_value(value):
+        return None
+    url = str(value).strip()
+    lower = url.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        return url
+    if "." not in url:
+        return None
+    return f"https://{url}"
 
 
 

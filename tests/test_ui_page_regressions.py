@@ -280,7 +280,7 @@ def test_trade_table_uses_wider_status_columns_with_help(monkeypatch) -> None:
 
 
 def test_ui_missing_values_are_sanitized_for_detail_and_company_views() -> None:
-    assert company_safe_text("nan") == "Nicht verfügbar"
+    assert company_safe_text("nan") == "—"
     assert trade_safe_text("None") == "Nicht verfügbar"
     assert _format_market_cap(None) == "—"
 

@@ -111,6 +111,12 @@ class AnalysisService:
     def _to_profile_view_model(profile: dict) -> dict:
         """Mappt DB/API-Felder konsistent in die UI-Profilansicht."""
 
+        description = (
+            profile.get("description")
+            or profile.get("companyDescription")
+            or profile.get("profileDescription")
+        )
+
         return {
             "symbol": profile.get("current_symbol") or profile.get("symbol"),
             "company_name": profile.get("company_name") or profile.get("companyName"),
@@ -119,19 +125,21 @@ class AnalysisService:
             "industry": profile.get("industry"),
             "country": profile.get("country"),
             "exchange_full_name": profile.get("exchange_full_name") or profile.get("exchangeFullName") or profile.get("exchange"),
-            "description": profile.get("description"),
+            "description": description,
             "isin": profile.get("isin"),
             "cik": profile.get("company_cik") or profile.get("cik"),
             "ceo": profile.get("ceo"),
             "full_time_employees": profile.get("full_time_employees") or profile.get("fullTimeEmployees"),
             "currency": profile.get("currency") or "USD",
             "website": profile.get("website"),
+            "profile_status": profile.get("profile_status"),
+            "profile_reason": profile.get("profile_reason"),
             "trade_republic_universe_status": profile.get("trade_republic_universe_status"),
             "trade_republic_match_method": profile.get("trade_republic_match_method"),
             "trade_republic_match_confidence": profile.get("trade_republic_match_confidence"),
         }
 
-    def _load_or_fetch_company_profile(self, symbol: str) -> tuple[dict, str]:
+    def _load_or_fetch_company_profile(self, symbol: str, allow_api2_fetch: bool = False) -> tuple[dict, str]:
         normalized_symbol = normalize_symbol(symbol)
         if not normalized_symbol:
             LOGGER.warning("Company lookup übersprungen: ungültiges Symbol `%s`", symbol)
@@ -143,6 +151,8 @@ class AnalysisService:
             return self._to_profile_view_model(profile), "mysql"
 
         LOGGER.info("Company lookup symbol=%s source=mysql_miss", normalized_symbol)
+        if not allow_api2_fetch:
+            return {}, "mysql_miss"
         if self.fmp_client is None:
             LOGGER.warning("Company lookup symbol=%s ohne API2-Fallback (FMP-Client fehlt)", normalized_symbol)
             return {}, "no_api2"
@@ -367,7 +377,7 @@ class AnalysisService:
         company_context_allowed = any(s in {"PASS", "PENDING"} for s in gate_statuses)
 
         if company_context_allowed:
-            profile, profile_source = self._load_or_fetch_company_profile(normalized_symbol)
+            profile, profile_source = self._load_or_fetch_company_profile(normalized_symbol, allow_api2_fetch=False)
         else:
             profile, profile_source = {}, "fail_excluded" if not trades.empty else "no_trades"
 
@@ -422,6 +432,8 @@ class AnalysisService:
             detail_note = "Profildaten verfügbar."
         elif profile_source == "no_api2":
             detail_note = "Profildaten nicht verfügbar (API2 nicht konfiguriert)."
+        elif profile_source == "mysql_miss":
+            detail_note = "Profildaten noch nicht geladen."
         else:
             detail_note = f"Quelle: {profile_source}"
 

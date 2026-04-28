@@ -120,7 +120,14 @@ def main():
     elif nav_target == "Trades":
         _safe_render_page("Trades", lambda: render_trades_page(analysis_service, db_status=db_status))
     elif nav_target == "Unternehmen":
-        _safe_render_page("Unternehmen", lambda: render_companies_page(factory.create_company_repository(), db_status=db_status))
+        _safe_render_page(
+            "Unternehmen",
+            lambda: render_companies_page(
+                factory.create_company_repository(),
+                db_status=db_status,
+                import_service=import_service,
+            ),
+        )
     elif nav_target == "Einstellungen":
         _safe_render_page("Einstellungen", lambda: render_settings_page(app_settings_service, db_status=db_status))
     elif nav_target == "Methodik":
@@ -138,7 +145,14 @@ def main():
     elif nav_target == "Trade-Detail":
         _safe_render_page("Trade-Detail", lambda: render_trade_detail_page(analysis_service, db_status=db_status))
     elif nav_target == "Unternehmens-Detail":
-        _safe_render_page("Unternehmens-Detail", lambda: render_company_detail_page(analysis_service, db_status=db_status))
+        _safe_render_page(
+            "Unternehmens-Detail",
+            lambda: render_company_detail_page(
+                analysis_service,
+                db_status=db_status,
+                import_service=import_service,
+            ),
+        )
     else:
         st.session_state["nav_target"] = "Dashboard"
         st.rerun()

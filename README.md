@@ -79,6 +79,7 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
 7. Streamlit-Seiten lesen über `AnalysisService` aus den Repositories.
 8. Optional kann im Admin ein `Raw -> Clean Sync` (ohne neue API-Calls) ausgelöst werden; dabei wird derselbe lokale Validation-/Gate-/Scoring-Pfad wie im Import verwendet, und invalidierte Datensätze bleiben im Raw-Kontext.
 9. Normale UI-Filter und Tabellenansichten lösen keine neuen FMP-API2/API3-Calls aus.
+10. Fehlende Unternehmensprofile können in Unternehmens- und Detailansicht gezielt per `Profil per API2 aktualisieren` nachgeladen werden; der Aufruf erfolgt nur per Button-Klick und nicht automatisch beim Browsen.
 
 ## UI & Features
 

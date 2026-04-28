@@ -66,6 +66,23 @@ class CompanyEnrichmentService:
         company.sector_raw = data.get("sector")
         company.industry = company.industry or data.get("industry")
         company.market_cap = company.market_cap or data.get("mktCap") or data.get("marketCap")
+        company.price = company.price or data.get("price")
+        company.currency = company.currency or data.get("currency")
+        company.isin = company.isin or data.get("isin")
+        company.cusip = company.cusip or data.get("cusip")
+        company.exchange = company.exchange or data.get("exchangeShortName") or data.get("exchange")
+        company.exchange_full_name = company.exchange_full_name or data.get("exchangeFullName") or data.get("exchange")
+        company.country = company.country or data.get("country")
+        company.website = company.website or data.get("website")
+        company.description = (
+            company.description
+            or data.get("description")
+            or data.get("companyDescription")
+            or data.get("profileDescription")
+        )
+        company.ceo = company.ceo or data.get("ceo")
+        company.full_time_employees = company.full_time_employees or data.get("fullTimeEmployees")
+        company.ipo_date = company.ipo_date or data.get("ipoDate")
 
         normalized, method = normalize_sector(company.sector_raw)
         if normalized:

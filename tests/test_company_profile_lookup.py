@@ -39,7 +39,11 @@ class _CompanyRepo:
 
 
 class _FmpClient:
+    def __init__(self):
+        self.calls = 0
+
     def fetch_company_profile(self, symbol: str):
+        self.calls += 1
         return {
             "symbol": symbol,
             "companyName": "Apple Inc.",
@@ -56,22 +60,32 @@ class _FmpClient:
         }
 
 
-def test_company_lookup_uses_symbol_and_fallback_to_api2() -> None:
+def test_company_lookup_uses_mysql_profile_without_auto_api2_fetch() -> None:
     company_repo = _CompanyRepo()
-    service = AnalysisService(_TradeRepo(), company_repo, fmp_client=_FmpClient())
+    company_repo.row = {
+        "current_symbol": "AAPL",
+        "company_name": "Apple Inc.",
+        "description": "desc",
+        "profile_status": "FETCHED",
+    }
+    fmp_client = _FmpClient()
+    service = AnalysisService(_TradeRepo(), company_repo, fmp_client=fmp_client)
 
     result = service.get_ticker_detail("AAPL", accumulate=False)
 
     assert result.company_profile["symbol"] == "AAPL"
     assert result.company_profile["company_name"] == "Apple Inc."
     assert result.note == "Profildaten verfügbar."
+    assert fmp_client.calls == 0
 
 
-def test_company_lookup_renders_empty_profile_hint_when_api2_unavailable() -> None:
+def test_company_lookup_renders_empty_profile_hint_when_mysql_profile_missing() -> None:
     company_repo = _CompanyRepo()
-    service = AnalysisService(_TradeRepo(), company_repo, fmp_client=None)
+    fmp_client = _FmpClient()
+    service = AnalysisService(_TradeRepo(), company_repo, fmp_client=fmp_client)
 
     result = service.get_ticker_detail("AAPL", accumulate=False)
 
     assert result.company_profile == {}
-    assert "nicht verfügbar" in result.note.lower()
+    assert "noch nicht geladen" in result.note.lower()
+    assert fmp_client.calls == 0
