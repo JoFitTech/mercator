@@ -355,18 +355,12 @@ def render_dashboard_page(
         {"label": "Buy Candidates", "value": str(payload.get("kpi_buy_candidates", 0))},
         {"label": "Watchlist", "value": str(payload.get("kpi_watchlist", 0))},
         {"label": "Sell Warnings", "value": str(payload.get("kpi_sell_warnings", 0))},
-        {
-            "label": "Data Issues",
-            "value": str(int(payload.get("kpi_tr_not_found", 0)) + int(payload.get("kpi_exchange_resolution_issues", 0))),
-            "help": "Datenprobleme: TR/Exchange/Profile",
-        },
     ]
     render_kpi_row(kpis)
 
     with st.container(border=True):
-        mode_label = "Lokaler Präsentationsmodus" if db_status and db_status.mongo.used_fallback else "Standardmodus"
         st.caption(
-            f"Zeitraum: {_format_period_label(filters)} | {_format_data_freshness_label(payload.get('last_update'))} | Datenmodus: {mode_label}"
+            f"Zeitraum: {_format_period_label(filters)} | {_format_data_freshness_label(payload.get('last_update'))}"
         )
     if payload.get("kpi_relevant_trades_count", 0) == 0:
         render_empty_state(

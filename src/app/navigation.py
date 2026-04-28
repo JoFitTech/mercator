@@ -301,9 +301,7 @@ def render_system_status_sidebar(db_status, mysql_res):
                 st.caption(f"Mongo Target: {db_status.mongo.active_target}")
             if db_status.mongo.used_fallback:
                 st.caption("Mongo Fallback: aktiv")
-            if db_status.mongo.requested_target == "uni" and db_status.mongo.active_target == "local" and db_status.mongo.used_fallback:
-                st.caption("Uni-Datenbank nicht erreichbar. Lokaler Präsentationsmodus aktiv.")
-            elif db_status.mongo.messages:
+            if db_status.mongo.messages:
                 prefix = "Hinweis" if db_status.mongo.is_connected else "Grund"
                 short_message = str(db_status.mongo.messages[0]).split("\n", 1)[0][:140]
                 st.caption(f"{prefix}: {short_message}")
