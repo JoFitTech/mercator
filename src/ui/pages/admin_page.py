@@ -927,11 +927,12 @@ def render_admin_page(
                         options=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"],
                         index=["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"].index(runtime_settings.api2_firing_mode) if runtime_settings.api2_firing_mode in ["ONLY PASS", "PASS + PENDING", "ALL TRADED COMPANIES", "DISABLED"] else 0,
                         help=(
-                            "ONLY PASS: Enrichment nur für PASS-Trades. "
-                            "PASS + PENDING: Für PASS und PENDING. "
-                            "ALL TRADED COMPANIES: Alle gehandelten Unternehmen werden als Kandidaten geprüft. "
-                            "Cache/TTL gelten weiterhin, sofern kein manueller Force-Refresh aktiviert ist. "
-                            "DISABLED: Kein Enrichment."
+                            "**ONLY PASS** (operativer Standard): Enrichment (API2/API3) nur für Gate-PASS-Trades – "
+                            "entspricht dem definierten Kernpfad API1 → Gate → API2 → API3.\n\n"
+                            "**PASS + PENDING** (Admin-Backfill): Zusätzlich PENDING-Trades – nur für gezielte Nachbearbeitung verwenden.\n\n"
+                            "**ALL TRADED COMPANIES** (Admin-Backfill): Alle bekannten Unternehmen werden als Kandidaten geprüft – "
+                            "kein regulärer Importpfad; erhöhter API-Verbrauch.\n\n"
+                            "**DISABLED**: Kein Enrichment."
                         ),
                     )
                     
@@ -947,6 +948,20 @@ def render_admin_page(
                             "Konfiguration gespeichert." if persistence_available else "Konfiguration für diese Sitzung übernommen.",
                         )
                         st.rerun()
+
+            # Hinweis zum aktuell aktiven API2-Modus
+            if settings_service:
+                active_mode = runtime_settings.api2_firing_mode
+                if active_mode == "ONLY PASS":
+                    st.info("✅ **API2-Modus: ONLY PASS** – Operativer Kernpfad aktiv (API1 → Gate → API2 → API3 nur für Gate-PASS-Trades).")
+                elif active_mode in ("PASS + PENDING", "ALL TRADED COMPANIES"):
+                    st.warning(
+                        f"⚠️ **API2-Modus: {active_mode}** – Admin-Backfill-Modus aktiv. "
+                        "Dieser Modus ist **nicht** der operative Kernpfad. "
+                        "Für normalen Betrieb bitte auf **ONLY PASS** zurücksetzen.",
+                    )
+                elif active_mode == "DISABLED":
+                    st.warning("⚠️ **API2-Modus: DISABLED** – Kein API2/API3-Enrichment aktiv.")
 
             with col_scheduler:
                 with st.form("scheduler_config_form", border=True):
@@ -1022,21 +1037,30 @@ def render_admin_page(
                     except Exception as e:
                         _show_admin_feedback("error", "API2-Backfill fehlgeschlagen.", str(e))
 
+        st.markdown("---")
+        st.markdown("#### ⚠️ Diagnose / Recovery: Raw → Clean Sync")
+        st.warning(
+            "**Wartungsfunktion – kein regulärer Importpfad.**\n\n"
+            "Dieser Sync überträgt Raw-Trades aus MongoDB nach MySQL **ohne neue API-Calls**. "
+            "Er eignet sich ausschließlich zur Wiederherstellung nach Datenverlust oder für Diagnosezwecke. "
+            "Im Normalbetrieb werden Clean-Datensätze ausschließlich über den regulären Import (API1 → Gate → API2 → API3) erzeugt.",
+            icon="⚠️",
+        )
         raw_sync_limit = st.number_input(
             "Raw->Clean Sync Limit",
             min_value=10,
             max_value=1000,
             value=100,
             step=10,
-            help="Anzahl der neuesten Raw-Trades aus MongoDB, die ohne API-Call nach MySQL synchronisiert werden.",
+            help="Anzahl der neuesten Raw-Trades aus MongoDB, die ohne API-Call nach MySQL synchronisiert werden. Nur für Recovery/Diagnose verwenden.",
             disabled=(not write_available) or (import_service is None),
             key="admin_raw_clean_sync_limit",
         )
         if st.button(
-            "Raw -> Clean Sync ausführen",
+            "⚠️ Raw → Clean Sync (Diagnose/Recovery)",
             use_container_width=True,
             disabled=(not write_available) or (import_service is None),
-            help=None if write_available else "Sync ist deaktiviert, solange MySQL oder MongoDB nicht verfügbar sind.",
+            help="Wartungsfunktion: Sync ist deaktiviert, solange MySQL oder MongoDB nicht verfügbar sind." if not write_available else "Nur für Recovery/Diagnose verwenden – kein regulärer Importpfad.",
             key="admin_run_raw_clean_sync",
         ):
             if not import_service:

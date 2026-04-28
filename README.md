@@ -454,18 +454,14 @@ Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung w
 ```
 
 
-## Nächste Schritte
-- Scheduler für stündlichen Importlauf ergänzen.
-- Gate-Regeln fachlich verfeinern.
-- Zusätzliche Auswertungen für Präsentation und Bericht ergänzen.
-
 ## Hinweise zu Datensatz, MySQL und MongoDB
-- FMP-MVP nutzt im Kern **zwei Endpunktklassen**:
-  - `/insider-trading/latest`
-  - `/profile` (Standard für Gate-Pass-Kandidaten; `/search-cik` und `/profile-cik` nur als optionale Fallbacks bei Identitäts- oder Symbolauflösungsproblemen)
+- FMP nutzt im Kern **drei API-Stufen (API1 → API2 → API3)**:
+  - **API1** – `/insider-trading/latest`: Rohdaten-Feed, alle Einträge werden normalisiert und gegen lokale Gates geprüft.
+  - **API2** – `/profile` (für Gate-Pass-Kandidaten); `/search-cik` und `/profile-cik` nur als optionale Fallbacks bei Identitäts- oder Symbolauflösungsproblemen.  
+    > **Operativer Standard:** API2 wird ausschließlich für `PASS`-Trades ausgelöst (Modus `ONLY PASS`). `ALL TRADED COMPANIES` und `PASS + PENDING` sind Admin-Backfill-Modi und gehören **nicht** zum regulären Importpfad.
+  - **API3** – `/historical-price-eod/full`: 500-Tage-Kurshistorie für technische Metriken (SMA50/200, Momentum, Liquidität). Wird nach API2 für Gate-Passer abgerufen.
 - Optionaler manueller Backfill je Firma: `/insider-trading/search`.
-- MongoDB speichert Rohdaten und Profilpayloads.
-- MySQL speichert bereinigte, auswertbare Zieldaten.
+- MongoDB speichert Rohdaten (Raw Store) und Profilpayloads; MySQL speichert bereinigte, auswertbare Zieldaten (Clean Store).
 - Uni-Zugangsdaten dürfen nur über `.env` gesetzt werden und nicht ins Repository gelangen.
 
 ## Hinweise für Präsentation und Bericht
