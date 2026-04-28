@@ -85,6 +85,12 @@ def test_normalize_trades_filters_resets_invalid_direction() -> None:
     assert normalized["min_value"] == 0
 
 
+def test_normalize_trades_filters_clamps_negative_min_values() -> None:
+    normalized = _normalize_trades_filters({"min_score": -5, "min_value": -1000})
+    assert normalized["min_score"] == 0
+    assert normalized["min_value"] == 0
+
+
 def test_normalize_trades_filters_accepts_single_date_and_sorts_range() -> None:
     single = _normalize_trades_filters({"date_range": date(2026, 1, 1)})
     assert single["date_range"] == (date(2026, 1, 1), date(2026, 1, 1))
@@ -234,6 +240,27 @@ def test_trade_table_keeps_row_order_for_selection_mapping(monkeypatch) -> None:
     assert captured["rows"] == ["OLDER", "NEWER"]
 
 
+def test_trade_table_uses_wider_status_columns_with_help(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_dataframe(data, **kwargs):  # noqa: ANN001
+        captured["column_config"] = kwargs.get("column_config")
+        return None
+
+    monkeypatch.setattr(table_components.st, "dataframe", _fake_dataframe)
+    table_components.render_trade_table(pd.DataFrame([
+        {"symbol_at_trade": "AAPL", "gate_status": "PRICE_INVALID", "validation_status": "PRICE_INVALID"}
+    ]))
+
+    column_config = captured["column_config"]
+    gate_col = column_config["gate_status"]
+    validation_col = column_config["validation_status"]
+    assert gate_col.get("width") == "medium"
+    assert validation_col.get("width") == "medium"
+    assert "PRE_GATE_FAIL" in str(gate_col.get("help"))
+    assert "PRICE_INVALID" in str(validation_col.get("help"))
+
+
 def test_ui_missing_values_are_sanitized_for_detail_and_company_views() -> None:
     assert company_safe_text("nan") == "Nicht verfügbar"
     assert trade_safe_text("None") == "Nicht verfügbar"
@@ -299,6 +326,11 @@ def test_format_period_label_without_none_artifacts() -> None:
     label = dashboard_page._format_period_label({"date_from": date(2026, 4, 1), "date_to": None})
     assert "None" not in label
     assert label.startswith("ab ")
+
+
+def test_data_freshness_label_uses_datenstand_wording() -> None:
+    assert dashboard_page._format_data_freshness_label("27.04.2026") == "Datenstand bis 27.04.2026"
+    assert dashboard_page._format_data_freshness_label(None) == "Datenstand: —"
 
 
 def test_humanize_import_error_masks_raw_sql_column_name() -> None:

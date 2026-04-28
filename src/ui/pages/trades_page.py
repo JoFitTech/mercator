@@ -74,8 +74,8 @@ def _normalize_trades_filters(filters: dict | None) -> dict:
         normalized["date_range"] = (date_from, date_to) if date_to >= date_from else (date_to, date_from)
     else:
         normalized["date_range"] = TRADE_FILTER_DEFAULTS["date_range"]
-    normalized["min_score"] = int(normalized.get("min_score") or 0)
-    normalized["min_value"] = int(normalized.get("min_value") or 0)
+    normalized["min_score"] = max(0, int(normalized.get("min_score") or 0))
+    normalized["min_value"] = max(0, int(normalized.get("min_value") or 0))
     normalized["accumulate_trades"] = bool(normalized.get("accumulate_trades", True))
     normalized["show_single_trades"] = bool(normalized.get("show_single_trades", False))
     # Beide Modi sollen sich ausschliessen; Einzeltrades haben Vorrang.

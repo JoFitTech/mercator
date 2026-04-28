@@ -110,9 +110,21 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
         "direction": st.column_config.TextColumn("Richtung", width="small"),
         "trade_value": st.column_config.NumberColumn("Trade Value", format="$%.0f", width="small"),
         "score": st.column_config.NumberColumn("Score", format="%.1f", width="small"),
-        "gate_status": st.column_config.TextColumn("Gate-Status", width="small"),
-        "validation_status": st.column_config.TextColumn("Validierungsstatus", width="small"),
-        "decision_status": st.column_config.TextColumn("Entscheidung", width="small"),
+        "gate_status": st.column_config.TextColumn(
+            "Gate-Status",
+            width="medium",
+            help="Pre-Gate-Ergebnis, z. B. PASS, PRE_GATE_FAIL oder PENDING.",
+        ),
+        "validation_status": st.column_config.TextColumn(
+            "Validierungsstatus",
+            width="medium",
+            help="Formale Validierung, z. B. VALID, INVALID oder PRICE_INVALID.",
+        ),
+        "decision_status": st.column_config.TextColumn(
+            "Entscheidung",
+            width="medium",
+            help="Abgeleiteter Entscheidungsstatus aus Validierung, Gate und Scoring.",
+        ),
         "transaction_date": st.column_config.DateColumn("Datum", width="small", format="DD.MM.YY"),
     }
 

@@ -45,6 +45,8 @@ CHART_PALETTE: dict[str, object] = {
         "#EA580C",
         "#7C3AED",
         "#475569",
+        "#DC2626",
+        "#9333EA",
     ],
 }
 

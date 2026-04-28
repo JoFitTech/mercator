@@ -512,10 +512,16 @@ class ImportService:
             elif str(item.get("gate_status") or "").upper() in {"PRE_GATE_FAIL", "FAIL"}:
                 item["processing_status"] = "PRE_GATE_FAIL"
 
+        clean_upsert_batch = [
+            item
+            for item in normalized
+            if str(item.get("processing_status") or "").upper() != "VALIDATION_FAILED"
+        ]
+
         if self.trade_mysql_repo is not None:
-            self.trade_mysql_repo.upsert_trades(normalized)
-            upserted_clean_records = len(normalized)
-            self._update_company_trade_stats(normalized)
+            self.trade_mysql_repo.upsert_trades(clean_upsert_batch)
+            upserted_clean_records = len(clean_upsert_batch)
+            self._update_company_trade_stats(clean_upsert_batch)
             if hasattr(self.trade_mysql_repo, "bump_dashboard_state"):
                 self.trade_mysql_repo.bump_dashboard_state()
         else:
@@ -824,6 +830,14 @@ class ImportService:
             "created_at": trade.get("first_seen_at") or fetched_at,
             "updated_at": fetched_at,
         }
+
+    def _upsert_company_stub(self, trade: dict[str, Any], fetched_at: datetime) -> dict[str, Any] | None:
+        """Kompatibilitäts-Helper für bestehende Tests und fokussierte Stub-Persistenz."""
+        company_stub = self._build_company_stub(trade, fetched_at)
+        if company_stub is None:
+            return None
+        self._persist_company_batch([company_stub])
+        return company_stub
 
     def _persist_company_batch(self, companies: list[dict[str, Any]]) -> None:
         if hasattr(self.company_mongo_repo, "upsert_profiles"):

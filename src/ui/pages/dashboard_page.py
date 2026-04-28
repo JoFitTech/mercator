@@ -21,7 +21,6 @@ from src.ui.components.page_scaffold import (
     summarize_filters,
 )
 from src.ui.components.tables import get_single_selected_row_index, render_dashboard_top_table, sort_dashboard_top_rows
-from src.ui.components.charts import render_horizontal_bar_chart
 from src.ui.components.formatting import format_currency
 from src.ui.ui_theme import CHART_PALETTE
 
@@ -86,6 +85,13 @@ def _format_period_label(filters: dict[str, date | None]) -> str:
     if date_to:
         return f"bis {date_to.strftime('%d.%m.%Y')}"
     return "Gesamter verfügbarer Zeitraum"
+
+
+def _format_data_freshness_label(last_update: object) -> str:
+    normalized = str(last_update or "").strip()
+    if not normalized:
+        return "Datenstand: —"
+    return f"Datenstand bis {normalized}"
 
 
 def _navigate_to_trades() -> None:
@@ -360,7 +366,7 @@ def render_dashboard_page(
     with st.container(border=True):
         mode_label = "Lokaler Präsentationsmodus" if db_status and db_status.mongo.used_fallback else "Standardmodus"
         st.caption(
-            f"Zeitraum: {_format_period_label(filters)} | Letzte Aktualisierung: {payload.get('last_update') or '—'} | Datenmodus: {mode_label}"
+            f"Zeitraum: {_format_period_label(filters)} | {_format_data_freshness_label(payload.get('last_update'))} | Datenmodus: {mode_label}"
         )
     if payload.get("kpi_relevant_trades_count", 0) == 0:
         render_empty_state(
@@ -429,4 +435,4 @@ def render_dashboard_page(
         _render_top_list("Top 5 Sells", top_sells, table_key="dashboard_top_sells", side="sell")
 
     if payload.get("last_update"):
-        st.caption(f"Letzte Datenaktualisierung: {payload['last_update']}")
+        st.caption(f"Hinweis: {_format_data_freshness_label(payload['last_update'])}.")
