@@ -1,4 +1,8 @@
-"""Navigations-Logik für Mercator (Requirement 5.1)."""
+"""Steuert Header-, Sidebar- und Detailnavigation der Anwendung an einer zentralen Stelle.
+
+Die Datei wird gebraucht, damit Seitenwechsel, Active-States und technische Statusanzeigen im gesamten UI konsistent
+und nachvollziehbar funktionieren.
+"""
 
 from __future__ import annotations
 import base64

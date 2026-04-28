@@ -1,3 +1,9 @@
+"""Prüft, dass Fehlerzustände im Dashboard sichtbar bleiben und nicht still zu Nullwerten verflachen.
+
+Die Datei wird gebraucht, um Fehlersignale aus Service- und Datenquellenpfaden korrekt bis zur UI-Abbildung
+abzusichern.
+"""
+
 from __future__ import annotations
 
 import pandas as pd

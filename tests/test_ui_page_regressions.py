@@ -1,3 +1,8 @@
+"""Deckt UI-Regressionen für Dashboard, Trades, Navigation und Hilfsfunktionen ab.
+
+Die Datei wird gebraucht, um sichtbare Bedienpfade und kleine UX-Helfer gegen unbeabsichtigte Änderungen abzusichern.
+"""
+
 from __future__ import annotations
 
 from datetime import date

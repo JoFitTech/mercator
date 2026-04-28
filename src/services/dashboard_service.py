@@ -1,4 +1,8 @@
-"""Dashboard-Service für eine signalorientierte Overview-Seite."""
+"""Berechnet den Dashboard-Payload aus Kennzahlen, Chartdaten und Top-Tabellen.
+
+Die Datei wird gebraucht, um die fachliche Dashboard-Logik zentral zu kapseln und die UI mit stabilen,
+entscheidungsrelevanten Daten statt mit Rohabfragen zu versorgen.
+"""
 
 from __future__ import annotations
 

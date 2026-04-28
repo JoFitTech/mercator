@@ -1,4 +1,8 @@
-"""Dashboard-Seite als signalorientierte Overview-Seite."""
+"""Rendert das Markt-Dashboard mit belastbaren KPIs, Charts und Top-Listen.
+
+Die Datei wird gebraucht, um den wichtigsten Überblick für Entscheidungen zu liefern, ohne technische Diagnosewerte
+oder Admin-Themen in die Hauptansicht zu mischen.
+"""
 
 from __future__ import annotations
 

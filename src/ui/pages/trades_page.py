@@ -1,4 +1,8 @@
-"""Trades-Seite als operative Hauptarbeitsfläche (Requirement 4)."""
+"""Rendert die operative Trades-Arbeitsfläche mit Filtern, Aggregation und Drilldown.
+
+Die Datei wird gebraucht, damit Nutzer Insider-Trades gezielt eingrenzen, zwischen Gruppen- und Einzelansicht wechseln
+und von dort schnell in Detailansichten navigieren können.
+"""
 
 from __future__ import annotations
 import pandas as pd

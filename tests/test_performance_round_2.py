@@ -1,10 +1,7 @@
-"""Tests für Performance-Runde 2: Korrektheit und Decoupling.
+"""Prüft Performance- und Entkopplungsregeln für Import, Dashboard und Cache-Zugriffe.
 
-Testet:
-- company_trade_stats deterministisch (kein Overcounting bei Duplikaten)
-- Dashboard-Normalpfad ohne 20_000-Trade-Load
-- Dashboard-Aggregate-Pfad mit vollständigen KPIs
-- API2-Cache Bulk-Lookups
+Die Datei wird gebraucht, damit effiziente Query-Pfade, deterministische Aggregation und Bulk-Lookups auch nach
+Umbauten erhalten bleiben.
 """
 
 from datetime import datetime, timezone

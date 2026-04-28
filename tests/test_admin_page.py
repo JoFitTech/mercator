@@ -1,4 +1,8 @@
-"""Tests fuer Admin-Loeschlogik (FK-Schutz und Review-Mode-Blockade)."""
+"""Prüft Admin-Verhalten rund um Löschschutz, Diagnose und technische Sonderfälle.
+
+Die Datei wird gebraucht, damit sensible Admin-Funktionen auch bei Review-, Demo- und Fehlerzuständen sicher und
+vorhersagbar bleiben.
+"""
 
 from __future__ import annotations
 
