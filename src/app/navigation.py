@@ -286,6 +286,7 @@ def render_sidebar_navigation() -> None:
 
 def render_system_status_sidebar(db_status, mysql_res):
     """Rendert den System-Status in der Sidebar."""
+    is_admin_context = str(st.session_state.get("nav_target") or "").strip() == "Admin"
     with st.sidebar:
         with st.expander("System-Status", expanded=True):
             mysql_color = "green" if db_status.mysql.is_connected else "red"
@@ -299,9 +300,9 @@ def render_system_status_sidebar(db_status, mysql_res):
             st.markdown(f":{mongo_color}[{mongo_label}]")
             if db_status.mongo.active_target:
                 st.caption(f"Mongo Target: {db_status.mongo.active_target}")
-            if db_status.mongo.used_fallback:
+            if db_status.mongo.used_fallback and is_admin_context:
                 st.caption("Mongo Fallback: aktiv")
-            if db_status.mongo.messages:
+            if db_status.mongo.messages and is_admin_context:
                 prefix = "Hinweis" if db_status.mongo.is_connected else "Grund"
                 short_message = str(db_status.mongo.messages[0]).split("\n", 1)[0][:140]
                 st.caption(f"{prefix}: {short_message}")

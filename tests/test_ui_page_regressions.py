@@ -296,9 +296,30 @@ def test_system_status_sidebar_shows_mongo_reason_when_offline(monkeypatch) -> N
         mongo=MongoStatus("uni", None, False, False, ["Mongo URI ungültig"]),
     )
 
+    monkeypatch.setattr(app_navigation.st, "session_state", {"nav_target": "Dashboard"})
     app_navigation.render_system_status_sidebar(db_status=status, mysql_res=None)
 
     assert any("MongoDB: Offline" in line for line in captured)
+    assert not any("Grund:" in line for line in captured)
+
+
+def test_system_status_sidebar_shows_mongo_reason_only_in_admin(monkeypatch) -> None:
+    captured: list[str] = []
+
+    monkeypatch.setattr(app_navigation.st, "sidebar", _Ctx())
+    monkeypatch.setattr(app_navigation.st, "expander", lambda *_args, **_kwargs: _Ctx())
+    monkeypatch.setattr(app_navigation.st, "markdown", lambda text: captured.append(text))
+    monkeypatch.setattr(app_navigation.st, "caption", lambda text: captured.append(text))
+    monkeypatch.setattr(app_navigation.st, "code", lambda text, **kwargs: None)
+    monkeypatch.setattr(app_navigation.st, "session_state", {"nav_target": "Admin"})
+
+    status = DatabaseStatus(
+        mysql=MySqlStatus("local", "local", True, False, []),
+        mongo=MongoStatus("uni", None, False, False, ["Mongo URI ungültig"]),
+    )
+
+    app_navigation.render_system_status_sidebar(db_status=status, mysql_res=None)
+
     assert any("Grund: Mongo URI ungültig" in line for line in captured)
 
 
@@ -465,8 +486,9 @@ def test_dashboard_sector_chart_uses_vega_lite_bar_chart(monkeypatch) -> None:
     assert len(calls) == 1
     rendered_df = calls[0]["data"]
     assert list(rendered_df["sector"]) == ["Technology"]
-    assert calls[0]["spec"]["mark"]["type"] == "arc"
-    assert calls[0]["spec"]["encoding"]["theta"]["field"] == "count"
+    assert calls[0]["spec"]["mark"]["type"] == "bar"
+    assert calls[0]["spec"]["encoding"]["x"]["field"] == "count"
+    assert calls[0]["spec"]["encoding"]["y"]["field"] == "sector"
     assert calls[0]["spec"]["encoding"]["color"]["scale"]["domain"] == ["Technology", "Health Care"]
     assert calls[0]["spec"]["encoding"]["color"]["scale"]["range"] == ["#111111", "#222222"]
     assert calls[0]["kwargs"]["use_container_width"] is True
@@ -633,20 +655,16 @@ def test_dashboard_kpi_row_has_max_five_primary_cards(monkeypatch) -> None:
         def build_dashboard_payload(self, filters: dict | None = None) -> dict:
             return {
                 "payload_error_message": "",
-                "kpi_actionable_buys": 1,
-                "kpi_buy_candidates": 2,
-                "kpi_watchlist": 3,
-                "kpi_sell_warnings": 4,
-                "kpi_tr_not_found": 5,
-                "kpi_exchange_resolution_issues": 6,
                 "kpi_relevant_trades_count": 1,
+                "kpi_affected_companies_count": 1,
+                "avg_score": 7.2,
+                "total_buy_volume": 120000,
                 "sector_distribution_buy": pd.DataFrame(),
                 "sector_distribution_sell": pd.DataFrame(),
                 "net_sector_signal": pd.DataFrame(),
                 "market_cap_distribution": pd.DataFrame(),
                 "top_buys": pd.DataFrame(),
                 "top_sells": pd.DataFrame(),
-                "missing_data_summary": {},
             }
 
     monkeypatch.setattr(dashboard_page.st, "session_state", _SessionState())

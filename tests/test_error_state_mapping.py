@@ -25,5 +25,5 @@ def test_dashboard_payload_surfaces_upstream_errors_instead_of_silent_zero_state
     payload = service.build_dashboard_payload(filters={})
 
     assert "530" in str(payload.get("payload_error_message"))
-    assert payload.get("kpi_actionable_buys") == 0
+    assert payload.get("kpi_relevant_trades_count") == 0
     assert isinstance(payload.get("sector_distribution_buy"), pd.DataFrame)

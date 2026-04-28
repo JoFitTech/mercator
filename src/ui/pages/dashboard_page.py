@@ -135,7 +135,7 @@ def _build_sector_color_scale(*sector_frames: pd.DataFrame) -> dict[str, list[st
 
 
 def _render_sector_bar_chart(df: pd.DataFrame, color_scale: dict[str, list[str]] | None = None) -> None:
-    """Rendert Pie-Chart für Sektor-Verteilung."""
+    """Rendert horizontales Balkendiagramm für Sektor-Verteilung."""
     chart_df = df.copy()
     sector_series = chart_df["sector"] if "sector" in chart_df.columns else pd.Series(["" for _ in range(len(chart_df))], index=chart_df.index)
     chart_df = chart_df[~sector_series.apply(_is_unknown_or_api2_missing_sector)]
@@ -150,13 +150,15 @@ def _render_sector_bar_chart(df: pd.DataFrame, color_scale: dict[str, list[str]]
     st.vega_lite_chart(
         chart_df,
         {
-            "mark": {"type": "arc"},
+            "mark": {"type": "bar"},
             "encoding": {
-                "theta": {"field": "count", "type": "quantitative"},
+                "y": {"field": "sector", "type": "nominal", "sort": "-x", "title": "Sektor"},
+                "x": {"field": "count", "type": "quantitative", "title": "Anzahl"},
                 "color": color_encoding,
                 "tooltip": [
                     {"field": "sector", "type": "nominal", "title": "Sektor"},
                     {"field": "count", "type": "quantitative", "title": "Anzahl"},
+                    {"field": "volume", "type": "quantitative", "title": "Volumen"},
                 ],
             },
             "view": {"stroke": None},
@@ -350,11 +352,20 @@ def render_dashboard_page(
             st.code(payload_error, language="text")
         return
 
+    avg_score = payload.get("avg_score")
+    avg_score_label = "-"
+    if isinstance(avg_score, (int, float)):
+        avg_score_label = f"{float(avg_score):.2f}"
+    elif isinstance(avg_score, str):
+        try:
+            avg_score_label = f"{float(avg_score):.2f}"
+        except ValueError:
+            avg_score_label = "-"
     kpis = [
-        {"label": "Actionable Buys", "value": str(payload.get("kpi_actionable_buys", 0))},
-        {"label": "Buy Candidates", "value": str(payload.get("kpi_buy_candidates", 0))},
-        {"label": "Watchlist", "value": str(payload.get("kpi_watchlist", 0))},
-        {"label": "Sell Warnings", "value": str(payload.get("kpi_sell_warnings", 0))},
+        {"label": "Auswertbare Trades", "value": str(payload.get("kpi_relevant_trades_count", 0))},
+        {"label": "Aktive Unternehmen", "value": str(payload.get("kpi_affected_companies_count", 0))},
+        {"label": "Ø Score", "value": avg_score_label},
+        {"label": "Buy-Volumen", "value": format_currency(payload.get("total_buy_volume", 0))},
     ]
     render_kpi_row(kpis)
 

@@ -39,8 +39,9 @@ class DashboardService:
     def build_dashboard_payload(self, filters: dict | None = None) -> dict[str, Any]:
         """Liefert alle Dashboard-Daten in einem stabilen Payload."""
         filters = dict(filters or {})
-        filters.pop("dashboard_valid", None)
-        cache_key = self._build_cache_key(filters)
+        typed_filters: dict[str, Any] = filters
+        typed_filters.pop("dashboard_valid", None)
+        cache_key = self._build_cache_key(typed_filters)
         cached = self._payload_cache.get(cache_key)
         now = time.time()
         if cached and now - cached[0] <= self._payload_cache_ttl_seconds:
@@ -48,11 +49,11 @@ class DashboardService:
 
         payload_error_message: str | None = None
         try:
-            payload = self._build_payload_from_aggregate_queries(filters)
+            payload = self._build_payload_from_aggregate_queries(typed_filters)
         except Exception as exc:
             payload_error_message = str(exc)
             try:
-                trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=20_000, filters=filters)
+                trades_df = self.trade_repo.fetch_trades_enriched_with_company(limit=20_000, filters=typed_filters)
             except Exception as fallback_exc:
                 trades_df = pd.DataFrame()
                 payload_error_message = f"{payload_error_message}; fallback failed: {fallback_exc}"
@@ -144,10 +145,6 @@ class DashboardService:
             [{"bucket": bucket, "companies": companies} for bucket, companies in expected_buckets.items()]
         )
         
-        decision_snapshot = self.trade_repo.fetch_dashboard_decision_snapshot(filters=filters) if hasattr(self.trade_repo, "fetch_dashboard_decision_snapshot") else {}
-        missing_summary = self._compute_missing_data_summary_from_snapshot(snapshot, filters)
-        enriched_kpis = self._compute_enriched_kpis_from_snapshot(snapshot, filters, decision_snapshot)
-
         last_update_value = self.trade_repo.fetch_dashboard_last_update(filters=filters) if hasattr(self.trade_repo, "fetch_dashboard_last_update") else None
         if isinstance(last_update_value, pd.Timestamp):
             last_update = last_update_value.date().strftime("%d.%m.%Y")
@@ -163,15 +160,7 @@ class DashboardService:
             "kpi_affected_companies_count": snapshot["affected_companies"],
             "kpi_largest_buy_value": float(top_buys_df["accumulated_trade_value_estimated"].max()) if not top_buys_df.empty else 0.0,
             "kpi_largest_sell_value": float(top_sells_df["accumulated_trade_value_estimated"].max()) if not top_sells_df.empty else 0.0,
-            "kpi_actionable_buys": enriched_kpis.get("actionable_buys", 0),
-            "kpi_buy_candidates": enriched_kpis.get("buy_candidates", 0),
-            "kpi_watchlist": enriched_kpis.get("watchlist", 0),
-            "kpi_sell_warnings": enriched_kpis.get("sell_warnings", 0),
-            "kpi_tr_not_found": enriched_kpis.get("tr_not_found", 0),
-            "kpi_exchange_resolution_issues": enriched_kpis.get("exchange_resolution_issues", 0),
             "gate_passed_count": snapshot["gate_passed_count"],
-            "fetched_profiles_count": enriched_kpis.get("fetched_profiles_count", 0),
-            "missing_profiles_count": enriched_kpis.get("missing_profiles_count", 0),
             "avg_score": snapshot["avg_score"],
             "sector_distribution_buy": buy_sector,
             "sector_distribution_sell": sell_sector,
@@ -181,7 +170,6 @@ class DashboardService:
             "market_cap_distribution": market_cap_distribution,
             "top_buys": top_buys_df.reset_index(drop=True),
             "top_sells": top_sells_df.reset_index(drop=True),
-            "missing_data_summary": missing_summary,
             "last_update": last_update,
         }
 

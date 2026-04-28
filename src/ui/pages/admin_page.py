@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Any
 
 from src.config.settings import AppSettings
 from src.db.mongo_client import MongoClientWrapper
@@ -360,6 +361,86 @@ class AdminDashboardService:
         except Exception as exc:
             LOGGER.error("delete_mysql_api2_missing_datasets Fehler: %s", exc)
             return False, f"Fehler beim API2-fehlt-Cleanup: {exc}"
+
+    def get_data_issues_snapshot(self, limit: int = 25) -> dict[str, Any]:
+        """Liefert Data-Issues für den Admin-Bereich (Dashboard bleibt diagnosefrei)."""
+        empty = {
+            "tr_not_found_count": 0,
+            "exchange_resolution_issues_count": 0,
+            "missing_profiles_count": 0,
+            "issue_symbols_count": 0,
+            "issue_rows": [],
+        }
+        if not self.mysql_client:
+            return empty
+        try:
+            with self.mysql_client.connection(include_database=True) as conn:
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT
+                            SUM(CASE WHEN UPPER(COALESCE(t.tr_availability_state, '')) = 'NOT_FOUND' THEN 1 ELSE 0 END) AS tr_not_found_count,
+                            SUM(CASE WHEN UPPER(COALESCE(t.trade_republic_match_confidence, '')) IN ('LOW', 'UNKNOWN') THEN 1 ELSE 0 END) AS exchange_resolution_issues_count,
+                            COUNT(DISTINCT CASE WHEN UPPER(COALESCE(t.profile_status, '')) <> 'FETCHED' THEN t.symbol_at_trade END) AS missing_profiles_count
+                        FROM insider_trades t
+                        """
+                    )
+                    totals = cursor.fetchone() or {}
+
+                    cursor.execute(
+                        """
+                        SELECT
+                            t.symbol_at_trade AS symbol,
+                            MAX(CASE WHEN UPPER(COALESCE(t.tr_availability_state, '')) = 'NOT_FOUND' THEN 1 ELSE 0 END) AS tr_not_found,
+                            MAX(CASE WHEN UPPER(COALESCE(t.trade_republic_match_confidence, '')) IN ('LOW', 'UNKNOWN') THEN 1 ELSE 0 END) AS exchange_resolution_issue,
+                            MAX(CASE WHEN UPPER(COALESCE(t.profile_status, '')) <> 'FETCHED' THEN 1 ELSE 0 END) AS missing_profile,
+                            MAX(CASE WHEN c.sector IS NULL OR TRIM(c.sector) = '' THEN 1 ELSE 0 END) AS missing_sector,
+                            MAX(CASE WHEN c.market_cap IS NULL THEN 1 ELSE 0 END) AS missing_market_cap
+                        FROM insider_trades t
+                        LEFT JOIN companies c ON c.company_key = t.company_key
+                        WHERE t.symbol_at_trade IS NOT NULL AND t.symbol_at_trade <> ''
+                        GROUP BY t.symbol_at_trade
+                        HAVING tr_not_found = 1
+                            OR exchange_resolution_issue = 1
+                            OR missing_profile = 1
+                            OR missing_sector = 1
+                            OR missing_market_cap = 1
+                        ORDER BY t.symbol_at_trade ASC
+                        LIMIT %s
+                        """,
+                        (int(limit),),
+                    )
+                    raw_rows = cursor.fetchall() or []
+
+            issue_rows: list[dict[str, str]] = []
+            for row in raw_rows:
+                row_data = row if isinstance(row, dict) else {}
+                reasons: list[str] = []
+                if bool(row_data.get("tr_not_found")):
+                    reasons.append("TR nicht gefunden")
+                if bool(row_data.get("exchange_resolution_issue")):
+                    reasons.append("Exchange-Aufloesung unsicher")
+                if bool(row_data.get("missing_profile")):
+                    reasons.append("API2-Profil fehlt")
+                if bool(row_data.get("missing_sector")):
+                    reasons.append("Sektor fehlt")
+                if bool(row_data.get("missing_market_cap")):
+                    reasons.append("Market Cap fehlt")
+                issue_rows.append({
+                    "Symbol": str(row_data.get("symbol") or ""),
+                    "Issues": ", ".join(reasons),
+                })
+
+            return {
+                "tr_not_found_count": int(totals.get("tr_not_found_count", 0) or 0),
+                "exchange_resolution_issues_count": int(totals.get("exchange_resolution_issues_count", 0) or 0),
+                "missing_profiles_count": int(totals.get("missing_profiles_count", 0) or 0),
+                "issue_symbols_count": len(issue_rows),
+                "issue_rows": issue_rows,
+            }
+        except Exception as exc:
+            LOGGER.warning("get_data_issues_snapshot Fehler: %s", exc)
+            return empty
 
     def get_mysql_stats(self) -> dict:
         """Holt Statistiken für MySQL-Datenbank."""
@@ -1078,6 +1159,23 @@ def render_admin_page(
             )
         if clean_trades_count > 0 and raw_trades_count == 0:
             st.info("Naechster Schritt: Import starten und danach Raw/Clean-Counts erneut pruefen.")
+
+        st.markdown("---")
+        st.markdown("#### Data Issues (Admin-only)")
+        data_issues = admin_service.get_data_issues_snapshot(limit=25) if mysql_online else None
+        if not mysql_online:
+            st.info("Data-Issues-Diagnose ist nur mit aktiver MySQL-Verbindung verfuegbar.")
+        else:
+            di1, di2, di3, di4 = st.columns(4)
+            di1.metric("TR nicht gefunden", f"{int((data_issues or {}).get('tr_not_found_count', 0)):,}")
+            di2.metric("Exchange-Issues", f"{int((data_issues or {}).get('exchange_resolution_issues_count', 0)):,}")
+            di3.metric("Fehlende Profile", f"{int((data_issues or {}).get('missing_profiles_count', 0)):,}")
+            di4.metric("Symbole mit Issues", f"{int((data_issues or {}).get('issue_symbols_count', 0)):,}")
+            issue_rows = (data_issues or {}).get("issue_rows", [])
+            if issue_rows:
+                st.dataframe(issue_rows, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Keine Data-Issues erkannt.")
 
         st.markdown("---")
         st.markdown("#### MySQL Local -> Uni Sync")
