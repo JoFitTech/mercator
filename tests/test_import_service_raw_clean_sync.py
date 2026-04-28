@@ -115,9 +115,39 @@ def _build_service(raw_rows: list[dict], allow_write: bool = True) -> tuple[Impo
 def test_sync_raw_to_clean_upserts_latest_rows_and_skips_missing_dedupe() -> None:
     service, trade_repo = _build_service(
         [
-            {"dedupe_key": "k1", "symbol_at_trade": "AAPL"},
+            {
+                "dedupe_key": "k1",
+                "symbol": "AAPL",
+                "symbol_at_trade": "AAPL",
+                "filing_date": "2026-01-10",
+                "transaction_date": "2026-01-08",
+                "qty": 100,
+                "price": 1200,
+                "form_type": "4",
+                "transaction_type": "P-Purchase",
+                "acquisition_or_disposition": "A",
+                "security_name": "Common Stock",
+                "normalized_instrument_type": "STOCK",
+                "trade_value_estimated": 120000,
+                "trade_value": 120000,
+            },
             {"dedupe_key": "", "symbol_at_trade": "MSFT"},
-            {"dedupe_key": "k2", "symbol_at_trade": "TSLA"},
+            {
+                "dedupe_key": "k2",
+                "symbol": "TSLA",
+                "symbol_at_trade": "TSLA",
+                "filing_date": "2026-01-10",
+                "transaction_date": "2026-01-08",
+                "qty": 100,
+                "price": 1500,
+                "form_type": "4",
+                "transaction_type": "P-Purchase",
+                "acquisition_or_disposition": "A",
+                "security_name": "Common Stock",
+                "normalized_instrument_type": "STOCK",
+                "trade_value_estimated": 150000,
+                "trade_value": 150000,
+            },
         ]
     )
 

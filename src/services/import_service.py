@@ -25,6 +25,7 @@ from src.preprocessing.gate_evaluator import (
 )
 from src.services.scoring_service import ScoringService
 from src.preprocessing.cleaning import normalize_insider_trade
+from src.preprocessing.normalization import parse_datetime, parse_float
 from src.preprocessing.sector_normalizer import normalize_sector
 from src.services.trade_republic_universe_service import (
     TradeRepublicUniverseIngestionService,
@@ -63,6 +64,8 @@ class RawCleanSyncSummary:
     raw_candidates: int
     clean_upserted: int
     skipped_missing_dedupe: int
+    skipped_validation_failed: int = 0
+    skipped_processing_error: int = 0
 
 
 class ImportService:
@@ -449,74 +452,8 @@ class ImportService:
         else:
             LOGGER.info("API3 uebersprungen: keine Gate-PASS Kandidaten vorhanden.")
 
-        for item in normalized:
-            self._apply_trade_republic_match(item)
-            
-            # Sektor-Prüfung für Dashboard-Validität
-            # Wenn das Profil geladen wurde, haben wir ggf. jetzt erst einen Sektor.
-            company_key = item.get("company_key")
-            if company_key:
-                comp = company_lookup_by_key.get(str(company_key))
-                if comp:
-                    item["sector"] = comp.get("sector")
-                    item["sector_resolution_status"] = comp.get("sector_resolution_status")
-                    item["market_cap"] = comp.get("market_cap")
-
-            symbol_value = str(item.get("symbol") or item.get("symbol_at_trade") or "").strip()
-            qty_value = item.get("qty")
-            validation_status = str(item.get("validation_status") or "").upper()
-            try:
-                qty_numeric = float(qty_value or 0)
-            except (TypeError, ValueError):
-                qty_numeric = 0.0
-
-            is_invalid_clean = (
-                not symbol_value
-                or validation_status in {"INVALID", "PRICE_INVALID"}
-            )
-
-            if is_invalid_clean:
-                item["score"] = 0
-                item["score_value"] = 0
-                item["score_class"] = "E"
-                item["core_insider_score"] = 0
-                item["investability_score"] = 0
-                item["execution_score"] = 0
-                item["trade_republic_score"] = 0
-                item["final_score"] = 0
-                item["final_class"] = "E"
-                item["decision_status"] = "INVALID"
-                item["dashboard_valid"] = False
-                item["processing_status"] = "VALIDATION_FAILED"
-                continue
-
-            res = self.scoring_service.compute_trade_score(item)
-            item["score"] = res["score"]
-            item["score_value"] = res["score"]
-            item["score_class"] = res["score_class"]
-            item["core_insider_score"] = res.get("core_insider_score")
-            item["investability_score"] = res.get("investability_score")
-            item["execution_score"] = res.get("execution_score")
-            item["trade_republic_score"] = res.get("trade_republic_score")
-            item["final_score"] = res.get("final_score", res["score"])
-            item["final_class"] = res.get("final_class", res["score_class"])
-            item["decision_status"] = res.get("decision_status")
-            item["filing_age_days"] = res.get("filing_age_days", item.get("filing_age_days"))
-            
-            # Dashboard-Validitätslogik
-            item["dashboard_valid"] = self._is_dashboard_valid(item)
-            if str(item.get("validation_status") or "").upper() in {"INVALID", "PRICE_INVALID"}:
-                item["processing_status"] = "VALIDATION_FAILED"
-            elif str(item.get("gate_status") or "").upper() == GATE_PASS:
-                item["processing_status"] = "CLEAN_UPSERTED"
-            elif str(item.get("gate_status") or "").upper() in {"PRE_GATE_FAIL", "FAIL"}:
-                item["processing_status"] = "PRE_GATE_FAIL"
-
-        clean_upsert_batch = [
-            item
-            for item in normalized
-            if str(item.get("processing_status") or "").upper() != "VALIDATION_FAILED"
-        ]
+        self._score_and_mark_clean_candidates(normalized, company_lookup_by_key)
+        clean_upsert_batch = self._build_clean_upsert_batch(normalized)
 
         if self.trade_mysql_repo is not None:
             self.trade_mysql_repo.upsert_trades(clean_upsert_batch)
@@ -652,38 +589,272 @@ class ImportService:
         if not raw_rows:
             return RawCleanSyncSummary(raw_candidates=0, clean_upserted=0, skipped_missing_dedupe=0)
 
+        fetched_at = datetime.now(timezone.utc)
         sync_candidates: list[dict[str, Any]] = []
         skipped_missing_dedupe = 0
+        skipped_processing_error = 0
         for row in raw_rows:
-            dedupe_key = str(row.get("dedupe_key") or "").strip()
+            try:
+                prepared = self._prepare_raw_trade_for_sync(row, fetched_at=fetched_at)
+            except Exception:
+                LOGGER.exception("Raw->Clean-Sync: Datensatz konnte nicht vorbereitet werden und wird uebersprungen.")
+                skipped_processing_error += 1
+                continue
+            dedupe_key = str(prepared.get("dedupe_key") or "").strip()
             if not dedupe_key:
                 skipped_missing_dedupe += 1
                 continue
-            sync_candidates.append(dict(row))
+            sync_candidates.append(prepared)
 
         if not sync_candidates:
             return RawCleanSyncSummary(
                 raw_candidates=len(raw_rows),
                 clean_upserted=0,
                 skipped_missing_dedupe=skipped_missing_dedupe,
+                skipped_processing_error=skipped_processing_error,
             )
 
-        upserted = int(self.trade_mysql_repo.upsert_trades(sync_candidates))
-        self._update_company_trade_stats(sync_candidates)
-        if hasattr(self.trade_mysql_repo, "bump_dashboard_state"):
-            self.trade_mysql_repo.bump_dashboard_state()
+        self._evaluate_gates(sync_candidates)
+        company_lookup_by_key = self._apply_existing_company_context(sync_candidates)
+        self._score_and_mark_clean_candidates(sync_candidates, company_lookup_by_key)
+        clean_upsert_batch = self._build_clean_upsert_batch(sync_candidates)
+        skipped_validation_failed = max(0, len(sync_candidates) - len(clean_upsert_batch))
+
+        if clean_upsert_batch:
+            self.trade_mysql_repo.upsert_trades(clean_upsert_batch)
+            self._update_company_trade_stats(clean_upsert_batch)
+            if hasattr(self.trade_mysql_repo, "bump_dashboard_state"):
+                self.trade_mysql_repo.bump_dashboard_state()
+
+        upserted = len(clean_upsert_batch)
 
         LOGGER.info(
-            "Raw->Clean-Sync abgeschlossen: raw_candidates=%s clean_upserted=%s skipped_missing_dedupe=%s",
+            "Raw->Clean-Sync abgeschlossen: raw_candidates=%s clean_upserted=%s skipped_missing_dedupe=%s skipped_validation_failed=%s skipped_processing_error=%s",
             len(raw_rows),
             upserted,
             skipped_missing_dedupe,
+            skipped_validation_failed,
+            skipped_processing_error,
         )
         return RawCleanSyncSummary(
             raw_candidates=len(raw_rows),
             clean_upserted=upserted,
             skipped_missing_dedupe=skipped_missing_dedupe,
+            skipped_validation_failed=skipped_validation_failed,
+            skipped_processing_error=skipped_processing_error,
         )
+
+    def _evaluate_gates(self, trades: list[dict[str, Any]]) -> None:
+        for item in trades:
+            decision = self.gate_evaluator.evaluate(item)
+            item["gate_status"] = decision.status
+            item["gate_reason"] = decision.reason
+
+    def _apply_existing_company_context(
+        self,
+        trades: list[dict[str, Any]],
+        company_lookup_by_key: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        lookup: dict[str, dict[str, Any]] = dict(company_lookup_by_key or {})
+        if self.company_mysql_repo is not None and hasattr(self.company_mysql_repo, "get_companies_by_keys"):
+            missing_keys = [
+                str(item.get("company_key"))
+                for item in trades
+                if item.get("company_key") and str(item.get("company_key")) not in lookup
+            ]
+            if missing_keys:
+                lookup.update(self.company_mysql_repo.get_companies_by_keys(sorted(set(missing_keys))))
+
+        for item in trades:
+            company_key = item.get("company_key")
+            if not company_key:
+                continue
+            company = lookup.get(str(company_key))
+            if not company:
+                continue
+            if company.get("company_name") and not item.get("company_name"):
+                item["company_name"] = company.get("company_name")
+            if company.get("industry") and not item.get("industry"):
+                item["industry"] = company.get("industry")
+            if company.get("sector"):
+                item["sector"] = company.get("sector")
+            if company.get("sector_resolution_status"):
+                item["sector_resolution_status"] = company.get("sector_resolution_status")
+            if company.get("market_cap") is not None:
+                item["market_cap"] = company.get("market_cap")
+            if company.get("profile_status") and not item.get("profile_status"):
+                item["profile_status"] = company.get("profile_status")
+            if company.get("profile_reason") and not item.get("profile_reason"):
+                item["profile_reason"] = company.get("profile_reason")
+        return lookup
+
+    def _score_and_mark_clean_candidates(
+        self,
+        trades: list[dict[str, Any]],
+        company_lookup_by_key: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
+        lookup = company_lookup_by_key or {}
+        for item in trades:
+            self._apply_trade_republic_match(item)
+
+            company_key = item.get("company_key")
+            if company_key:
+                comp = lookup.get(str(company_key))
+                if comp:
+                    if comp.get("sector"):
+                        item["sector"] = comp.get("sector")
+                    if comp.get("sector_resolution_status"):
+                        item["sector_resolution_status"] = comp.get("sector_resolution_status")
+                    if comp.get("market_cap") is not None:
+                        item["market_cap"] = comp.get("market_cap")
+
+            symbol_value = str(item.get("symbol") or item.get("symbol_at_trade") or "").strip()
+            dedupe_value = str(item.get("dedupe_key") or "").strip()
+            validation_status = str(item.get("validation_status") or "").upper()
+            processing_status = str(item.get("processing_status") or "").upper()
+            try:
+                qty_numeric = float(item.get("qty") or 0)
+            except (TypeError, ValueError):
+                qty_numeric = 0.0
+            try:
+                price_numeric = float(item.get("price") or 0)
+            except (TypeError, ValueError):
+                price_numeric = 0.0
+
+            is_invalid_clean = (
+                not dedupe_value
+                or not symbol_value
+                or qty_numeric <= 0
+                or price_numeric <= 0
+                or validation_status in {"INVALID", "PRICE_INVALID"}
+                or processing_status == "VALIDATION_FAILED"
+            )
+
+            if is_invalid_clean:
+                item["score"] = 0
+                item["score_value"] = 0
+                item["score_class"] = "E"
+                item["core_insider_score"] = 0
+                item["investability_score"] = 0
+                item["execution_score"] = 0
+                item["trade_republic_score"] = 0
+                item["final_score"] = 0
+                item["final_class"] = "E"
+                item["decision_status"] = "INVALID"
+                item["dashboard_valid"] = False
+                item["processing_status"] = "VALIDATION_FAILED"
+                continue
+
+            try:
+                res = self.scoring_service.compute_trade_score(item)
+                item["score"] = res["score"]
+                item["score_value"] = res["score"]
+                item["score_class"] = res["score_class"]
+                item["core_insider_score"] = res.get("core_insider_score")
+                item["investability_score"] = res.get("investability_score")
+                item["execution_score"] = res.get("execution_score")
+                item["trade_republic_score"] = res.get("trade_republic_score")
+                item["final_score"] = res.get("final_score", res["score"])
+                item["final_class"] = res.get("final_class", res["score_class"])
+                item["decision_status"] = res.get("decision_status")
+                item["filing_age_days"] = res.get("filing_age_days", item.get("filing_age_days"))
+                item["dashboard_valid"] = self._is_dashboard_valid(item)
+            except Exception:
+                LOGGER.exception("Scoring fehlgeschlagen fuer dedupe_key=%s", item.get("dedupe_key"))
+                item["decision_status"] = "REVIEW"
+                item["score"] = 0
+                item["score_value"] = 0
+                item["score_class"] = "E"
+                item["core_insider_score"] = 0
+                item["investability_score"] = 0
+                item["execution_score"] = 0
+                item["trade_republic_score"] = 0
+                item["final_score"] = 0
+                item["final_class"] = "E"
+                item["dashboard_valid"] = False
+
+            if str(item.get("validation_status") or "").upper() in {"INVALID", "PRICE_INVALID"}:
+                item["processing_status"] = "VALIDATION_FAILED"
+            elif str(item.get("gate_status") or "").upper() == GATE_PASS:
+                item["processing_status"] = "CLEAN_UPSERTED"
+            elif str(item.get("gate_status") or "").upper() in {"PRE_GATE_FAIL", "FAIL"}:
+                item["processing_status"] = "PRE_GATE_FAIL"
+
+    @staticmethod
+    def _build_clean_upsert_batch(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in trades
+            if str(item.get("processing_status") or "").upper() != "VALIDATION_FAILED"
+            and str(item.get("dedupe_key") or "").strip()
+        ]
+
+    def _prepare_raw_trade_for_sync(self, raw_row: dict[str, Any], fetched_at: datetime) -> dict[str, Any]:
+        row = dict(raw_row or {})
+        row_payload = row.get("raw_payload")
+
+        has_normalized_shape = bool(row.get("filing_date") and row.get("transaction_date") and (row.get("symbol") or row.get("symbol_at_trade")))
+        has_fmp_shape = any(key in row for key in ("filingDate", "transactionDate", "acquisitionOrDisposition", "securitiesTransacted", "transactionType"))
+        has_payload_fmp_shape = isinstance(row_payload, dict) and any(
+            key in row_payload for key in ("filingDate", "transactionDate", "acquisitionOrDisposition", "securitiesTransacted", "transactionType")
+        )
+
+        if has_normalized_shape:
+            prepared = dict(row)
+        elif has_fmp_shape:
+            prepared = normalize_insider_trade(row, fetched_at=fetched_at)
+        elif has_payload_fmp_shape:
+            prepared = normalize_insider_trade(dict(row_payload), fetched_at=fetched_at)
+            for key in ("dedupe_key", "company_key", "symbol", "symbol_at_trade"):
+                if row.get(key):
+                    prepared[key] = row.get(key)
+        else:
+            prepared = dict(row)
+
+        symbol = str(prepared.get("symbol") or prepared.get("symbol_at_trade") or "").strip().upper()
+        prepared["symbol"] = symbol or None
+        prepared["symbol_at_trade"] = symbol or prepared.get("symbol_at_trade")
+
+        filing_date = prepared.get("filing_date")
+        if filing_date is not None and not hasattr(filing_date, "date"):
+            prepared["filing_date"] = parse_datetime(filing_date, "filing_date")
+        transaction_date = prepared.get("transaction_date")
+        if transaction_date is not None and not hasattr(transaction_date, "date"):
+            prepared["transaction_date"] = parse_datetime(transaction_date, "transaction_date")
+
+        qty = parse_float(prepared.get("qty"), "qty")
+        price = parse_float(prepared.get("price"), "price")
+        prepared["qty"] = qty
+        prepared["price"] = price
+
+        if prepared.get("trade_value_estimated") is None and qty is not None and price is not None and price > 0:
+            prepared["trade_value_estimated"] = qty * price
+        if prepared.get("trade_value") is None:
+            prepared["trade_value"] = prepared.get("trade_value_estimated")
+
+        if not prepared.get("acquisition_or_disposition"):
+            direction = str(prepared.get("direction") or "").strip().upper()
+            if direction == "BUY":
+                prepared["acquisition_or_disposition"] = "A"
+            elif direction == "SELL":
+                prepared["acquisition_or_disposition"] = "D"
+
+        if not prepared.get("form_type") and row.get("formType"):
+            prepared["form_type"] = row.get("formType")
+
+        prepared.setdefault("validation_status", "VALID")
+        if price is not None and price <= 0:
+            prepared["validation_status"] = "PRICE_INVALID"
+
+        prepared.setdefault("profile_status", "NOT_REQUESTED")
+        prepared.setdefault("profile_reason", None)
+        prepared.setdefault("tr_availability_state", "UNKNOWN")
+        prepared.setdefault("tr_tradability_state", "UNKNOWN")
+        prepared.setdefault("tr_match_confidence", "LOW")
+        prepared.setdefault("fetched_at", fetched_at)
+        prepared.setdefault("first_seen_at", fetched_at)
+        prepared.setdefault("last_seen_at", fetched_at)
+        return prepared
 
     @staticmethod
     def _extract_market_cap(profile: dict[str, Any]) -> int | None:

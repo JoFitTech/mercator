@@ -539,7 +539,9 @@ def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:
     monkeypatch.setattr(dashboard_page.st, "vega_lite_chart", _fake_vega_lite_chart)
 
     net_df = pd.DataFrame([
-        {"sector": "Technology", "delta": 4, "buy_count": 5, "sell_count": 1, "buy_volume": 5_000, "sell_volume": 2_000}
+        {"sector": "Technology", "delta": 4, "buy_count": 5, "sell_count": 1, "buy_volume": 5_000, "sell_volume": 2_000},
+        {"sector": "unknown", "delta": 2, "buy_count": 3, "sell_count": 1, "buy_volume": 2_500, "sell_volume": 900},
+        {"sector": "api2 fehlt", "delta": -1, "buy_count": 1, "sell_count": 2, "buy_volume": 800, "sell_volume": 1_300},
     ])
     cap_df = pd.DataFrame([
         {"bucket": "Large Cap", "companies": 12},
@@ -552,6 +554,10 @@ def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:
     assert len(calls) == 2
     assert calls[0]["spec"]["mark"]["type"] == "bar"
     assert calls[0]["spec"]["encoding"]["x"]["field"] == "delta"
+    net_rendered = calls[0]["data"]
+    unknown_row = net_rendered[net_rendered["sector"] == "Unknown / API2 fehlt"].iloc[0]
+    assert int(unknown_row["buy_count"]) == 4
+    assert int(unknown_row["sell_count"]) == 3
     assert calls[1]["spec"]["encoding"]["x"]["field"] == "companies"
     assert "Unknown" not in list(calls[1]["data"]["bucket"])
 

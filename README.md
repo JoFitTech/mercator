@@ -77,7 +77,7 @@ Mercator ist bewusst als akademisches MVP ausgelegt:
     - Gleiche Richtung (Buy/Sell) und Wertpapierart
     - Zeitlicher Abstand maximal 3 Kalendertage
 7. Streamlit-Seiten lesen über `AnalysisService` aus den Repositories.
-8. Optional kann im Admin ein `Raw -> Clean Sync` (ohne neue API-Calls) ausgelöst werden.
+8. Optional kann im Admin ein `Raw -> Clean Sync` (ohne neue API-Calls) ausgelöst werden; dabei wird derselbe lokale Validation-/Gate-/Scoring-Pfad wie im Import verwendet, und invalidierte Datensätze bleiben im Raw-Kontext.
 9. Normale UI-Filter und Tabellenansichten lösen keine neuen FMP-API2/API3-Calls aus.
 
 ## UI & Features

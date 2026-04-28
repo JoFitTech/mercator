@@ -51,6 +51,7 @@ DASHBOARD_FILTER_DEFAULTS = {
     "date_range": (date.today() - timedelta(days=30), date.today()),
 }
 DASHBOARD_WIDGET_RESYNC_PENDING_KEY = "dashboard_filters_resync_pending"
+UNKNOWN_API2_SECTOR_LABEL = "Unknown / API2 fehlt"
 
 
 def _normalize_dashboard_filters(filters: dict | None) -> dict:
@@ -116,13 +117,20 @@ def _is_unknown_or_api2_missing_sector(value: object) -> bool:
     }
 
 
+def _normalize_sector_label(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized or _is_unknown_or_api2_missing_sector(normalized):
+        return UNKNOWN_API2_SECTOR_LABEL
+    return normalized
+
+
 def _build_sector_color_scale(*sector_frames: pd.DataFrame) -> dict[str, list[str]] | None:
     sectors: set[str] = set()
     for frame in sector_frames:
         if frame.empty or "sector" not in frame.columns:
             continue
         for raw_sector in frame["sector"].dropna().tolist():
-            sector = str(raw_sector).strip()
+            sector = _normalize_sector_label(raw_sector)
             if not sector or _is_unknown_or_api2_missing_sector(sector):
                 continue
             sectors.add(sector)
@@ -173,6 +181,29 @@ def _render_sector_bar_chart(df: pd.DataFrame, color_scale: dict[str, list[str]]
 
 def _render_net_sector_signal_chart(df: pd.DataFrame) -> None:
     chart_df = df.copy()
+    if "sector" not in chart_df.columns:
+        chart_df["sector"] = UNKNOWN_API2_SECTOR_LABEL
+    chart_df["sector"] = chart_df["sector"].apply(_normalize_sector_label)
+
+    for column in ("buy_count", "sell_count", "buy_volume", "sell_volume"):
+        if column not in chart_df.columns:
+            chart_df[column] = 0
+        chart_df[column] = pd.to_numeric(chart_df[column], errors="coerce").fillna(0)
+
+    # Varianten wie "unknown" und "API2 fehlt" werden für das Netto-Signal zu einem Balken zusammengeführt.
+    chart_df = (
+        chart_df.groupby("sector", dropna=False)
+        .agg(
+            buy_count=("buy_count", "sum"),
+            sell_count=("sell_count", "sum"),
+            buy_volume=("buy_volume", "sum"),
+            sell_volume=("sell_volume", "sum"),
+        )
+        .reset_index()
+    )
+    chart_df["delta"] = chart_df["buy_count"] - chart_df["sell_count"]
+    chart_df = chart_df.sort_values(["delta", "buy_count"], ascending=[False, False])
+
     st.vega_lite_chart(
         chart_df,
         {

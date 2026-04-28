@@ -1041,7 +1041,8 @@ def render_admin_page(
         st.markdown("#### ⚠️ Diagnose / Recovery: Raw → Clean Sync")
         st.warning(
             "**Wartungsfunktion – kein regulärer Importpfad.**\n\n"
-            "Dieser Sync überträgt Raw-Trades aus MongoDB nach MySQL **ohne neue API-Calls**. "
+            "Dieser Sync verarbeitet vorhandene Mongo-Raw-Daten erneut durch lokale Validation-, Gate- und Scoring-Logik "
+            "und schreibt nur Clean-Kandidaten nach MySQL **ohne neue API-Calls**. "
             "Er eignet sich ausschließlich zur Wiederherstellung nach Datenverlust oder für Diagnosezwecke. "
             "Im Normalbetrieb werden Clean-Datensätze ausschließlich über den regulären Import (API1 → Gate → API2 → API3) erzeugt.",
             icon="⚠️",
@@ -1075,7 +1076,9 @@ def render_admin_page(
                                 "Raw->Clean-Sync abgeschlossen: "
                                 f"Raw-Kandidaten {sync_summary.raw_candidates}, "
                                 f"Clean-Upserts {sync_summary.clean_upserted}, "
-                                f"übersprungen ohne dedupe_key {sync_summary.skipped_missing_dedupe}."
+                                f"übersprungen ohne dedupe_key {sync_summary.skipped_missing_dedupe}, "
+                                f"Validation-Filter {getattr(sync_summary, 'skipped_validation_failed', 0)}, "
+                                f"Processing-Fehler {getattr(sync_summary, 'skipped_processing_error', 0)}."
                             ),
                         )
                     except Exception as e:
