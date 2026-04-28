@@ -1,4 +1,4 @@
-"""Zentrale UI-Formatierung fuer konsistente Anzeige in allen Seiten."""
+"""Zentrale UI-Formatierung für konsistente Anzeige in allen Seiten."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ _MISSING_STATUS_VALUES = {
     "N/A",
     "NONE",
     "NULL",
+    "NICHT VERFÜGBAR",
     "NICHT VERFUEGBAR",
-    "NICHT VERFUGBAR",
 }
 
 _INCOMPLETE_PROFILE_STATUSES = {
@@ -30,8 +30,8 @@ _INCOMPLETE_PROFILE_STATUSES = {
     "UNRESOLVED",
     "-",
     "—",
+    "NICHT VERFÜGBAR",
     "NICHT VERFUEGBAR",
-    "NICHT VERFUGBAR",
 }
 
 
@@ -71,7 +71,7 @@ def _profile_status_label(value: Any) -> str:
     if status == "NOT_REQUESTED":
         return "Noch nicht geladen"
     if status in _MISSING_STATUS_VALUES:
-        return "Unvollstaendig"
+        return "Unvollständig"
     return status
 
 

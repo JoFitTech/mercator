@@ -104,8 +104,12 @@ def render_company_detail_page(
 
     can_refresh, refresh_block_reason = _refresh_capability(import_service)
     refresh_disabled = (not bool(symbol)) or (not can_refresh)
+    refresh_btn_label = (
+        "Profil erneut per API2 aktualisieren" if not profile_incomplete
+        else "Profil per API2 aktualisieren"
+    )
     if st.button(
-        "Profil per API2 aktualisieren",
+        refresh_btn_label,
         use_container_width=False,
         disabled=refresh_disabled,
         help=(refresh_block_reason or "") if refresh_disabled else None,

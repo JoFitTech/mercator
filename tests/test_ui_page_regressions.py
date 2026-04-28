@@ -555,9 +555,12 @@ def test_dashboard_net_and_market_cap_charts_use_vega_lite(monkeypatch) -> None:
     assert calls[0]["spec"]["mark"]["type"] == "bar"
     assert calls[0]["spec"]["encoding"]["x"]["field"] == "delta"
     net_rendered = calls[0]["data"]
-    unknown_row = net_rendered[net_rendered["sector"] == "Unknown / API2 fehlt"].iloc[0]
-    assert int(unknown_row["buy_count"]) == 4
-    assert int(unknown_row["sell_count"]) == 3
+    # "unknown" und "api2 fehlt"-Sektoren werden aus dem Chart herausgefiltert
+    assert "Unknown / API2 fehlt" not in list(net_rendered["sector"])
+    assert "unknown" not in list(net_rendered["sector"])
+    assert "api2 fehlt" not in list(net_rendered["sector"])
+    # Nur valide Sektoren (z. B. "Technology") verbleiben im Chart
+    assert "Technology" in list(net_rendered["sector"])
     assert calls[1]["spec"]["encoding"]["x"]["field"] == "companies"
     assert "Unknown" not in list(calls[1]["data"]["bucket"])
 

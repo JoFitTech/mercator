@@ -202,7 +202,12 @@ def _render_net_sector_signal_chart(df: pd.DataFrame) -> None:
         .reset_index()
     )
     chart_df["delta"] = chart_df["buy_count"] - chart_df["sell_count"]
+    chart_df = chart_df[~chart_df["sector"].apply(_is_unknown_or_api2_missing_sector)]
     chart_df = chart_df.sort_values(["delta", "buy_count"], ascending=[False, False])
+
+    if chart_df.empty:
+        st.info("Nur API2 fehlt/Unknown-Sektoren vorhanden; diese werden im Netto-Signal-Chart ausgeblendet.")
+        return
 
     st.vega_lite_chart(
         chart_df,

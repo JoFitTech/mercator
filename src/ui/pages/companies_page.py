@@ -242,8 +242,13 @@ def render_companies_page(
         can_navigate = bool(symbol_value)
         profile_status = _profile_status_label(selected_company.get("profile_status"))
         missing_fields = _missing_profile_fields(selected_company.to_dict())
+        profile_complete = not bool(missing_fields)
         can_refresh, refresh_block_reason = _refresh_capability(import_service)
         can_refresh_button = bool(symbol_value) and can_refresh
+        refresh_label = (
+            "Profil erneut per API2 aktualisieren" if profile_complete
+            else "Profil per API2 aktualisieren"
+        )
 
         with st.container(border=True):
             st.markdown(f"**Ausgewählt:** {company_label}")
@@ -287,7 +292,7 @@ def render_companies_page(
                     st.rerun()
             with c3:
                 if st.button(
-                    "Profil per API2 aktualisieren",
+                    refresh_label,
                     use_container_width=True,
                     disabled=not can_refresh_button,
                     key=f"companies_refresh_profile_{selected_idx}",
@@ -306,5 +311,7 @@ def render_companies_page(
                     st.rerun()
             if refresh_block_reason and not can_refresh:
                 st.caption(refresh_block_reason)
+            elif profile_complete and can_refresh_button:
+                st.caption("Profil wirkt vollständig. Eine erneute Aktualisierung ist optional.")
     else:
         st.info("Bitte eine Zeile markieren, damit der Detail-Button aktiv wird.")
