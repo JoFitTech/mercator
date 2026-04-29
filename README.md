@@ -489,3 +489,6 @@ Falls `.\mercator.ps1 restart` oder `start` mit `ExitCode 1` und einer Meldung w
 
 ## FMP API Spec
 Die verbindliche finale Spezifikation liegt in `docs/fmp_api_spec_v2_final.md`.
+
+
+ANKOR
