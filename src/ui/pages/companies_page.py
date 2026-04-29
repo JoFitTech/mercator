@@ -56,8 +56,6 @@ def _refresh_capability(import_service: ImportService | None) -> tuple[bool, str
         return False, "Profil-Refresh-Service ist nicht verfügbar."
     if not callable(getattr(import_service, "refresh_company_profile_for_symbol", None)):
         return False, "Profil-Refresh-Service ist nicht verfügbar."
-    if not bool(getattr(import_service, "allow_write", True)):
-        return False, "API2-Profilaktualisierung ist in diesem Modus deaktiviert."
     return True, None
 
 

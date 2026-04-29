@@ -6,7 +6,7 @@ from src.ui.components.formatting import (
     _normalize_website_url,
     _profile_status_label,
 )
-from src.ui.pages.companies_page import _refresh_company_profile
+from src.ui.pages.companies_page import _refresh_capability, _refresh_company_profile
 
 
 def test_is_incomplete_profile_detects_missing_sector() -> None:
@@ -80,6 +80,19 @@ def test_refresh_service_only_runs_in_explicit_helper_path() -> None:
 
     assert service.calls == 1
     assert result["ok"] is True
+
+
+def test_refresh_capability_allows_manual_call_even_when_allow_write_false() -> None:
+    class _ImportServiceStub:
+        allow_write = False
+
+        @staticmethod
+        def refresh_company_profile_for_symbol(symbol: str):
+            return {"ok": True, "symbol": symbol}
+
+    can_refresh, reason = _refresh_capability(_ImportServiceStub())
+    assert can_refresh is True
+    assert reason is None
 
 
 def test_company_description_mapping_uses_description_field() -> None:
