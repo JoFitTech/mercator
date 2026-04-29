@@ -5,8 +5,6 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-import requests
-
 from src.domain.trade_republic_universe import TradeRepublicUniverseSourcePayload
 
 
@@ -14,54 +12,36 @@ class TradeRepublicUniverseSource:
     def __init__(self, settings: Any) -> None:
         self.settings = settings
 
-    def fetch(self, mode_override: str | None = None) -> TradeRepublicUniverseSourcePayload:
-        mode = str(mode_override or getattr(self.settings, "trade_republic_universe_source_mode", "local_csv") or "local_csv").strip().lower()
-        if mode == "local_csv":
-            return self._fetch_local_csv()
-        if mode in {"remote_csv", "remote_pdf"}:
-            return self._fetch_remote(mode)
-        raise ValueError(f"Unbekannter TR-Source-Mode: {mode}")
-
-    def _fetch_local_csv(self) -> TradeRepublicUniverseSourcePayload:
-        raw_path = str(getattr(self.settings, "trade_republic_universe_local_csv", "") or "").strip()
+    def resolve_local_csv_path(self, path: str | Path | None = None) -> Path:
+        raw_path = str(path or getattr(self.settings, "trade_republic_universe_local_csv", "") or "").strip()
         if not raw_path:
             raise ValueError("TRADE_REPUBLIC_UNIVERSE_LOCAL_CSV ist leer.")
 
-        path = Path(raw_path)
+        resolved = Path(raw_path)
         project_root = getattr(self.settings, "project_root", None)
-        if not path.is_absolute() and project_root:
-            path = Path(project_root) / path
+        if not resolved.is_absolute() and project_root:
+            resolved = Path(str(project_root)) / resolved
+        return resolved
 
-        content = path.read_bytes()
-        source_url = str(path)
+    def fetch_local_csv(self, path: str | Path | None = None) -> TradeRepublicUniverseSourcePayload:
+        resolved = self.resolve_local_csv_path(path)
+        if not resolved.exists():
+            raise FileNotFoundError(f"Trade-Republic-CSV nicht gefunden: {resolved}")
+
+        content = resolved.read_bytes()
+        if not content.strip():
+            raise ValueError(f"Trade-Republic-CSV ist leer: {resolved}")
+
         fetched_at = datetime.now(UTC)
         return TradeRepublicUniverseSourcePayload(
             content=content,
             content_type="text/csv",
-            source_url=source_url,
+            source_url=str(resolved),
             source_type="local_csv",
             fetched_at=fetched_at,
-            source_hash=hashlib.sha256(content).hexdigest(),
+            source_hash=hashlib.sha256(memoryview(content)).hexdigest(),
         )
 
-    def _fetch_remote(self, mode: str) -> TradeRepublicUniverseSourcePayload:
-        if not bool(getattr(self.settings, "trade_republic_allow_remote_refresh", False)):
-            raise PermissionError("Remote-Refresh ist deaktiviert (TRADE_REPUBLIC_ALLOW_REMOTE_REFRESH=false).")
-
-        source_url = str(getattr(self.settings, "trade_republic_universe_url", "") or "").strip()
-        if not source_url:
-            raise ValueError("TRADE_REPUBLIC_UNIVERSE_URL ist leer.")
-
-        response = requests.get(source_url, timeout=30)
-        response.raise_for_status()
-        content = response.content
-        fetched_at = datetime.now(UTC)
-        return TradeRepublicUniverseSourcePayload(
-            content=content,
-            content_type=response.headers.get("Content-Type"),
-            source_url=source_url,
-            source_type=mode,
-            fetched_at=fetched_at,
-            source_hash=hashlib.sha256(content).hexdigest(),
-        )
+    def fetch(self) -> TradeRepublicUniverseSourcePayload:
+        return self.fetch_local_csv()
 

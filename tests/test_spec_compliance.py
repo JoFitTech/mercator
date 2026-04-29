@@ -421,8 +421,8 @@ def test_app_settings_service_normalizes_gate_min_below_100k() -> None:
         enrichment=EnrichmentConfig(), gate=GateConfig(),
         review_mode=False, disable_import=False, disable_admin_delete=False,
         ui_test_mode=False,
-        trade_republic_universe_url="https://example.com",
         trade_republic_refresh_ttl_hours=24,
+        trade_republic_universe_local_csv="data/reference/trade_republic/trade_republic_stocks.csv",
     )
     svc = AppSettingsService(runtime_repo=runtime_repo, filter_repo=None, defaults=app_settings)
 

@@ -721,13 +721,13 @@ class AdminDashboardService:
             return False, error_msg
 
     def refresh_tr_universe(self) -> tuple[bool, str]:
-        """Triggered einen manuellen Refresh des TR-Universums."""
+        """Fuehrt einen manuellen Import der lokalen TR-CSV aus."""
         from src.services.trade_republic_universe_service import TradeRepublicUniverseIngestionService
         ingest = TradeRepublicUniverseIngestionService(self.settings, self.mysql_client)
-        summary = ingest.refresh(force=True)
+        summary = ingest.import_local_csv(force=True)
         if summary.status == "refreshed":
-            return True, f"Trade Republic Universum aktualisiert: {summary.inserted_rows} Eintraege."
-        return False, f"Refresh nicht durchgefuehrt: {summary.status} ({summary.error or 'ohne Details'})"
+            return True, f"Trade Republic CSV importiert: {summary.inserted_rows} Eintraege."
+        return False, f"CSV-Import nicht durchgefuehrt: {summary.status} ({summary.error or 'ohne Details'})"
 
     def count_old_mysql_trades(self, older_than_days: int) -> int:
         """Zählt MySQL insider_trades älter als N Tage (nach filing_date)."""

@@ -76,12 +76,3 @@ def parse_trade_republic_csv(raw_text: str) -> TradeRepublicUniverseParseResult:
     )
 
 
-def parse_trade_republic_pdf(raw_bytes: bytes) -> TradeRepublicUniverseParseResult:
-    # Best effort: falls der PDF-Text bereits extrahiert wurde, versuchen wir CSV-artig zu lesen.
-    if not raw_bytes:
-        return TradeRepublicUniverseParseResult([], 0, 0, 0)
-    text = raw_bytes.decode("utf-8", errors="ignore")
-    if "," in text or ";" in text or "\t" in text:
-        return parse_trade_republic_csv(text)
-    return TradeRepublicUniverseParseResult([], 0, 0, 0)
-

@@ -197,6 +197,8 @@ Optionale Import-/Gate-Parameter:
 - `GATE_REQUIRE_PURCHASE_EVENT` (`true`/`false`)
 - `GATE_REQUIRE_COMMON_STOCK` (`true`/`false`)
 - `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
+- `TRADE_REPUBLIC_UNIVERSE_LOCAL_CSV` (Pfad zur lokalen TR-Referenz-CSV)
+- `TRADE_REPUBLIC_REFRESH_TTL_HOURS` (TTL für manuelle/seed-basierte Re-Imports)
 
 ## Öffentliche Freigabe (lokale Test-Shares)
 - Zweck: kurzfristige, öffentliche Freigabe einer **lokal laufenden** Streamlit-Instanz für Test- und Reviewzwecke.
@@ -278,6 +280,12 @@ Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen foku
 - Bei Start ohne aktive Uni-DB wird lokal `pending_uni_sync=true` markiert; beim nächsten erfolgreichen Uni-Start wird automatisch `local -> uni` synchronisiert.
 - Stale-Running-Locks werden über `MYSQL_STARTUP_SYNC_STALE_MINUTES` automatisch aufgelöst.
 - Der Sync wird nur über den Sidebar-Button ausgelöst, wenn `uni` erreichbar ist.
+
+## Trade Republic Universe
+- Trade Republic wird in Mercator nicht als API- oder Scraping-Quelle behandelt.
+- Das handelbare Universum wird als lokale, versionierte CSV-Referenzdatei gepflegt.
+- Ablauf: `lokale CSV -> Admin-Import -> MySQL-Referenztabelle -> ISIN-Matching`.
+- Es gibt keinen automatischen Remote-Download und keinen Abruf beim Öffnen der normalen App-Bereiche.
 
 ## Datenbank-Statusanzeigen in der UI
 - MySQL- und MongoDB-Status werden getrennt angezeigt.

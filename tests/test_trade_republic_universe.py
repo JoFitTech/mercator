@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
-import requests
 
 from src.services.analysis_service import AnalysisService
+from src.services.import_service import ImportService
 from src.services.trade_republic_universe_service import (
     TR_STATUS_IN,
     TR_STATUS_NOT_IN,
@@ -171,19 +172,66 @@ def test_analysis_service_trade_republic_filter() -> None:
     assert out.iloc[0]["symbol_at_trade"] == "AAA"
 
 
-def test_refresh_if_stale_handles_download_error(monkeypatch) -> None:
-    class _FailingGet:
-        def __call__(self, *_args, **_kwargs):
-            raise requests.RequestException("boom")
-
-    monkeypatch.setattr("src.data_sources.trade_republic_universe_source.requests.get", _FailingGet())
+def test_import_local_csv_handles_missing_file(tmp_path: Path) -> None:
     settings = SimpleNamespace(
-        trade_republic_universe_url="https://example.com/universe.csv",
+        project_root=tmp_path,
+        trade_republic_universe_local_csv="missing.csv",
         trade_republic_refresh_ttl_hours=24,
-        trade_republic_universe_source_mode="remote_csv",
-        trade_republic_allow_remote_refresh=True,
     )
     service = TradeRepublicUniverseIngestionService(settings=settings, mysql_client=_StubClient([]))  # type: ignore[arg-type]
-    refreshed, reason = service.refresh_if_stale(force=True)
-    assert refreshed is False
-    assert reason == "refresh_failed"
+    summary = service.import_local_csv(force=True)
+    assert summary.status == "refresh_failed"
+    assert "nicht gefunden" in str(summary.error)
+
+
+def test_import_local_csv_fails_when_no_valid_isins(tmp_path: Path) -> None:
+    csv_file = tmp_path / "invalid.csv"
+    csv_file.write_text("isin,symbol,instrument_name\nBAD,AAPL,Apple Inc.\n", encoding="utf-8")
+
+    settings = SimpleNamespace(
+        project_root=tmp_path,
+        trade_republic_universe_local_csv=str(csv_file),
+        trade_republic_refresh_ttl_hours=24,
+    )
+    service = TradeRepublicUniverseIngestionService(settings=settings, mysql_client=_StubClient([]))  # type: ignore[arg-type]
+
+    summary = service.import_local_csv(force=True)
+
+    assert summary.status == "refresh_failed"
+    assert "keine gültigen Instrumente" in str(summary.error)
+
+
+def test_normal_import_does_not_trigger_trade_republic_refresh() -> None:
+    class _FmpClient:
+        def fetch_latest_insider_trades(self, page=0, limit=100):
+            return []
+
+    class _RawRepo:
+        def upsert_raw_trades(self, rows):
+            return len(rows)
+
+    class _CompanyMongoRepo:
+        pass
+
+    class _TrIngestion:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def refresh_if_stale(self, force: bool = False):
+            self.calls += 1
+            return True, "refreshed"
+
+    tr_ingestion = _TrIngestion()
+    service = ImportService(
+        fmp_client=_FmpClient(),  # type: ignore[arg-type]
+        gate_evaluator=type("_Gate", (), {"evaluate": lambda self, item: type("_Decision", (), {"status": "PASS", "reason": None})()})(),  # type: ignore[arg-type]
+        raw_repo=_RawRepo(),  # type: ignore[arg-type]
+        company_mongo_repo=_CompanyMongoRepo(),  # type: ignore[arg-type]
+        trade_mysql_repo=None,
+        company_mysql_repo=None,
+        tr_ingestion_service=tr_ingestion,  # type: ignore[arg-type]
+    )
+
+    service.run_hourly_import()
+
+    assert tr_ingestion.calls == 0

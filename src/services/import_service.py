@@ -9,8 +9,6 @@ from typing import Any
 
 from src.config.settings import DEFAULT_FEED_LIMIT, DEFAULT_FEED_PAGE
 from src.data_sources.fmp_client import FmpClient
-from src.data_sources.alpha_vantage_client import AlphaVantageClient
-from src.data_sources.polygon_client import PolygonClient
 from src.services.company_enrichment_service import CompanyEnrichmentService
 from src.services.company_profile_enrichment_service import CompanyProfileEnrichmentService
 from src.services.historical_market_data_service import HistoricalMarketDataService
@@ -153,8 +151,6 @@ class ImportService:
             inserted_raw = 0
 
         skipped_raw_duplicates = max(0, len(normalized) - int(inserted_raw))
-        if self.tr_ingestion_service is not None:
-            self.tr_ingestion_service.refresh_if_stale(force=False)
 
         # Fachregel: API-2-Abfrage steuerbar (Requirement 2.3)
         mode = str(self.api2_firing_mode).upper()
@@ -186,9 +182,9 @@ class ImportService:
             if symbol:
                 all_traded_symbols.add(symbol)
 
-            company_key = item.get("company_key")
-            if company_key and company_key not in unique_company_stubs:
-                unique_company_stubs[company_key] = item
+            company_key_str: str = str(item.get("company_key") or "").strip()
+            if company_key_str and company_key_str not in unique_company_stubs:
+                unique_company_stubs[company_key_str] = item
 
         # 2. Schritt: Einmaliges Upsert pro Firma (Stub zuerst persistieren)
         company_batch_by_key: dict[str, dict[str, Any]] = {}
@@ -809,7 +805,8 @@ class ImportService:
         elif has_fmp_shape:
             prepared = normalize_insider_trade(row, fetched_at=fetched_at)
         elif has_payload_fmp_shape:
-            prepared = normalize_insider_trade(dict(row_payload), fetched_at=fetched_at)
+            payload_dict = dict(row_payload) if isinstance(row_payload, dict) else {}
+            prepared = normalize_insider_trade(payload_dict, fetched_at=fetched_at)
             for key in ("dedupe_key", "company_key", "symbol", "symbol_at_trade"):
                 if row.get(key):
                     prepared[key] = row.get(key)
@@ -1018,7 +1015,7 @@ class ImportService:
     def _persist_company_batch(self, companies: list[dict[str, Any]]) -> None:
         if hasattr(self.company_mongo_repo, "upsert_profiles"):
             self.company_mongo_repo.upsert_profiles(companies)
-        else:
+        elif hasattr(self.company_mongo_repo, "upsert_profile"):
             for company in companies:
                 self.company_mongo_repo.upsert_profile(company)
         if self.company_mysql_repo is not None:
@@ -1094,13 +1091,19 @@ class ImportService:
             return False
             
         # 2. Price gültig
-        price = trade.get("price")
-        if price is None or price <= 0:
+        try:
+            price = float(trade.get("price") or 0)
+        except (TypeError, ValueError):
+            price = 0.0
+        if price <= 0:
             return False
             
         # 3. Qty gültig
-        qty = trade.get("qty")
-        if qty is None or qty <= 0:
+        try:
+            qty = float(trade.get("qty") or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty <= 0:
             return False
             
         # 4. Direction gültig

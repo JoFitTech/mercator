@@ -31,27 +31,17 @@ def render_trade_republic_universe_tab(
     repo = TradeRepublicUniverseRepository(mysql_client)
     ingestion = TradeRepublicUniverseIngestionService(settings=settings, mysql_client=mysql_client)
 
-    meta = repo.get_meta(settings.trade_republic_universe_url)
+    meta = repo.get_meta()
     total = int(meta.get("instrument_count", 0) or 0)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Instrumente", f"{total:,}")
-    c2.metric("Letzter Refresh", _fmt_dt(meta.get("source_last_refreshed_at")))
-    c3.metric("Quelle", str(meta.get("source_url") or settings.trade_republic_universe_source_mode))
+    c2.metric("Letzter Import", _fmt_dt(meta.get("source_last_refreshed_at")))
+    c3.metric("Quelle", str(meta.get("source_url") or settings.trade_republic_universe_local_csv))
     c4.metric("Letzter Fehler", "Ja" if meta.get("last_error") else "Nein")
 
-    a1, a2 = st.columns(2)
-    if a1.button("Trade-Republic-Universum aktualisieren", type="primary", use_container_width=True):
-        with st.spinner("Aktualisiere TR-Universum..."):
-            summary = ingestion.refresh(force=True)
-        if summary.status == "refreshed":
-            st.success(f"Aktualisiert: {summary.inserted_rows} Instrumente ({summary.source_type}).")
-        else:
-            st.error(summary.error or f"Aktualisierung fehlgeschlagen ({summary.status}).")
-        st.rerun()
-
-    if a2.button("Lokale CSV importieren", use_container_width=True):
+    if st.button("Lokale TR-CSV importieren", type="primary", use_container_width=True):
         with st.spinner("Importiere lokale CSV..."):
-            summary = ingestion.refresh_from_local_csv()
+            summary = ingestion.import_local_csv(force=True)
         if summary.status == "refreshed":
             st.success(f"Lokale CSV importiert: {summary.inserted_rows} Instrumente.")
         else:
@@ -151,9 +141,11 @@ def render_trade_republic_universe_tab(
             "\n".join(
                 [
                     f"source_url: {meta.get('source_url') or '-'}",
+                    f"source_type: {meta.get('source_type') or 'local_csv'}",
                     f"source_hash: {meta.get('source_hash') or '-'}",
                     f"valid_rows: {meta.get('valid_rows') or '-'}",
                     f"invalid_rows: {meta.get('invalid_rows') or '-'}",
+                    f"last_import_status: {meta.get('last_import_status') or '-'}",
                     f"last_error: {meta.get('last_error') or '-'}",
                 ]
             ),

@@ -213,9 +213,13 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS trade_republic_universe_meta (
         source_url VARCHAR(512) NOT NULL,
+        source_type VARCHAR(32) NULL,
         source_last_refreshed_at DATETIME NULL,
         source_hash CHAR(64) NULL,
         instrument_count INT NOT NULL DEFAULT 0,
+        valid_rows INT NULL,
+        invalid_rows INT NULL,
+        last_import_status VARCHAR(32) NULL,
         last_error TEXT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

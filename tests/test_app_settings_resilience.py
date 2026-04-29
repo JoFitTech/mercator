@@ -48,8 +48,8 @@ def _build_settings() -> AppSettings:
         disable_import=False,
         disable_admin_delete=False,
         ui_test_mode=False,
-        trade_republic_universe_url="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",
         trade_republic_refresh_ttl_hours=24,
+        trade_republic_universe_local_csv="data/reference/trade_republic/trade_republic_stocks.csv",
     )
 
 

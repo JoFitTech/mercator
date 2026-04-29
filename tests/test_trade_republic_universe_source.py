@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import src.data_sources.trade_republic_universe_source as source_module
 from src.data_sources.trade_republic_universe_source import TradeRepublicUniverseSource
 
 
@@ -11,7 +12,6 @@ def test_source_loads_local_csv(tmp_path: Path) -> None:
     csv_file.write_text("isin,symbol,instrument_name\nUS0378331005,AAPL,Apple Inc.\n", encoding="utf-8")
 
     settings = SimpleNamespace(
-        trade_republic_universe_source_mode="local_csv",
         trade_republic_universe_local_csv=str(csv_file),
         project_root=tmp_path,
     )
@@ -22,16 +22,35 @@ def test_source_loads_local_csv(tmp_path: Path) -> None:
     assert b"AAPL" in payload.content
 
 
-def test_source_blocks_remote_when_disabled() -> None:
+def test_source_missing_local_csv_raises_clear_error(tmp_path: Path) -> None:
     settings = SimpleNamespace(
-        trade_republic_universe_source_mode="remote_csv",
-        trade_republic_allow_remote_refresh=False,
-        trade_republic_universe_url="https://example.test/universe.csv",
+        trade_republic_universe_local_csv=str(tmp_path / "missing.csv"),
+        project_root=tmp_path,
     )
     try:
         TradeRepublicUniverseSource(settings).fetch()
-    except PermissionError as exc:
-        assert "deaktiviert" in str(exc)
+    except FileNotFoundError as exc:
+        assert "nicht gefunden" in str(exc)
     else:
-        raise AssertionError("Expected PermissionError")
+        raise AssertionError("Expected FileNotFoundError")
+
+
+def test_source_empty_local_csv_raises_clear_error(tmp_path: Path) -> None:
+    csv_file = tmp_path / "empty.csv"
+    csv_file.write_text("\n", encoding="utf-8")
+
+    settings = SimpleNamespace(
+        trade_republic_universe_local_csv=str(csv_file),
+        project_root=tmp_path,
+    )
+    try:
+        TradeRepublicUniverseSource(settings).fetch()
+    except ValueError as exc:
+        assert "leer" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_source_module_has_no_requests_dependency() -> None:
+    assert not hasattr(source_module, "requests")
 

@@ -473,6 +473,18 @@ class MySqlClient:
                     cursor.execute("ALTER TABLE app_sync_state ADD PRIMARY KEY (state_key)")
                     actions.append("app_sync_state: Set `state_key` as Primary Key.")
 
+                # --- trade_republic_universe_meta ---
+                tr_meta_cols = [
+                    ("source_type", "VARCHAR(32) NULL"),
+                    ("valid_rows", "INT NULL"),
+                    ("invalid_rows", "INT NULL"),
+                    ("last_import_status", "VARCHAR(32) NULL"),
+                ]
+                for col_name, col_def in tr_meta_cols:
+                    if not self._column_exists(cursor, "trade_republic_universe_meta", col_name):
+                        cursor.execute(f"ALTER TABLE trade_republic_universe_meta ADD COLUMN {col_name} {col_def}")
+                        actions.append(f"trade_republic_universe_meta: Added `{col_name}`.")
+
                 # 3. Daten-Migration (Keys befüllen)
                 companies_has_legacy_symbol = self._column_exists(cursor, "companies", "symbol")
                 trades_has_legacy_symbol = self._column_exists(cursor, "insider_trades", "symbol")

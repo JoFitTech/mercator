@@ -32,6 +32,11 @@ class TradeRepublicUniverseRepository:
                     )
                 return cur.fetchone() or {}
 
+    @staticmethod
+    def _safe_meta_value(meta: dict[str, Any], key: str, fallback: Any = None) -> Any:
+        value = meta.get(key, fallback)
+        return fallback if value is None else value
+
     def is_stale(self, source_url: str, ttl_hours: int) -> bool:
         meta = self.get_meta(source_url)
         refreshed_at = meta.get("source_last_refreshed_at")
@@ -49,9 +54,11 @@ class TradeRepublicUniverseRepository:
 
         refreshed_at = meta.get("source_last_refreshed_at") or datetime.now(UTC).replace(tzinfo=None)
         source_url = str(meta.get("source_url") or "")
+        source_type = str(meta.get("source_type") or "local_csv")
         source_hash = str(meta.get("source_hash") or "")
         valid_rows = int(meta.get("valid_rows") or len(instruments))
         invalid_rows = int(meta.get("invalid_rows") or 0)
+        last_import_status = str(meta.get("last_import_status") or "SUCCESS")
 
         rows = [
             (
@@ -97,10 +104,10 @@ class TradeRepublicUniverseRepository:
                     cur.execute(
                         """
                         UPDATE trade_republic_universe_meta
-                        SET valid_rows = %s, invalid_rows = %s
+                        SET valid_rows = %s, invalid_rows = %s, source_type = %s, last_import_status = %s
                         WHERE source_url = %s
                         """,
-                        (valid_rows, invalid_rows, source_url),
+                        (valid_rows, invalid_rows, source_type, last_import_status, source_url),
                     )
                 except Exception:
                     pass
@@ -122,6 +129,17 @@ class TradeRepublicUniverseRepository:
                     """,
                     (source_url, str(error_text or "")[:1000]),
                 )
+                try:
+                    cur.execute(
+                        """
+                        UPDATE trade_republic_universe_meta
+                        SET source_type = %s, last_import_status = %s
+                        WHERE source_url = %s
+                        """,
+                        ("local_csv", "FAILED", source_url),
+                    )
+                except Exception:
+                    pass
             conn.commit()
 
     def find_by_isin(self, isin: str) -> dict[str, Any] | None:

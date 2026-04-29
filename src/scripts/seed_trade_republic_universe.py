@@ -9,7 +9,7 @@ def main() -> int:
     settings = load_settings()
     mysql_client = MySqlClient(settings.mysql.get_active_mysql_target())
     service = TradeRepublicUniverseIngestionService(settings=settings, mysql_client=mysql_client)
-    summary = service.refresh_from_local_csv()
+    summary = service.import_local_csv(force=True)
 
     if summary.status != "refreshed":
         print(f"TR seed fehlgeschlagen: {summary.status} - {summary.error}")
