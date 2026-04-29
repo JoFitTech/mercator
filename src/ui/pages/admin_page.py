@@ -200,8 +200,6 @@ def should_render_danger_zone(settings: AppSettings, pending_sync: bool) -> bool
         return False
     if bool(settings.review_mode or settings.disable_admin_delete):
         return False
-    if getattr(settings, "demo_mode", False):
-        return False
     if pending_sync:
         return False
     return True
@@ -230,10 +228,7 @@ class AdminDashboardService:
     def _deletes_blocked(self) -> bool:
         app_env = str(self.settings.app_env or "").strip().lower()
         is_production = app_env in {"prod", "production"}
-        demo_mode = bool(getattr(self.settings, "demo_mode", False))
-        return bool(
-            is_production or self.settings.review_mode or self.settings.disable_admin_delete or demo_mode
-        )
+        return bool(is_production or self.settings.review_mode or self.settings.disable_admin_delete)
 
     def _local_sync_state_repo(self) -> SyncStateRepository | None:
         try:
@@ -280,8 +275,6 @@ class AdminDashboardService:
         app_env = str(self.settings.app_env or "").strip().lower()
         if app_env in {"prod", "production"}:
             return False, "Loeschaktionen sind in Produktion dauerhaft deaktiviert."
-        if getattr(self.settings, "demo_mode", False):
-            return False, "Loeschaktionen sind deaktiviert (Demo Mode / Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
         return False, "Loeschaktionen sind deaktiviert (Review Mode / MERCATOR_DISABLE_ADMIN_DELETE)."
 
     @staticmethod
@@ -954,15 +947,15 @@ def render_admin_page(
             if settings_service:
                 active_mode = runtime_settings.api2_firing_mode
                 if active_mode == "ONLY PASS":
-                    st.info("✅ **API2-Modus: ONLY PASS** – Operativer Kernpfad aktiv (API1 → Gate → API2 → API3 nur für Gate-PASS-Trades).")
+                    st.info("**API2-Modus: ONLY PASS** - Operativer Kernpfad aktiv (API1 -> Gate -> API2 -> API3 nur für Gate-PASS-Trades).")
                 elif active_mode in ("PASS + PENDING", "ALL TRADED COMPANIES"):
                     st.warning(
-                        f"⚠️ **API2-Modus: {active_mode}** – Admin-Backfill-Modus aktiv. "
+                        f"**API2-Modus: {active_mode}** - Admin-Backfill-Modus aktiv. "
                         "Dieser Modus ist **nicht** der operative Kernpfad. "
                         "Für normalen Betrieb bitte auf **ONLY PASS** zurücksetzen.",
                     )
                 elif active_mode == "DISABLED":
-                    st.warning("⚠️ **API2-Modus: DISABLED** – Kein API2/API3-Enrichment aktiv.")
+                    st.warning("**API2-Modus: DISABLED** - Kein API2/API3-Enrichment aktiv.")
 
             with col_scheduler:
                 with st.form("scheduler_config_form", border=True):
@@ -1039,14 +1032,14 @@ def render_admin_page(
                         _show_admin_feedback("error", "API2-Backfill fehlgeschlagen.", str(e))
 
         st.markdown("---")
-        st.markdown("#### ⚠️ Diagnose / Recovery: Raw → Clean Sync")
+        st.markdown("#### Diagnose / Recovery: Raw -> Clean Sync")
         st.warning(
             "**Wartungsfunktion – kein regulärer Importpfad.**\n\n"
             "Dieser Sync verarbeitet vorhandene Mongo-Raw-Daten erneut durch lokale Validation-, Gate- und Scoring-Logik "
             "und schreibt nur Clean-Kandidaten nach MySQL **ohne neue API-Calls**. "
             "Er eignet sich ausschließlich zur Wiederherstellung nach Datenverlust oder für Diagnosezwecke. "
             "Im Normalbetrieb werden Clean-Datensätze ausschließlich über den regulären Import (API1 → Gate → API2 → API3) erzeugt.",
-            icon="⚠️",
+            icon=None,
         )
         raw_sync_limit = st.number_input(
             "Raw->Clean Sync Limit",
@@ -1059,7 +1052,7 @@ def render_admin_page(
             key="admin_raw_clean_sync_limit",
         )
         if st.button(
-            "⚠️ Raw → Clean Sync (Diagnose/Recovery)",
+            "Raw -> Clean Sync (Diagnose/Recovery)",
             use_container_width=True,
             disabled=(not write_available) or (import_service is None),
             help="Wartungsfunktion: Sync ist deaktiviert, solange MySQL oder MongoDB nicht verfügbar sind." if not write_available else "Nur für Recovery/Diagnose verwenden – kein regulärer Importpfad.",
@@ -1373,7 +1366,7 @@ def render_admin_page(
                     f"Es werden Insider-Trades gelöscht, deren filing_date älter als **{int(st.session_state.get('retention_days_input', 365))} Tage** ist."
                 )
                 st.info(
-                    "💡 **Empfehlung:** 365 Tage (1 Jahr) ist ein guter Standard. "
+                    "**Empfehlung:** 365 Tage (1 Jahr) ist ein guter Standard. "
                     "Trades < 6 Monate löschen ist riskant, da sie noch aktiv gehandelt werden könnten. "
                     "Für langfristige Analyse empfiehlt sich ≥ 730 Tage."
                 )
@@ -1635,7 +1628,7 @@ def render_admin_page(
                             disabled=True,
                         )
                     else:
-                        st.caption("⚠️ cloudflared-Version konnte nicht abgefragt werden")
+                        st.caption("Hinweis: cloudflared-Version konnte nicht abgefragt werden")
                 else:
                     st.text_input(
                         "cloudflared Binärdatei",

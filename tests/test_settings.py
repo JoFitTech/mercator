@@ -176,21 +176,6 @@ def test_load_settings_reads_review_mode_flags(monkeypatch) -> None:
     assert settings.ui_test_mode is True
 
 
-def test_load_settings_reads_demo_mode(monkeypatch) -> None:
-    monkeypatch.setenv("MERCATOR_DEMO_MODE", "true")
-
-    settings = load_settings()
-
-    assert settings.demo_mode is True
-
-
-def test_load_settings_demo_mode_defaults_to_false(monkeypatch) -> None:
-    monkeypatch.delenv("MERCATOR_DEMO_MODE", raising=False)
-
-    settings = load_settings()
-
-    assert settings.demo_mode is False
-
 
 def test_load_settings_forces_admin_delete_block_in_production(monkeypatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")

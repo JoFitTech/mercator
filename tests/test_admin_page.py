@@ -72,7 +72,6 @@ def _build_settings(
     review_mode: bool = False,
     disable_admin_delete: bool = False,
     app_env: str = "test",
-    demo_mode: bool = False,
 ) -> AppSettings:
     mysql_settings = Settings(
         mysql_active_target="local",
@@ -121,7 +120,6 @@ def _build_settings(
         disable_import=False,
         disable_admin_delete=disable_admin_delete,
         ui_test_mode=False,
-        demo_mode=demo_mode,
         trade_republic_universe_url="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",
         trade_republic_refresh_ttl_hours=24,
     )
@@ -329,22 +327,6 @@ def test_public_share_status_message_for_warning() -> None:
     assert level == "warning"
     assert "Warnungen" in message
 
-
-def test_should_render_danger_zone_false_when_demo_mode() -> None:
-    assert should_render_danger_zone(_build_settings(demo_mode=True), pending_sync=False) is False
-
-
-def test_clear_mysql_companies_blocked_when_demo_mode() -> None:
-    service = AdminDashboardService(
-        settings=_build_settings(demo_mode=True),
-        mysql_client=_MySqlClientStub(ref_count=0),
-        mongo_available=False,
-    )
-
-    success, message = service.clear_mysql_companies()
-
-    assert success is False
-    assert "Demo Mode" in message
 
 
 def test_resolve_share_file_path_relative() -> None:

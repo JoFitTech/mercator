@@ -106,6 +106,46 @@ def render_trade_republic_universe_tab(
     else:
         st.info("Keine Einträge für die aktuellen Filter.")
 
+    st.markdown("### Geladene Liste (ungefiltert)")
+    snap_c1, snap_c2 = st.columns([1, 1])
+    snapshot_limit = int(
+        snap_c1.selectbox("Snapshot-Limit", [50, 100, 200, 500], index=1, key="tr_universe_snapshot_limit")
+    )
+    snapshot_page_raw = snap_c2.number_input(
+        "Snapshot-Seite",
+        min_value=1,
+        value=1,
+        key="tr_universe_snapshot_page",
+    )
+    snapshot_page = int(snapshot_page_raw or 1)
+    snapshot_total = repo.count(query=None, asset_class=None, country=None)
+    snapshot_offset = max(0, (snapshot_page - 1) * snapshot_limit)
+    snapshot_rows = repo.search(
+        query=None,
+        asset_class=None,
+        country=None,
+        limit=snapshot_limit,
+        offset=snapshot_offset,
+    )
+    st.caption(f"Snapshot gesamt: {snapshot_total:,}")
+    if snapshot_rows:
+        st.dataframe(
+            pd.DataFrame(snapshot_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "isin": st.column_config.TextColumn("ISIN"),
+                "symbol": st.column_config.TextColumn("Symbol"),
+                "instrument_name": st.column_config.TextColumn("Name"),
+                "country": st.column_config.TextColumn("Land"),
+                "asset_class": st.column_config.TextColumn("Asset Class"),
+                "source_url": st.column_config.TextColumn("Quelle"),
+                "source_last_refreshed_at": st.column_config.TextColumn("Aktualisiert am"),
+            },
+        )
+    else:
+        st.info("Noch kein Snapshot geladen.")
+
     with st.expander("Technische Details", expanded=False):
         st.code(
             "\n".join(

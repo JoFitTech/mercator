@@ -197,10 +197,9 @@ Optionale Import-/Gate-Parameter:
 - `GATE_REQUIRE_PURCHASE_EVENT` (`true`/`false`)
 - `GATE_REQUIRE_COMMON_STOCK` (`true`/`false`)
 - `PROFILE_GATE_FILTER_STATUSES` (CSV, z. B. `PASS` oder `PASS,PENDING`)
-- `MERCATOR_DEMO_MODE` (`true`/`false`, Default `false`) – blockiert destruktive Admin-Aktionen serverseitig
 
-## Öffentliche Freigabe (lokale Demo/Test-Shares)
-- Zweck: kurzfristige, öffentliche Freigabe einer **lokal laufenden** Streamlit-Instanz für Demo- und Testzwecke.
+## Öffentliche Freigabe (lokale Test-Shares)
+- Zweck: kurzfristige, öffentliche Freigabe einer **lokal laufenden** Streamlit-Instanz für Test- und Reviewzwecke.
 - Standardprovider: **Cloudflare Quick Tunnel** via `cloudflared`.
 - **Execution Mode**:
   - `host` (**empfohlen**): cloudflared läuft auf dem Host, robust gegen Container→Edge-Netzpfadprobleme.
@@ -238,7 +237,7 @@ Installationshilfe (Cloudflare):
 3. Container-Modus:
    - weiterhin über Sidebar/Admin start/stop steuerbar.
 3. Öffentliche URL teilen (im Admin-Feld Copy-freundlich markierbar; Öffnen-Button in Sidebar/Admin).
-4. Nach Demo/Test **Freigabe stoppen** (Sidebar oder Admin).
+4. Nach dem Test **Freigabe stoppen** (Sidebar oder Admin).
 
 ### Troubleshooting
 - **HTTP 530 / 1033 trotz laufendem Streamlit**: typischerweise Container→Cloudflare-Edge-Netzproblem (QUIC/HTTP2 in restriktiven Netzen). Wechsel auf `PUBLIC_SHARE_EXECUTION_MODE=host`.
@@ -285,7 +284,7 @@ Default-Modus: Reduziert, klar und auf die wesentlichen fachlichen Aussagen foku
 - Bei Uni-Ausfall mit erlaubtem Fallback wird der Wechsel auf `local` explizit ausgewiesen.
 - Mongo nutzt denselben transparenten Resolver-Mechanismus wie MySQL (requested target, active target, fallback-Flag, Meldungen).
 - Wenn nur MongoDB ausfällt, bleibt die App für MySQL-basierte Auswertungen nutzbar; Rohdatenspeicherung/Import ist dann eingeschränkt.
-- Bei Uni-Ausfall mit lokalem Fallback erscheint bewusst eine kurze Demo-Meldung:
+- Bei Uni-Ausfall mit lokalem Fallback erscheint bewusst eine kurze Statusmeldung:
   - `Uni-Datenbank nicht erreichbar. Lokaler Präsentationsmodus aktiv.`
   - Technische Details bleiben im Expander sichtbar.
 
@@ -419,7 +418,6 @@ Hinweise:
   - `MERCATOR_DISABLE_IMPORT=true`
   - `MERCATOR_DISABLE_ADMIN_DELETE=true`
   - `MERCATOR_UI_TEST_MODE=true`
-  - Optional fuer Live-Demos: `MERCATOR_DEMO_MODE=true`
 - Setze zusaetzlich externe Ziele/Secrets fuer Datenquellen:
   - `MYSQL_ACTIVE_TARGET`, `MONGO_ACTIVE_TARGET`
   - `LOCAL_MYSQL_HOST`, `LOCAL_MYSQL_PORT`, `LOCAL_MYSQL_DATABASE`, `LOCAL_MYSQL_USER`, `LOCAL_MYSQL_PASSWORD`

@@ -420,7 +420,7 @@ def test_app_settings_service_normalizes_gate_min_below_100k() -> None:
         fmp=FmpConfig(base_url="https://x", api_key="abc", api_key_source="env"),
         enrichment=EnrichmentConfig(), gate=GateConfig(),
         review_mode=False, disable_import=False, disable_admin_delete=False,
-        ui_test_mode=False, demo_mode=False,
+        ui_test_mode=False,
         trade_republic_universe_url="https://example.com",
         trade_republic_refresh_ttl_hours=24,
     )

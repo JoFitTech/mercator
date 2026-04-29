@@ -752,7 +752,6 @@ class AppSettings:
     trade_republic_universe_source_mode: str = "local_csv"
     trade_republic_universe_local_csv: str = "data/reference/trade_republic/trade_republic_stocks.csv"
     trade_republic_allow_remote_refresh: bool = False
-    demo_mode: bool = False
     public_share: PublicShareConfig = PublicShareConfig()
     mongo_targets: MongoSettings | None = None
 
@@ -864,7 +863,6 @@ def load_settings() -> AppSettings:
         disable_import=_read_bool_env("MERCATOR_DISABLE_IMPORT", default=False),
         disable_admin_delete=disable_admin_delete,
         ui_test_mode=_read_bool_env("MERCATOR_UI_TEST_MODE", default=False),
-        demo_mode=_read_bool_env("MERCATOR_DEMO_MODE", default=False),
         trade_republic_universe_url=_read_string_env(
             "TRADE_REPUBLIC_UNIVERSE_URL",
             default="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",
