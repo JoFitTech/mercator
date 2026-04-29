@@ -176,10 +176,12 @@ def test_refresh_if_stale_handles_download_error(monkeypatch) -> None:
         def __call__(self, *_args, **_kwargs):
             raise requests.RequestException("boom")
 
-    monkeypatch.setattr("src.services.trade_republic_universe_service.requests.get", _FailingGet())
+    monkeypatch.setattr("src.data_sources.trade_republic_universe_source.requests.get", _FailingGet())
     settings = SimpleNamespace(
         trade_republic_universe_url="https://example.com/universe.csv",
         trade_republic_refresh_ttl_hours=24,
+        trade_republic_universe_source_mode="remote_csv",
+        trade_republic_allow_remote_refresh=True,
     )
     service = TradeRepublicUniverseIngestionService(settings=settings, mysql_client=_StubClient([]))  # type: ignore[arg-type]
     refreshed, reason = service.refresh_if_stale(force=True)

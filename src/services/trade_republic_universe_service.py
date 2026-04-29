@@ -1,36 +1,31 @@
-"""Services für Trade-Republic-Universum (offizielle Referenzdaten + Matching)."""
+"""Services für Trade-Republic-Universum (statische Referenzdaten + Matching)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-import csv
-import hashlib
-import io
+from datetime import UTC, datetime
 import logging
 import re
-from typing import Any
-
-import requests
 
 from src.config.settings import AppSettings
+from src.data_sources.trade_republic_universe_source import TradeRepublicUniverseSource
 from src.db.mysql_client import MySqlClient
+from src.db.repositories.trade_republic_universe_repository import TradeRepublicUniverseRepository
+from src.domain.trade_republic_universe import (
+    TradeRepublicUniverseImportSummary,
+    TradeRepublicUniverseInstrument,
+    TradeRepublicUniverseParseResult,
+)
+from src.preprocessing.trade_republic_universe_parser import (
+    parse_trade_republic_csv,
+    parse_trade_republic_pdf,
+)
 
 LOGGER = logging.getLogger(__name__)
 
 TR_STATUS_IN = "IN_UNIVERSE"
 TR_STATUS_NOT_IN = "NOT_IN_UNIVERSE"
 TR_STATUS_UNKNOWN = "UNKNOWN"
-ISIN_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
-
-
-@dataclass(slots=True)
-class TradeRepublicUniverseInstrument:
-    isin: str
-    symbol: str | None
-    instrument_name: str | None
-    country: str | None
-    asset_class: str | None
 
 
 @dataclass(slots=True)
@@ -44,187 +39,104 @@ class TradeRepublicMatchResult:
 
 
 class TradeRepublicUniverseIngestionService:
-    """Lädt und persistiert das offizielle TR-Instrument-Universum."""
+    """Lädt und persistiert das TR-Universum kontrolliert (Admin/Seed)."""
 
     def __init__(self, settings: AppSettings, mysql_client: MySqlClient | None) -> None:
         self.settings = settings
         self.mysql_client = mysql_client
-
-    def refresh_if_stale(self, force: bool = False) -> tuple[bool, str]:
-        if self.mysql_client is None:
-            return False, "mysql_unavailable"
-        try:
-            with self.mysql_client.connection() as conn:
-                with conn.cursor(dictionary=True) as cur:
-                    cur.execute(
-                        "SELECT source_last_refreshed_at FROM trade_republic_universe_meta "
-                        "WHERE source_url = %s LIMIT 1",
-                        (self.settings.trade_republic_universe_url,),
-                    )
-                    row = cur.fetchone()
-                    if not force and row and row.get("source_last_refreshed_at"):
-                        refreshed_at = row["source_last_refreshed_at"]
-                        if isinstance(refreshed_at, datetime):
-                            age = datetime.now(UTC) - refreshed_at.replace(tzinfo=UTC)
-                            if age < timedelta(hours=self.settings.trade_republic_refresh_ttl_hours):
-                                return False, "cache_fresh"
-        except Exception:
-            LOGGER.exception("TR universe stale-check fehlgeschlagen.")
-
-        try:
-            response = requests.get(self.settings.trade_republic_universe_url, timeout=30)
-            response.raise_for_status()
-            payload = response.text
-            parsed = self.parse_universe_csv(payload)
-            if parsed.total_rows == 0 and parsed.valid_rows == 0:
-                raise ValueError("TR universe source is empty or not parseable as CSV.")
-            self._store_snapshot(parsed.instruments, source_payload=payload)
-            LOGGER.info(
-                "TR universe refresh success source=%s rows_total=%s rows_valid=%s rows_invalid=%s",
-                self.settings.trade_republic_universe_url,
-                parsed.total_rows,
-                parsed.valid_rows,
-                parsed.invalid_rows,
-            )
-            return True, "refreshed"
-        except Exception as exc:
-            LOGGER.exception("TR universe refresh fehlgeschlagen.")
-            self._store_error(str(exc))
-            return False, "refresh_failed"
+        self._source = TradeRepublicUniverseSource(settings)
+        self._repo = TradeRepublicUniverseRepository(mysql_client)
 
     @staticmethod
-    def parse_universe_csv(raw_text: str) -> "TradeRepublicUniverseParseResult":
-        stripped = raw_text.strip()
-        if not stripped:
-            return TradeRepublicUniverseParseResult([], 0, 0, 0)
-        
-        try:
-            # Versuche Trennzeichen zu erkennen (Spec: Defensives Parsing)
-            dialect = csv.Sniffer().sniff(stripped[:2000], delimiters=",;\t")
-        except Exception:
-            dialect = "excel" # Fallback
+    def parse_universe_csv(raw_text: str) -> TradeRepublicUniverseParseResult:
+        # Kompatibilitäts-Fassade für bestehende Tests/Aufrufer.
+        return parse_trade_republic_csv(raw_text)
 
-        reader = csv.DictReader(io.StringIO(raw_text), dialect=dialect)
-        items: list[TradeRepublicUniverseInstrument] = []
-        total_rows = 0
-        invalid_rows = 0
-        
-        # Spaltennamen normalisieren (case-insensitive & aliases)
-        fieldnames = [f.lower() for f in (reader.fieldnames or [])]
-        
-        def _get_val(row: dict, aliases: list[str]) -> str:
-            for a in aliases:
-                # Da DictReader die originalen keys nutzt, müssen wir diese finden
-                # (oder DictReader mit lowercase fieldnames füttern, aber das ist hacky)
-                for k, v in row.items():
-                    if k.lower() == a:
-                        return str(v or "").strip()
-            return ""
-
-        for row in reader:
-            total_rows += 1
-            try:
-                isin = _get_val(row, ["isin"]).upper().replace(" ", "")
-                if not isin or not ISIN_PATTERN.match(isin):
-                    invalid_rows += 1
-                    continue
-                
-                symbol = _get_val(row, ["symbol", "ticker"]).upper() or None
-                name = _get_val(row, ["instrument_name", "name", "title"]) or None
-                country = _get_val(row, ["country", "land"]) or None
-                asset_class = _get_val(row, ["asset_class", "type", "assetclass"]) or None
-                
-                items.append(
-                    TradeRepublicUniverseInstrument(
-                        isin=isin,
-                        symbol=symbol,
-                        instrument_name=name,
-                        country=country,
-                        asset_class=asset_class,
-                    )
-                )
-            except Exception:
-                invalid_rows += 1
-                continue
-                
-        return TradeRepublicUniverseParseResult(
-            instruments=items,
-            total_rows=total_rows,
-            valid_rows=len(items),
-            invalid_rows=invalid_rows,
-        )
-
-    def _store_snapshot(self, items: list[TradeRepublicUniverseInstrument], source_payload: str) -> None:
+    def refresh(self, force: bool = True, mode_override: str | None = None) -> TradeRepublicUniverseImportSummary:
+        source_url = str(self.settings.trade_republic_universe_url or "")
         if self.mysql_client is None:
-            return
-        refreshed_at = datetime.now(UTC).replace(tzinfo=None)
-        snapshot_hash = hashlib.sha256(source_payload.encode("utf-8")).hexdigest()
-        
-        # Batch-Insert Vorbereitung
-        data_to_insert = [
-            (
-                item.isin,
-                item.symbol,
-                item.instrument_name,
-                item.country,
-                item.asset_class,
-                self.settings.trade_republic_universe_url,
-                refreshed_at,
-                snapshot_hash,
+            return TradeRepublicUniverseImportSummary(
+                status="mysql_unavailable",
+                source_url=source_url,
+                source_type="none",
+                total_rows=0,
+                valid_rows=0,
+                invalid_rows=0,
+                inserted_rows=0,
+                source_hash="",
+                refreshed_at=None,
+                error="MySQL nicht verfügbar.",
             )
-            for item in items
-        ]
 
-        with self.mysql_client.connection() as conn:
-            with conn.cursor() as cur:
-                # 1. Alte Referenzdaten löschen
-                cur.execute("DELETE FROM trade_republic_universe_reference")
-                
-                # 2. Neue Daten via executemany (Performance!)
-                if data_to_insert:
-                    cur.executemany(
-                        """
-                        INSERT INTO trade_republic_universe_reference
-                        (isin, symbol, instrument_name, country, asset_class, source_url, source_last_refreshed_at, source_hash)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                        """,
-                        data_to_insert,
-                    )
-                
-                # 3. Metadaten aktualisieren
-                cur.execute(
-                    """
-                    INSERT INTO trade_republic_universe_meta
-                    (source_url, source_last_refreshed_at, source_hash, instrument_count, last_error)
-                    VALUES (%s,%s,%s,%s,NULL)
-                    ON DUPLICATE KEY UPDATE
-                        source_last_refreshed_at = VALUES(source_last_refreshed_at),
-                        source_hash = VALUES(source_hash),
-                        instrument_count = VALUES(instrument_count),
-                        last_error = NULL
-                    """,
-                    (self.settings.trade_republic_universe_url, refreshed_at, snapshot_hash, len(items)),
-                )
-            conn.commit()
+        if (not force) and (not self._repo.is_stale(source_url, int(self.settings.trade_republic_refresh_ttl_hours))):
+            meta = self._repo.get_meta(source_url)
+            return TradeRepublicUniverseImportSummary(
+                status="cache_fresh",
+                source_url=source_url,
+                source_type=str(getattr(self.settings, "trade_republic_universe_source_mode", "local_csv")),
+                total_rows=int(meta.get("instrument_count", 0) or 0),
+                valid_rows=int(meta.get("instrument_count", 0) or 0),
+                invalid_rows=int(meta.get("invalid_rows", 0) or 0),
+                inserted_rows=int(meta.get("instrument_count", 0) or 0),
+                source_hash=str(meta.get("source_hash") or ""),
+                refreshed_at=meta.get("source_last_refreshed_at"),
+            )
 
-    def _store_error(self, error_text: str) -> None:
-        if self.mysql_client is None:
-            return
-        now_ts = datetime.now(UTC).replace(tzinfo=None)
-        with self.mysql_client.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO trade_republic_universe_meta
-                    (source_url, source_last_refreshed_at, source_hash, instrument_count, last_error)
-                    VALUES (%s, NULL, NULL, 0, %s)
-                    ON DUPLICATE KEY UPDATE
-                        last_error = VALUES(last_error),
-                        updated_at = %s
-                    """,
-                    (self.settings.trade_republic_universe_url, error_text[:1000], now_ts),
-                )
-            conn.commit()
+        try:
+            payload = self._source.fetch(mode_override=mode_override)
+            source_type = str(payload.source_type or "")
+            if source_type == "remote_pdf":
+                parsed = parse_trade_republic_pdf(payload.content)
+            else:
+                parsed = parse_trade_republic_csv(payload.content.decode("utf-8", errors="replace"))
+
+            if parsed.valid_rows <= 0:
+                raise ValueError("TR universe source is empty or not parseable as CSV/PDF.")
+
+            self._repo.replace_snapshot(
+                parsed.instruments,
+                {
+                    "source_url": payload.source_url,
+                    "source_last_refreshed_at": payload.fetched_at.astimezone(UTC).replace(tzinfo=None),
+                    "source_hash": payload.source_hash,
+                    "valid_rows": parsed.valid_rows,
+                    "invalid_rows": parsed.invalid_rows,
+                },
+            )
+            return TradeRepublicUniverseImportSummary(
+                status="refreshed",
+                source_url=payload.source_url,
+                source_type=payload.source_type,
+                total_rows=parsed.total_rows,
+                valid_rows=parsed.valid_rows,
+                invalid_rows=parsed.invalid_rows,
+                inserted_rows=parsed.valid_rows,
+                source_hash=payload.source_hash,
+                refreshed_at=payload.fetched_at,
+            )
+        except Exception as exc:
+            LOGGER.exception("TR universe refresh fehlgeschlagen.")
+            self._repo.store_error(source_url=source_url, error_text=str(exc))
+            return TradeRepublicUniverseImportSummary(
+                status="refresh_failed",
+                source_url=source_url,
+                source_type=str(mode_override or getattr(self.settings, "trade_republic_universe_source_mode", "local_csv")),
+                total_rows=0,
+                valid_rows=0,
+                invalid_rows=0,
+                inserted_rows=0,
+                source_hash="",
+                refreshed_at=None,
+                error=str(exc),
+            )
+
+    def refresh_if_stale(self, force: bool = False) -> tuple[bool, str]:
+        # Kompatibel für bestehenden Import-Flow (tuple).
+        summary = self.refresh(force=force)
+        return summary.status == "refreshed", summary.status
+
+    def refresh_from_local_csv(self) -> TradeRepublicUniverseImportSummary:
+        return self.refresh(force=True, mode_override="local_csv")
 
 
 class TradeRepublicUniverseMatchingService:
@@ -232,6 +144,7 @@ class TradeRepublicUniverseMatchingService:
 
     def __init__(self, mysql_client: MySqlClient | None) -> None:
         self.mysql_client = mysql_client
+        self._repo = TradeRepublicUniverseRepository(mysql_client)
 
     @staticmethod
     def _normalize_name(value: str | None) -> str:
@@ -254,9 +167,7 @@ class TradeRepublicUniverseMatchingService:
 
         with self.mysql_client.connection() as conn:
             with conn.cursor(dictionary=True) as cur:
-                cur.execute(
-                    "SELECT source_last_refreshed_at FROM trade_republic_universe_meta LIMIT 1"
-                )
+                cur.execute("SELECT source_last_refreshed_at FROM trade_republic_universe_meta LIMIT 1")
                 meta = cur.fetchone() or {}
                 refreshed_at = meta.get("source_last_refreshed_at")
 
@@ -276,7 +187,6 @@ class TradeRepublicUniverseMatchingService:
                             by_isin.get("instrument_name"),
                         )
                     if refreshed_at:
-                        LOGGER.info("TR match no ISIN hit isin=%s status=%s", isin, TR_STATUS_NOT_IN)
                         return TradeRepublicMatchResult(TR_STATUS_NOT_IN, "NONE", "HIGH", refreshed_at, None, None)
 
                 if sym and normalized_name:
@@ -300,16 +210,9 @@ class TradeRepublicUniverseMatchingService:
                             row.get("instrument_name"),
                         )
                     if len(candidates) == 0 and refreshed_at:
-                        LOGGER.info("TR match no symbol+name hit symbol=%s name=%s", sym, company_name)
                         return TradeRepublicMatchResult(TR_STATUS_NOT_IN, "NONE", "MEDIUM", refreshed_at, None, None)
 
         LOGGER.info("TR match fallback UNKNOWN symbol=%s isin=%s", sym, isin)
         return TradeRepublicMatchResult(TR_STATUS_UNKNOWN, "NONE", "LOW", None, None, None)
 
 
-@dataclass(slots=True)
-class TradeRepublicUniverseParseResult:
-    instruments: list[TradeRepublicUniverseInstrument]
-    total_rows: int
-    valid_rows: int
-    invalid_rows: int

@@ -749,6 +749,9 @@ class AppSettings:
     ui_test_mode: bool
     trade_republic_universe_url: str
     trade_republic_refresh_ttl_hours: int
+    trade_republic_universe_source_mode: str = "local_csv"
+    trade_republic_universe_local_csv: str = "data/reference/trade_republic/trade_republic_stocks.csv"
+    trade_republic_allow_remote_refresh: bool = False
     demo_mode: bool = False
     public_share: PublicShareConfig = PublicShareConfig()
     mongo_targets: MongoSettings | None = None
@@ -866,7 +869,19 @@ def load_settings() -> AppSettings:
             "TRADE_REPUBLIC_UNIVERSE_URL",
             default="https://assets.traderepublic.com/assets/files/DE/Instrument_Universe_DE_en.csv",
         ),
-        trade_republic_refresh_ttl_hours=_read_int_env("TRADE_REPUBLIC_REFRESH_TTL_HOURS", default=24),
+        trade_republic_refresh_ttl_hours=_read_int_env("TRADE_REPUBLIC_REFRESH_TTL_HOURS", default=168),
+        trade_republic_universe_source_mode=_read_string_env(
+            "TRADE_REPUBLIC_UNIVERSE_SOURCE_MODE",
+            default="local_csv",
+        ).lower(),
+        trade_republic_universe_local_csv=_read_string_env(
+            "TRADE_REPUBLIC_UNIVERSE_LOCAL_CSV",
+            default="data/reference/trade_republic/trade_republic_stocks.csv",
+        ),
+        trade_republic_allow_remote_refresh=_read_bool_env(
+            "TRADE_REPUBLIC_ALLOW_REMOTE_REFRESH",
+            default=False,
+        ),
         public_share=PublicShareConfig(
             enabled=public_share_enabled,
             provider=public_share_provider,

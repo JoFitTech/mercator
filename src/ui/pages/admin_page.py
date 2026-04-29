@@ -24,6 +24,7 @@ from src.services.public_share_service import (
     read_host_tunnel_runtime_state,
 )
 from src.ui.components.page_scaffold import render_page_header
+from src.ui.pages.admin_trade_republic_tab import render_trade_republic_universe_tab
 from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
@@ -730,10 +731,10 @@ class AdminDashboardService:
         """Triggered einen manuellen Refresh des TR-Universums."""
         from src.services.trade_republic_universe_service import TradeRepublicUniverseIngestionService
         ingest = TradeRepublicUniverseIngestionService(self.settings, self.mysql_client)
-        success, reason = ingest.refresh_if_stale(force=True)
-        if success:
-            return True, "Trade Republic Universum erfolgreich aktualisiert."
-        return False, f"Refresh nicht durchgefuehrt: {reason}"
+        summary = ingest.refresh(force=True)
+        if summary.status == "refreshed":
+            return True, f"Trade Republic Universum aktualisiert: {summary.inserted_rows} Eintraege."
+        return False, f"Refresh nicht durchgefuehrt: {summary.status} ({summary.error or 'ohne Details'})"
 
     def count_old_mysql_trades(self, older_than_days: int) -> int:
         """Zählt MySQL insider_trades älter als N Tage (nach filing_date)."""
@@ -886,8 +887,8 @@ def render_admin_page(
                 st.rerun()
 
     # 1. Hauptnavigation über echte Tabs (Requirement 8.2)
-    tab_import, tab_sync, tab_db_control, tab_public_share = st.tabs([
-        "Import und API2", "Sync-Status", "Datenbank-Kontrolle", "Öffentliche Freigabe"
+    tab_import, tab_sync, tab_data_sources, tab_db_control, tab_public_share = st.tabs([
+        "Import und API2", "Sync-Status", "Datenquellen", "Datenbank-Kontrolle", "Öffentliche Freigabe"
     ])
 
     admin_service = AdminDashboardService(settings, mysql_client, mongo_available)
@@ -1238,7 +1239,15 @@ def render_admin_page(
                     _push_admin_feedback("error", "Pending Startup Sync fehlgeschlagen.", message)
                 st.rerun()
 
-    # 4. DB CONTROL TAB
+    # 4. DATENQUELLEN TAB
+    with tab_data_sources:
+        render_trade_republic_universe_tab(
+            settings=settings,
+            mysql_client=mysql_client,
+            admin_service=admin_service,
+        )
+
+    # 5. DB CONTROL TAB
     with tab_db_control:
         st.subheader("Datenbank-Wartung & Resets")
         st.caption("Technische Werkzeuge zur Fehlerbehebung und Datenbereinigung.")
@@ -1260,19 +1269,7 @@ def render_admin_page(
                         _push_admin_feedback("error", "Schema-Reparatur fehlgeschlagen.", msg)
                     st.rerun()
             
-            if st.button(
-                "TR-Universum aktualisieren",
-                use_container_width=True,
-                help="Aktualisiert die Liste der handelbaren Ticker von Trade Republic",
-                disabled=not write_available,
-            ):
-                with st.spinner("Aktualisiere TR-Universum..."):
-                    success, msg = admin_service.refresh_tr_universe()
-                    if success:
-                        _push_admin_feedback("success", msg)
-                    else:
-                        _push_admin_feedback("warning", "TR-Universum konnte nicht vollständig aktualisiert werden.", msg)
-                    st.rerun()
+            # TR-Universum wurde in den separaten Datenquellen-Tab verschoben.
         
         with c2:
             st.markdown("#### Gefahrenzone")
@@ -1421,7 +1418,7 @@ def render_admin_page(
         else:
             st.caption("Retention-Löschfunktionen sind in dieser Umgebung deaktiviert.")
 
-    # 5. OEFFENTLICHE FREIGABE
+    # 6. OEFFENTLICHE FREIGABE
     with tab_public_share:
         st.subheader("Öffentliche Freigabe")
         if not settings.public_share.enabled:
