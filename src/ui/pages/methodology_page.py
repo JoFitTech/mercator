@@ -115,9 +115,3 @@ def render_methodology_page() -> None:
         - Tunnel/Public Share nur lokal für explizite Test-/Review-Zwecke
         """
     )
-
-    st.markdown("### 9) Demo-Hinweis")
-    st.info(
-        "Empfohlener 5-Minuten-Flow: Dashboard -> Methodik -> Trades -> Unternehmen -> Admin Status. "
-        "In Production/Review sind destruktive Admin-Aktionen deaktiviert."
-    )
