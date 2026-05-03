@@ -1,3 +1,4 @@
+# latexmk is optional on Windows. Use build.ps1 if Perl is not installed.
 $lualatex = 'lualatex -interaction=nonstopmode -synctex=1 %O %S';
 $bibtex = 'biber %O %B';
 $pdf_mode = 4;
