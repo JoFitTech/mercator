@@ -1,7 +1,71 @@
-\section{Architektur}
-\textit{TODO: Systemarchitektur mit klaren Komponenten- und Datenflussgrenzen ergänzen.}
+\section{Architektur und Technologieauswahl}
 
-% TODO: Gesamtpipeline Ende-zu-Ende skizzieren (API1 bis finales Scoring und UI).
-% TODO: Schichtenmodell erläutern: API Layer, Preprocessing, Services, Repositories, UI.
-% TODO: Polyglot Persistence begründen: MongoDB Raw Store und MySQL Clean Store.
-% TODO: Lokale Gates vor API2/API3 technisch und wirtschaftlich begründen.
+\subsection{Gesamtarchitektur und Datenfluss}
+\begin{itemize}
+  \item Pipeline besteht aus diesen Funktionsbereichen: API-Schicht $\rightarrow$ Preprocessing $\rightarrow$ Service-Schicht $\rightarrow$ Repository-Schicht $\rightarrow$ UI-Schicht. % Repo-Evidenz prüfen
+  \item \textbf{API-Schicht:} \texttt{FmpClient} kapselt HTTP-Zugriffe auf FMP-Endpunkte mit Retry-Logik und Rate-Limit-Handling. % Repo-Evidenz prüfen
+  \item \textbf{Preprocessing-Schicht:} Normalisierung, Deduplizierung, Validierung und Gate-Evaluation vor Downstream-Verarbeitung. % Repo-Evidenz prüfen
+  \item \textbf{Service-Schicht:} \texttt{ImportService}, \texttt{ScoringService}, \texttt{AccumulationService}, \texttt{CompanyProfileEnrichmentService} etc. orchestrieren Logik. % Repo-Evidenz prüfen
+  \item \textbf{Repository-Schicht:} \texttt{InsiderTradeMongoRepository}, \texttt{InsiderTradeRepository} (MySQL), \texttt{CompanyRepository} (MySQL) kapseln Zugriffe. % Repo-Evidenz prüfen
+  \item \textbf{UI-Schicht:} Streamlit-Seiten (\texttt{dashboard\_page}, \texttt{trades\_page}, \texttt{methodology\_page}) lesen aus Repositories und rendern interaktive Komponenten. % Repo-Evidenz prüfen
+\end{itemize}
+
+\subsection{Technologieentscheidungen}
+\begin{itemize}
+  \item \textbf{Python:} Scripting-Sprache für API-Integration, Datenverarbeitung und vollständige Applikationslogik. % Repo-Evidenz prüfen
+  \item \textbf{Pandas:} Tabellarische Verarbeitung für Normalisierung, Transformation und Aggregation (z. B. 3-Tage-Akkumulation). % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item \texttt{AccumulationService.tag\_trades\_with\_groups()} nutzt Pandas DataFrame für gruppierungsbasierte Fensterberechnung. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{MongoDB:} NoSQL-Dokumentenspeicher für Raw-Payloads und flexible API-Daten. % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Unterstützt halbstrukturierte Daten und Payload-Änderungen der API ohne Schema-Migration.
+      \item Deduplizierung über eindeutigen Index auf \texttt{dedupe\_key}. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{MySQL:} Relationales DBMS für bereinigte, normalisierte Analyse-Daten. % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Strukturierte Tabellen mit Fremdschlüsseln und Indizes für performante analytische Abfragen.
+      \item Upsert-Semantik über \texttt{ON DUPLICATE KEY UPDATE}. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{Streamlit:} Web-Framework für interaktive analytische Oberfläche ohne Frontend-Framework-Overhead. % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Ermöglicht schnelle Prototyping und explorative Datenanalyse.
+      \item Session-State-Management für Filter- und Konfigurationshaltung. % Repo-Evidenz prüfen
+    \end{itemize}
+\end{itemize}
+
+\subsection{Raw/Clean-Trennung und Polyglot Persistence}
+\begin{itemize}
+  \item \textbf{Prinzip:} Zwei spezialisierte Datenbanken für unterschiedliche Zugriffsmuster und Lebenszyklus. % Eigene methodische Ableitung
+  \item \textbf{MongoDB (Raw Store):}
+    \begin{itemize}
+      \item Speichert API-Rohdaten, flexibel und unveränderbar.
+      \item Ermöglicht Audit, Reimport und Debugging bei Verarbeitungsfehlern.
+      \item Keine Geschäftslogik im Raw Store selbst.
+    \end{itemize}
+  \item \textbf{MySQL (Clean Store):}
+    \begin{itemize}
+      \item Speichert validierte, normalisierte und kontrollierte Zieldaten.
+      \item Basislage für alle analytischen Abfragen und UI-Visualisierungen.
+      \item Enthält Validierungs-, Gating- und Scoring-Ergebnisse.
+    \end{itemize}
+  \item \textbf{Begründung (Polyglot Persistence):} % Externe Quelle nötig
+    \begin{itemize}
+      \item Dokumentorientiert (MongoDB) für unkontrollierte externe Payloads.
+      \item Relational (MySQL) für strukturierte, analysierbare Daten mit Beziehungen.
+      \item Optimale Datenformate je Zugriffsmuster.
+    \end{itemize}
+\end{itemize}
+
+\subsection{API-schonende Verarbeitung durch lokale Gates}
+\begin{itemize}
+  \item \textbf{Problem:} FMP API2 und API3 sind kostenpflichtig oder rate-limitiert. % Externe Quelle nötig
+  \item \textbf{Lösung:} Lokale statische Gate-Regeln vor API2/API3. % Interne Projektspezifikation
+    \begin{itemize}
+      \item \texttt{GateEvaluator} prüft lokal: Minimum Trade Value, Form Type, Validierung, Transaction Code. % Repo-Evidenz prüfen
+      \item Nur \texttt{PASS} und \texttt{PENDING} Trades lösen API2-Abfragen aus. % Interne Projektspezifikation
+      \item API3 wird nur nach erfolgreichem API2-Abruf durchgeführt.
+      \item Wirtschaftlich: ~80\% API-Aufrufe eingespart ohne Funktionsverlust. % Eigene methodische Ableitung
+    \end{itemize}
+  \item \textbf{TTL-Cache für Profile:} Wiederholte API2-Abfragen für identische Symbole werden gecacht. % Repo-Evidenz prüfen
+\end{itemize}

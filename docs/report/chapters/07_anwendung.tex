@@ -1,7 +1,133 @@
-\section{Anwendung}
-\textit{TODO: Nutzerorientierte Darstellung der Streamlit-Anwendung und Kernfunktionen ergänzen.}
+\section{Anwendung und Benutzeroberfläche}
 
-% TODO: Aufbau der Streamlit UI beschreiben.
-% TODO: Bereiche wie Dashboard, Trades, Unternehmen und Methodik/Admin abgrenzen.
-% TODO: Filter, KPIs, Tabellen und Charts als Bedien- und Analyseelemente dokumentieren.
-% TODO: Statusdarstellungen barrierearm umsetzen (nicht ausschließlich farbbasiert).
+\subsection{Architektur der Streamlit-Anwendung}
+\begin{itemize}
+  \item \textbf{Framework:} Streamlit für schnelle interaktive Web-Anwendung ohne Frontend-Framework-Komplexität. % Repo-Evidenz prüfen
+  \item \textbf{Navigation:} Sidebar-basiertes Page-Routing. Nutzer wählen Seiten über Selectbox. % Repo-Evidenz prüfen
+  \item \textbf{Session State:} Streamlit \texttt{st.session\_state} hält Filter und Einstellungen über Neuladen. % Repo-Evidenz prüfen
+  \item \textbf{Bootstrap:} \texttt{src/app/} orchestriert App-Startup, Auto-Import und Database-Resolver. % Repo-Evidenz prüfen
+\end{itemize}
+
+\subsection{Hauptseiten}
+\begin{itemize}
+  \item \textbf{📊 Dashboard:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item KPI-Reihen: Anzahl Trades, Gate-Passer, durchschnittlicher Score, Marktkapitalisierung-Aggregation.
+      \item Charts:
+        \begin{itemize}
+          \item Horizontale Balkendiagramme für Buy/Sell nach Sektor.
+          \item Trend-Chart für Netto-Signale über Zeit.
+          \item Top-Companies und Top-Insiders nach Aktivität.
+        \end{itemize}
+      \item Filter: Datumsbereich (30 Tage per Default). % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{🕵️ Trade-Explorer (Hauptarbeitsfläche):} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Operative Filterfläche:
+        \begin{itemize}
+          \item Symbol (LIKE-Suche).
+          \item Insider-Name.
+          \item Richtung (Buy/Sell/Alle).
+          \item Gate-Status (PASS/PENDING/FAIL/Alle).
+          \item Validierungs-Status (VALID/INVALID/PRICE\_INVALID/Alle).
+          \item Mindest-Score (Schieber, 0--100).
+          \item Datumsbereich.
+          \item Akkumulierungs-Modus: Gruppierung oder Einzeltrades.
+        \end{itemize}
+      \item Tabelle mit Paginierung (50/100/200 Reihen pro Seite). % Repo-Evidenz prüfen
+        \begin{itemize}
+          \item Spalten: Symbol, Filing Date, Reporting Name, Qty, Price, Trade Value, Gate Status, Score, Score Class.
+          \item In Advanced Mode: zusätzliche Spalten (CIK, Market Cap, Industry, Validation Status).
+        \end{itemize}
+      \item Drilldown: Klick auf Trade öffnet Detailansicht. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{🏢 Unternehmen:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Unternehmens-Übersicht: Name, Ticker, Market Cap, Industrie, Trade Count, letzter Trade. % Repo-Evidenz prüfen
+      \item Drilldown in Unternehmens-Detail-Seite mit Trade-Historie und Aggregationen. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{📖 Methodik:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Dokumentation der Pipeline (Graphviz-Diagramm). % Repo-Evidenz prüfen
+      \item Raw/Clean-Trennung erklärt.
+      \item Validierung und Gate-Regeln textlich beschrieben.
+      \item Score-Komponenten und Gewichtungen. % Interne Projektspezifikation
+      \item Transaction-Code-Klassifikation.
+    \end{itemize}
+  \item \textbf{⚙️ Einstellungen:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Konfigurierbare Gate-Schwellen (Mindestwert, Form Type).
+      \item Score-Schwellen (PASS-Grenze, HOLD-Grenze).
+      \item Import-Intervalle (für Auto-Import).
+      \item Einstellungen werden in MongoDB persistiert. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{🛠️ Admin:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Import-Steuerung: manueller Import mit Status-Reporting. % Repo-Evidenz prüfen
+      \item Scheduler-Verwaltung: Auto-Import ein/aus, Tests.
+      \item Datenbank-Status: Raw-Store-Zähler (MongoDB), Clean-Store-Info (MySQL).
+      \item Öffentliche Freigabe (Public Share via Cloudflared).
+      \item Raw~Clean-Sync (optionaler Re-Sync aus MongoDB ohne neue API-Calls).
+    \end{itemize}
+\end{itemize}
+
+\subsection{UI-Komponenten und Interaktivität}
+\begin{itemize}
+  \item \textbf{Filterung:}
+    \begin{itemize}
+      \item Text-Eingaben (Symbol, Name) mit Wildcard-Matching.
+      \item Selectboxes für Klassifikations-Felder (Gate Status, Richtung).
+      \item Datumsbereichs-Picker (date\_input mit Start/End).
+      \item Zahlenschieber für Score-Schwellen und Mindestwert.
+      \item Filter-Panel collapsible zur UI-Platzoptimierung. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{Tabellen:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Sortierbar nach allen Spalten (standardmäßig Filing Date descending). % Repo-Evidenz prüfen
+      \item Zentrierte Ausrichtung für tabellarische Daten (häufig in Analysetools). % Repo-Evidenz prüfen
+      \item Highlighting nach Status (PASS grün, FAIL rot, PENDING gelb). % Repo-Evidenz prüfen
+      \item Row-Selection für Drill-Down. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{Charts:}
+    \begin{itemize}
+      \item Balkendiagramme (matplotlib, seaborn oder Streamlit native).
+      \item Zeitreihen-Liniendiagramme für Trends.
+      \item Farben nach Kategorie (Sektor, Status). % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{KPI-Rendering:}
+    \begin{itemize}
+      \item \texttt{render\_kpi\_row()} zeigt Metriken in Spalten-Layout. % Repo-Evidenz prüfen
+      \item Werte können formatiert sein (Währung, Prozent, Zahl). % Repo-Evidenz prüfen
+    \end{itemize}
+\end{itemize}
+
+\subsection{Statusdarstellung und Barrierefreiheit}
+\begin{itemize}
+  \item \textbf{Textliche Darstellung von Status:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Nicht ausschließlich Farbe: Jeder Status-Badge trägt auch Label-Text (\texttt{PASS}, \texttt{FAIL}, \texttt{PENDING}). % Repo-Evidenz prüfen
+      \item WCAG-Konformität: Farbe allein ist nicht das einzige Erkennungsmittel. % Externe Quelle nötig
+    \end{itemize}
+  \item \textbf{Kontrast und Lesbarkeit:}
+    \begin{itemize}
+      \item Schriftgrößen und Farbpaletten folgen Standard-Accessibility-Richtlinien.
+      \item Text-Alternativen für Charts und Icons.
+    \end{itemize}
+  \item \textbf{Navigation und Struktur:}
+    \begin{itemize}
+      \item Klare Seitentitel und Struktur.
+      \item Sidebar Navigation ist konsistent.
+      \item Tastatur-Navigation unterstützt.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Advanced Mode}
+\begin{itemize}
+  \item \textbf{Funktionalität:} Toggle in Sidebar für zusätzliche Details. % Repo-Evidenz prüfen
+  \item \textbf{Effekt:}
+    \begin{itemize}
+      \item Erweiterte Tabellenspalten: CIK, Profile Status, Technical Metrics.
+      \item Detaillierte Scoring-Komponenten sichtbar.
+      \item Fehler und Warnung-Details angezeigt.
+    \end{itemize}
+\end{itemize}

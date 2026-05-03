@@ -1,8 +1,114 @@
-\section{Scoring}
-\textit{TODO: Bewertungslogik transparent und prüfbar spezifizieren.}
+\section{Scoring und Entscheidungslogik}
 
-% TODO: Finales Scoring erst nach vollständiger Anreicherung definieren.
-% TODO: Kein Pre-Score: Reihenfolge der Verarbeitung begründen.
-% TODO: Transaction-Code-Klassifikation in den Scorefluss integrieren.
-% TODO: Einflussfaktoren Trend, Momentum, Liquidität und Market Cap strukturieren.
-% TODO: Grenzen des Scores und interne Gewichtungen dokumentieren.
+\subsection{Grundprinzipien}
+\begin{itemize}
+  \item \textbf{Finales Scoring erst nach vollständiger Anreicherung:} % Interne Projektspezifikation
+    \begin{itemize}
+      \item Scoring erfolgt immer zuletzt in der Pipeline: API1 $\rightarrow$ Validierung $\rightarrow$ Gates $\rightarrow$ (Akkumulation) $\rightarrow$ API2 $\rightarrow$ API3 $\rightarrow$ \textbf{Scoring}. % Repo-Evidenz prüfen
+      \item Grund: Score benötigt vollständige technische Informationen (market\_cap, sma\_50, momentum).
+      \item Es gibt keinen Pre-Score oder Voraus-Gating basierend auf partiellem Score.
+    \end{itemize}
+  \item \textbf{Regelbasierter Ansatz:} % Eigene methodische Ableitung
+    \begin{itemize}
+      \item Score ist nicht ML-generiert, sondern von Hand klassifiziert und gewichtet.
+      \item Jede Regel ist dokumentiert und nachvollziehbar.
+      \item Gewichtungen können angepasst werden, ohne das Modell umzuschulen.
+    \end{itemize}
+  \item \textbf{Score ist Heuristik, keine Finanzprognose:} % Eigene methodische Ableitung
+    \begin{itemize}
+      \item Der Score hat keine statistische Validierung gegen zukünftige Kursentwicklung.
+      \item Score ist ein Screening-Werkzeug für Exploration, nicht für automatisierte Handelsentscheidungen.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Transaction-Code-Klassifikation}
+\begin{itemize}
+  \item \textbf{Fünf Klassifikations-Klassen:} % Interne Projektspezifikation
+    \begin{itemize}
+      \item \texttt{CORE\_BUY}: Code \texttt{P} (Purchase) -- stärkstes positives Kaufsignal. % Interne Projektspezifikation
+      \item \texttt{CORE\_SELL}: Code \texttt{S} (Sale) -- stärkstes negatives Verkaufssignal. % Interne Projektspezifikation
+      \item \texttt{SECONDARY\_SIGNAL}: Codes \texttt{I} (Discretionary), \texttt{L} (Small) -- schwächer als P/S. % Interne Projektspezifikation
+      \item \texttt{MANUAL\_REVIEW}: Codes \texttt{J} (Other), \texttt{V} (Voluntary) -- benötigen Kontext. % Interne Projektspezifikation
+      \item \texttt{EXCLUDE\_FROM\_CORE}: Codes \texttt{A, C, D, E, F, G, H, M, O, U, W, X, Z, K} -- technisch oder kompensationsnah. % Interne Projektspezifikation
+    \end{itemize}
+  \item \textbf{Implementierung:} \texttt{TransactionCodeClassifier.classify()} mappt Codes auf Klassen. % Repo-Evidenz prüfen
+  \item \textbf{Score-Einfluss:}
+    \begin{itemize}
+      \item CORE\_BUY erhöht den Score signifikant.
+      \item CORE\_SELL vermindert oder invertiert den Score.
+      \item EXCLUDE\_FROM\_CORE Trades erhalten Score 0 oder sehr niedrig.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Score-Komponenten}
+\begin{itemize}
+  \item \textbf{Mögliche Score-Komponenten (zu implementieren / verifizieren):} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item \textbf{Trade Value:} Größere Transaktionen signalisieren stärkere Überzeugung.
+      \item \textbf{Filing Age:} Neuere Anmeldungen sind relevanter; sehr alte werden diskontiert.
+      \item \textbf{Market Cap:} Trades bei Mega-Cap vs. Small-Cap haben unterschiedliche Bedeutung. % Externe Quelle nötig
+      \item \textbf{Technical Trend (SMA50/200):} Insider-Käufe bei Uptrend sind stärker; Käufe gegen Downtrend sind konträr und spekulativ.
+      \item \textbf{Momentum (3M, 6M):} Kontext von Preisdynamik.
+      \item \textbf{Liquidity:} Zu illiquide Stocks sind weniger handelbar.
+      \item \textbf{Transaction Code:} (s. oben)
+    \end{itemize}
+  \item \textbf{Gewichtungs-Struktur:} % Interne Projektspezifikation
+    \begin{itemize}
+      \item Transaction Code: 40\% (oder ähnlich -- Repo verifizieren).
+      \item Trade Value: 20\%.
+      \item Market Cap: 15\%.
+      \item Technical Trend: 15\%.
+      \item Filing Age \& Liquidity: je 5\%.
+      \item (Konkrete Gewichte aus Repo-Code überprüfen: \texttt{ScoringService}, \texttt{scoring\_service.py}). % Repo-Evidenz prüfen
+    \end{itemize}
+\end{itemize}
+
+\subsection{Score-Klassen}
+\begin{itemize}
+  \item \textbf{Numerische Scores werden in fünf Klassen eingeteilt:} % Interne Projektspezifikation
+    \begin{itemize}
+      \item A: Score $\geq 80$ -- sehr stark empfohlen.
+      \item B: Score $\in [60, 80)$ -- empfohlen.
+      \item C: Score $\in [40, 60)$ -- neutral bis schwach.
+      \item D: Score $\in [20, 40)$ -- schwach.
+      \item E: Score $< 20$ -- sehr schwach oder ungültig.
+    \end{itemize}
+  \item \textbf{Status-Labels:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item \texttt{PASS}: Score-Klasse A oder B (oder konfigurierbar).
+      \item \texttt{HOLD}: Score-Klasse C.
+      \item \texttt{FAIL}: Score-Klasse D oder E, oder INVALID/PRE\_GATE\_FAIL Validierungs-Status.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Nachvollziehbarkeit und Transparenz}
+\begin{itemize}
+  \item \textbf{Komponenten-Scores werden alle gespeichert:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item \texttt{core\_insider\_score}, \texttt{investability\_score}, \texttt{execution\_score}, \texttt{trade\_republic\_score}, \texttt{final\_score}.
+      \item Nutzer können im Backend-Detailansicht alle Komponenten nachvollziehen.
+    \end{itemize}
+  \item \textbf{Methodologi-Seite:} Streamlit \texttt{methodology\_page.py} erklärt die Scoring-Regeln öffentlich. % Repo-Evidenz prüfen
+  \item \textbf{UI-Darstellung:}
+    \begin{itemize}
+      \item Jeder Trade zeigt seine score-Klasse und status-Label.
+      \item Hover-Tooltips oder Drilldown zeigen Komponenten-Details.
+      \item Textliche Status-Darstellung neben farblichen Indikatoren (WCAG). % Repo-Evidenz prüfen
+    \end{itemize}
+\end{itemize}
+
+\subsection{Grenzen des Score-Modells}
+\begin{itemize}
+  \item \textbf{Keine externe Validierung:} % Eigene methodische Ableitung
+    \begin{itemize}
+      \item Score wurde nicht gegen historische Kaufrenditen validiert.
+      \item Keine statistische Signifikanz nachgewiesen.
+    \end{itemize}
+  \item \textbf{Begrenzte Insider-Theorie-Integration:} % Externe Quelle nötig
+    \begin{itemize}
+      \item Akademische Forschung zu Insider-Trader-Motiven und -Signalen ist umfangreich; dieses Projekt nutzt stark vereinfachte Heuristiken.
+      \item Insider können aus vielen Gründen handeln (Liquiditätsbedarf, Steuerplannung, Diversifikation), nicht nur wegen Optimismus.
+    \end{itemize}
+  \item \textbf{API-Datenqualität:} FMP API kann Probleme haben bei älteren oder gering gehandelten Papieren. % Externe Quelle nötig
+  \item \textbf{Marktumgebung und Kontext:} Insider-Signale haben unterschiedliche Reliabilität in Bull vs. Bear Markets. % Externe Quelle nötig
+\end{itemize}

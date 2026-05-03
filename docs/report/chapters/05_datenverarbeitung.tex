@@ -1,8 +1,109 @@
-\section{Datenverarbeitung}
-\textit{TODO: Verarbeitungsschritte mit Fokus auf Nachvollziehbarkeit und Reproduzierbarkeit ergänzen.}
+\section{Datenverarbeitung und Validierung}
 
-% TODO: Eingangsvalidierung und Fehlerbehandlung beschreiben.
-% TODO: Gate-Logik und Selektionskriterien dokumentieren.
-% TODO: 3-Tage-Akkumulation als interne Projektspezifikation erläutern.
-% TODO: API2/API3 nur selektiv nach lokalen Gates ausführen.
-% TODO: Pandas-basierte Transformationen und Aggregationen zusammenfassen.
+\subsection{Import und Normalisierung}
+\begin{itemize}
+  \item \textbf{ImportService} orchestriert die Datenbeschaffung und Pipeline. % Repo-Evidenz prüfen
+  \item \textbf{API1-Import:} \texttt{FmpClient.fetch\_latest\_insider\_trades(page, limit)} lädt Rohobjekte. % Repo-Evidenz prüfen
+  \item \textbf{Normalisierung:}
+    \begin{itemize}
+      \item \texttt{normalize\_insider\_trade()} mappt API1-Felder auf interne Schema-Namen.
+      \item Typisierung: Strings zu Floats, Daten zu \texttt{datetime}-Objekten, Symbole zu Großbuchstaben.
+      \item Berechnung von dedupe\_key für Deduplizierung. % Repo-Evidenz prüfen
+      \item Berechnung von trade\_value falls fehlend: \texttt{qty} × \texttt{price}. % Repo-Evidenz prüfen
+      \item Berechnung von filing\_age\_days: Differenz zwischen heute und filing\_date. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{Pandas-Integration:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item Normalisierte Rohdaten werden in DataFrames geladen für Batch-Operationen.
+      \item \texttt{AccumulationService.tag\_trades\_with\_groups()} nutzt Pandas für fachliche Gruppierungen.
+      \item Filter und Aggregationen erwerbenbattgleiche Performance über Vektor-Operationen.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Validierung}
+\begin{itemize}
+  \item \textbf{Validierungs-Gate (Eingangsfilter):} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item \texttt{symbol} muss vorhanden sein und nicht leer — sonst INVALID.
+      \item \texttt{filing\_date} und \texttt{transaction\_date} müssen vorhanden sein — sonst INVALID.
+      \item \texttt{qty} > 0 ist erforderlich — sonst INVALID.
+      \item \texttt{price} > 0 ist erforderlich — sonst PRICE\_INVALID (separater Status). % Interne Projektspezifikation
+      \item Ungültige oder price\_invalid Trades werden in MongoDB gespeichert, aber \textbf{nicht} als Clean-Einträge upserted. % Repo-Evidenz prüfen
+    \end{itemize}
+  \item \textbf{Validierungs-Status:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item \texttt{VALID}: Alle Felder bestätigt.
+      \item \texttt{INVALID}: Symbol, Daten oder Menge fehlen.
+      \item \texttt{PRICE\_INVALID}: Preis ungültig oder $\leq$ 0.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Gate-Logik}
+\begin{itemize}
+  \item \textbf{GateEvaluator} prüft fachliche Relevanzkriterien lokal, vor API2. % Repo-Evidenz prüfen
+  \item \textbf{Gate-Regeln (konfigurierbar):} % Interne Projektspezifikation
+    \begin{itemize}
+      \item \texttt{formType == 4}: Nur SEC Form 4 werden aktzeptiert.
+      \item \texttt{trade\_value >= 100000} (US-Dollar): Mindestschwelle für Material-Transaktionen.
+      \item Instrument nur Aktie oder ETF: Normalisierung über \texttt{SecurityNormalizationService}.
+      \item Filing-Freshness: $>45$ Tage alt = REJECT; $>21$ Tage = Watchlist-Hinweis.
+      \item Optional: \texttt{GATE\_REQUIRE\_PURCHASE\_EVENT} und \texttt{GATE\_REQUIRE\_COMMON\_STOCK}.
+    \end{itemize}
+  \item \textbf{Gate-Status-Ausgaben:} % Repo-Evidenz prüfen
+    \begin{itemize}
+      \item \texttt{PASS}: Alle Kriterien erfüllt, kandidat für API2.
+      \item \texttt{PENDING}: Einige Kriterien offen, aber nicht disqualifizierend.
+      \item \texttt{PRE\_GATE\_FAIL}: Doesn't meet core criteria.
+    \end{itemize}
+  \item \textbf{Wirtschaftliche Begründung:} Verhindert 80\% unnoser API2/API3-Aufrufe. % Eigene methodische Ableitung
+\end{itemize}
+
+\subsection{Akkumulation und Anreicherung}
+\begin{itemize}
+  \item \textbf{3-Tage-Akkumulation:} % Interne Projektspezifikation
+    \begin{itemize}
+      \item Trades derselben Person, Firma, Richtung und innerhalb 3 Kalendertagen werden gruppierend zusammengefasst.
+      \item Implementierung: \texttt{AccumulationService.tag\_trades\_with\_groups(window\_days=3)}. % Repo-Evidenz prüfen
+      \item Ziel: Reduzierung von Rauschen und Fokus auf akkumulierten Insider-Aktivität.
+    \end{itemize}
+  \item \textbf{API2 (Company Profile):}
+    \begin{itemize}
+      \item Wird nur für PASS oder PENDING Trades abgerufen.
+      \item Liefert: market\_cap, industry, sector, company name, CIK.
+      \item Profile werden gecacht, um redundante Abfragen zu vermeiden. % Repo-Evidenz prüfen
+      \item Fallbacks: CIK-Suche nur bei Symbol-Problemen.
+    \end{itemize}
+  \item \textbf{API3 (Historical Price Data):}
+    \begin{itemize}
+      \item Wird nach erfolgreichem API2-Abruf durchgeführt.
+      \item Rückblick: 500 Tage. % Interne Projektspezifikation
+      \item Liefert: sma\_50, sma\_200, momentum\_3m, momentum\_6m, volatilität, durchschnittliches Volumen.
+      \item Technische Metriken werden in \texttt{market\_signal\_cache} gespeichert. % Repo-Evidenz prüfen
+    \end{itemize}
+\end{itemize}
+
+\subsection{Fehlerfälle und Behandlung}
+\begin{itemize}
+  \item \textbf{API-Fehler:}
+    \begin{itemize}
+      \item HTTP 403: Ungültiger API-Key. Import stoppt mit Fehler.
+      \item HTTP 429: Rate-Limit. Exponentieller Backoff mit max. 8 Sekunden Wartezeit. % Repo-Evidenz prüfen
+      \item HTTP 5xx: Temporär. Retry bis zu 2 Mal.
+      \item Netzwerkfehler: Retry mit Backoff.
+    \end{itemize}
+  \item \textbf{Fehlende Profile:}
+    \begin{itemize}
+      \item Wenn API2 fehlschlägt, wird der Trade in MySQL mit \texttt{profile\_status = MISSING} gespeichert. % Repo-Evidenz prüfen
+      \item Nachträgliche Nachladung möglich über Admin-Button.
+    \end{itemize}
+  \item \textbf{Fehlende historische Daten:}
+    \begin{itemize}
+      \item Falls API3 fehlschlägt, werden technische Metriken auf NULL/0 gesetzt.
+      \item Trade wird trotzdem gespeichert; fehlende Metriken beeinflussen Score.
+    \end{itemize}
+  \item \textbf{Dubletten:}
+    \begin{itemize}
+      \item dedupe\_key verhindert Mehrfachimporte aus derselben API1-Antwort.
+      \item Re-Import des gleichen Feeds überschreibt bestehende Einträge (Upsert).
+    \end{itemize}
+\end{itemize}

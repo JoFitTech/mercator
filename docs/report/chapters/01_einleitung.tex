@@ -1,7 +1,51 @@
-\section{Einleitung}
-\textit{TODO: Kurzüberblick zur Ausgangssituation und Zielsetzung einfügen.}
+\section{Einleitung und Zielsetzung}
 
-% TODO: Problemstellung: analytische Auswertung öffentlicher Insider-Trades klar formulieren.
-% TODO: Ziel der Anwendung Mercator als technische Datenanwendung definieren.
-% TODO: Forschungs-/Projektfrage für Modul Datenbanken 2 präzise vorbereiten.
-% TODO: Abgrenzung dokumentieren: keine Anlageberatung, Fokus auf Datenverarbeitung und Visualisierung.
+\subsection{Ausgangslage}
+\begin{itemize}
+  \item Öffentliche Insider-Trade-Daten sind über APIs wie Financial Modeling Prep (FMP) zugänglich.
+  \item Rohdaten aus externen APIs sind typischerweise nicht direkt analysierbar -- sie erfordern Normalisierung, Validierung und Filterung.
+  \item Analytische Datenanwendungen unterscheiden sich von transaktionalen Systemen durch ihren Fokus auf Aggregation, Berichterstattung und interaktive Exploration statt auf operative CRUD-Prozesse.
+  \item Professionale Datenverarbeitung erfordert eine klare Trennung zwischen Roh- und bereinigte Zieldaten (Raw/Clean).
+  \item Moderne analytische Pipelines kombinieren mehrere spezialisierte Datenbanksysteme (Polyglot Persistence) für optimale Datenformung und Zugriffsmuster.
+\end{itemize}
+
+\subsection{Problemstellung}
+\begin{itemize}
+  \item Insider-Trades als öffentliche Datenquelle sind fachlich relevant, aber rohe API-Payloads sind fehlerhaft und unvollständig.
+  \item Validierung, Filterung und Anreicherung sind erforderlich, um aussagekräftige Analyse-Datensätze zu erzeugen.
+  \item Gate-Regeln müssen lokal definiert und angewendet werden, bevor kostpflichtige erweiterte API-Abfragen ausgelöst werden.
+  \item Mehrere Speichersysteme müssen orchestriert werden, um Audit-Anforderungen und analytische Zugriffsmuster zu erfüllen.
+  \item Die Verarbeitungs-Pipeline sollte nachvollziehbar und wartbar sein, um methodische Kritik und spätere Verbesserungen zu ermöglichen.
+\end{itemize}
+
+\subsection{Ziel der Arbeit}
+\begin{itemize}
+  \item Entwicklung einer prototypischen analytischen Datenanwendung, die öffentliche Insider-Trade-Daten nachvollziehbar verarbeitet, speichert, bewertet und interaktiv visualisiert.
+  \item Demonstration der technischen Integration von Python, Pandas, MySQL und MongoDB als spezialisierte Datenschichten.
+  \item Aufbau einer interaktiven Streamlit-UI für explorative Datenanalyse und Ergebnisdarstellung.
+  \item Umsetzung eines regelbasierten Scoring-Modells zur Priorisierung relevanter Insider-Signale.
+  \item Dokumentation der Architektur und Verarbeitung für akademische Nachvollziehbarkeit.
+\end{itemize}
+
+\subsection{Forschungs- und Projektfrage}
+\begin{itemize}
+  \item \textbf{Zentrale Frage:} Wie kann eine analytische Datenanwendung aufgebaut werden, die öffentliche Insider-Trade-Daten nachvollziehbar verarbeitet, speichert, bewertet und interaktiv visualisiert?
+  \item Teilfragen:
+    \begin{itemize}
+      \item Welche technischen Schritte sind erforderlich, um API-Rohdaten in analysierbare Datensätze umzuwandeln?
+      \item Wie kann eine Raw/Clean-Trennung praktisch umgesetzt werden?
+      \item Welche Architektur ist geeignet, um lokale Validierung, Gate-Filter und API-schonende Anreicherung zu verbinden?
+      \item Wie kann ein regelbasiertes Scoring-Modell transparent und nachvollziehbar implementiert werden?
+      \item Welche Anforderungen stellt Modul Datenbanken 2 an eine praktische Anwendung? % Repo-Evidenz prüfen
+    \end{itemize}
+\end{itemize}
+
+\subsection{Abgrenzung}
+\begin{itemize}
+  \item \textbf{Keine Anlageberatung:} Mercator ist kein Trading-System und trifft keine Kauf- oder Verkaufsempfehlungen.
+  \item \textbf{Keine Prognosen:} Das Score-Modell ist eine Heuristik, nicht ein Finanzprognose-System.
+  \item \textbf{Keine Echtzeit-Anforderungen:} Die Anwendung ist für asynchrone analytische Exploration ausgelegt, nicht für Echtzeit-Entscheidungen.
+  \item \textbf{Akademischer Fokus:} Mercator ist ein akademisches MVP im Kontext des Moduls Datenbanken 2, nicht ein produktives Handelssystem.
+  \item \textbf{Technischer Fokus:} Der Bericht konzentriert sich auf Datenmodellierung, Datenverarbeitung und Anwendung, nicht auf Finanztheorie oder Marktanalyse.
+  \item \textbf{Begrenzte API-Nutzung:} Nur FMP-APIs werden als Datenquelle verwendet (keine Scraping, keine zusätzlichen Datenbeschaffungsmodule).
+\end{itemize}
