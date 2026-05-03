@@ -5,11 +5,13 @@ Dieser Ordner enthält die LaTeX-Grundstruktur für den wissenschaftlichen Proje
 
 ## Benötigte Tools
 - MiKTeX (stellt `lualatex` und `biber` bereit)
-- Optional: Perl (nur für `latexmk` nötig)
+- Optional: Perl (nur für `latexmk` nötig, **nicht** für den Standard-Build unter Windows)
 - Optional: IntelliJ IDEA + TeXiFy IDEA
 
 ## Build
-### Primär empfohlen unter Windows (ohne Perl)
+Der empfohlene Standardweg unter Windows ist das Skript `build.ps1`. Es ruft die vollständige Build-Kette (`lualatex` → `biber` → `lualatex` → `lualatex`) automatisch auf und benötigt **kein** Perl.
+
+### Empfohlen unter Windows (ohne Perl)
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
@@ -27,8 +29,10 @@ lualatex main.tex
 latexmk -lualatex main.tex
 ```
 
+Wenn `latexmk` wegen fehlendem Perl nicht startet, verwenden Sie stattdessen einfach `build.ps1` oder die manuellen Befehle oben.
+
 ## Hinweise
-- Die Fehlermeldung `MiKTeX could not find the script engine 'perl'` betrifft nur `latexmk` und bedeutet **nicht**, dass `main.tex` fehlerhaft ist.
+- Die Fehlermeldung `MiKTeX could not find the script engine 'perl'` betrifft nur `latexmk`. Sie bedeutet **nicht**, dass `main.tex` fehlerhaft ist, sondern nur, dass die optionale `latexmk`-Variante auf diesem System nicht verfügbar ist.
 - Falls Pakete fehlen, in MiKTeX die automatische Paketinstallation erlauben.
 - Die PDF wird lokal erzeugt, aber nicht ins Repository committed.
 - LaTeX-Build-Artefakte werden nicht ins Repository committed.
