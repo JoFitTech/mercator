@@ -1,0 +1,113 @@
+\documentclass[12pt,a4paper,oneside]{scrartcl}
+
+% Encoding, Sprache, Layout
+\usepackage{fontspec}
+\usepackage[ngerman]{babel}
+\usepackage{csquotes}
+\usepackage{setspace}
+\usepackage{geometry}
+\usepackage{parskip}
+\usepackage{microtype}
+
+% Verzeichnisse und Referenzen
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage[hidelinks]{hyperref}
+\usepackage[backend=biber,style=apa,sortcites=true,sorting=nyt,natbib=true]{biblatex}
+\usepackage{acronym}
+
+\geometry{
+  a4paper,
+  left=4cm,
+  right=3cm,
+  top=3cm,
+  bottom=2cm
+}
+
+\setmainfont{Arial}
+\setstretch{1.5}
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+\AtBeginDocument{\fontsize{12pt}{18pt}\selectfont}
+\renewcommand{\footnotesize}{\fontsize{10pt}{12pt}\selectfont}
+
+\addbibresource{literatur.bib}
+
+\title{Mercator: Entwicklung einer analytischen Datenanwendung zur Bewertung und Visualisierung von Insider-Trades}
+\author{[PLATZHALTER]}
+\date{[PLATZHALTER]}
+
+\begin{document}
+
+% Deckblatt
+\begin{titlepage}
+  \centering
+  {\Large Duale Hochschule Baden-Württemberg (DHBW) Heilbronn\par}
+  \vspace{2.5cm}
+  {\LARGE\bfseries Mercator: Entwicklung einer analytischen Datenanwendung zur Bewertung und Visualisierung von Insider-Trades\par}
+  \vspace{2cm}
+
+  \begin{flushleft}
+    \textbf{Name, Vorname:} [PLATZHALTER]\\
+    \textbf{Studiengang:} [PLATZHALTER]\\
+    \textbf{Kurs:} [PLATZHALTER]\\
+    \textbf{Geburtsdatum und Geburtsort:} [PLATZHALTER]\\
+    \textbf{Name und Sitz des Ausbildungsbetriebs:} [PLATZHALTER]\\
+    \textbf{Wissenschaftliche Betreuung:} [PLATZHALTER]\\
+    \textbf{Abgabedatum:} [PLATZHALTER]
+  \end{flushleft}
+
+  \vfill
+\end{titlepage}
+
+\pagenumbering{Roman}
+\tableofcontents
+\clearpage
+
+\section*{Abkürzungsverzeichnis}
+\addcontentsline{toc}{section}{Abkürzungsverzeichnis}
+\begin{acronym}[WCAG]
+  \acro{API}{Application Programming Interface}
+  \acro{CIK}{Central Index Key}
+  \acro{DHBW}{Duale Hochschule Baden-Württemberg}
+  \acro{FMP}{Financial Modeling Prep}
+  \acro{SEC}{U.S. Securities and Exchange Commission}
+  \acro{UI}{User Interface}
+  \acro{WCAG}{Web Content Accessibility Guidelines}
+  % TODO: projektspezifische Abkürzungen ergänzen
+\end{acronym}
+\clearpage
+
+\listoffigures
+\addcontentsline{toc}{section}{Abbildungsverzeichnis}
+\clearpage
+
+\listoftables
+\addcontentsline{toc}{section}{Tabellenverzeichnis}
+\clearpage
+
+\pagenumbering{arabic}
+
+\input{chapters/01_einleitung}
+\input{chapters/02_datengrundlage}
+\input{chapters/03_architektur}
+\input{chapters/04_datenmodell}
+\input{chapters/05_datenverarbeitung}
+\input{chapters/06_scoring}
+\input{chapters/07_anwendung}
+\input{chapters/08_reflexion}
+\input{chapters/09_fazit}
+
+\clearpage
+\appendix
+\input{appendix/ki_erklaerung}
+
+\clearpage
+\printbibliography[title={Literaturverzeichnis}]
+
+\clearpage
+\input{appendix/ehrenwoertliche_erklaerung}
+
+\end{document}
