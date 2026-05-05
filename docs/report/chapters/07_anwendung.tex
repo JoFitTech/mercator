@@ -10,7 +10,7 @@
 
 \subsection{Hauptseiten}
 \begin{itemize}
-  \item \textbf{📊 Dashboard:} % Repo-Evidenz prüfen
+  \item \textbf{Dashboard:} % Repo-Evidenz prüfen
     \begin{itemize}
       \item KPI-Reihen: Anzahl Trades, Gate-Passer, durchschnittlicher Score, Marktkapitalisierung-Aggregation.
       \item Charts:
@@ -21,7 +21,7 @@
         \end{itemize}
       \item Filter: Datumsbereich (30 Tage per Default). % Repo-Evidenz prüfen
     \end{itemize}
-  \item \textbf{🕵️ Trade-Explorer (Hauptarbeitsfläche):} % Repo-Evidenz prüfen
+  \item \textbf{Trade-Explorer (Hauptarbeitsflaeche):} % Repo-Evidenz prüfen
     \begin{itemize}
       \item Operative Filterfläche:
         \begin{itemize}
@@ -41,12 +41,12 @@
         \end{itemize}
       \item Drilldown: Klick auf Trade öffnet Detailansicht. % Repo-Evidenz prüfen
     \end{itemize}
-  \item \textbf{🏢 Unternehmen:} % Repo-Evidenz prüfen
+  \item \textbf{Unternehmen:} % Repo-Evidenz prüfen
     \begin{itemize}
       \item Unternehmens-Übersicht: Name, Ticker, Market Cap, Industrie, Trade Count, letzter Trade. % Repo-Evidenz prüfen
       \item Drilldown in Unternehmens-Detail-Seite mit Trade-Historie und Aggregationen. % Repo-Evidenz prüfen
     \end{itemize}
-  \item \textbf{📖 Methodik:} % Repo-Evidenz prüfen
+  \item \textbf{Methodik:} % Repo-Evidenz prüfen
     \begin{itemize}
       \item Dokumentation der Pipeline (Graphviz-Diagramm). % Repo-Evidenz prüfen
       \item Raw/Clean-Trennung erklärt.
@@ -54,14 +54,14 @@
       \item Score-Komponenten und Gewichtungen. % Interne Projektspezifikation
       \item Transaction-Code-Klassifikation.
     \end{itemize}
-  \item \textbf{⚙️ Einstellungen:} % Repo-Evidenz prüfen
+  \item \textbf{Einstellungen:} % Repo-Evidenz prüfen
     \begin{itemize}
       \item Konfigurierbare Gate-Schwellen (Mindestwert, Form Type).
       \item Score-Schwellen (PASS-Grenze, HOLD-Grenze).
       \item Import-Intervalle (für Auto-Import).
       \item Einstellungen werden in MongoDB persistiert. % Repo-Evidenz prüfen
     \end{itemize}
-  \item \textbf{🛠️ Admin:} % Repo-Evidenz prüfen
+  \item \textbf{Admin:} % Repo-Evidenz prüfen
     \begin{itemize}
       \item Import-Steuerung: manueller Import mit Status-Reporting. % Repo-Evidenz prüfen
       \item Scheduler-Verwaltung: Auto-Import ein/aus, Tests.
@@ -79,7 +79,7 @@
       \item Selectboxes für Klassifikations-Felder (Gate Status, Richtung).
       \item Datumsbereichs-Picker (date\_input mit Start/End).
       \item Zahlenschieber für Score-Schwellen und Mindestwert.
-      \item Filter-Panel collapsible zur UI-Platzoptimierung. % Repo-Evidenz prüfen
+      \item Einklappbares Filter-Panel zur UI-Platzoptimierung. % Repo-Evidenz prüfen
     \end{itemize}
   \item \textbf{Tabellen:} % Repo-Evidenz prüfen
     \begin{itemize}
@@ -110,14 +110,14 @@
     \end{itemize}
   \item \textbf{Kontrast und Lesbarkeit:}
     \begin{itemize}
-      \item Schriftgrößen und Farbpaletten folgen Standard-Accessibility-Richtlinien.
+      \item Schriftgroessen und Farbpaletten orientieren sich an gaengigen Accessibility-Richtlinien. % TODO: pruefen
       \item Text-Alternativen für Charts und Icons.
     \end{itemize}
   \item \textbf{Navigation und Struktur:}
     \begin{itemize}
       \item Klare Seitentitel und Struktur.
       \item Sidebar Navigation ist konsistent.
-      \item Tastatur-Navigation unterstützt.
+      \item Tastatur-Navigation wird unterstuetzt. % TODO: pruefen
     \end{itemize}
 \end{itemize}
 
@@ -128,6 +128,6 @@
     \begin{itemize}
       \item Erweiterte Tabellenspalten: CIK, Profile Status, Technical Metrics.
       \item Detaillierte Scoring-Komponenten sichtbar.
-      \item Fehler und Warnung-Details angezeigt.
+      \item Fehler- und Warnungsdetails werden angezeigt.
     \end{itemize}
 \end{itemize}

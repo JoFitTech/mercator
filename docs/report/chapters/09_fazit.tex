@@ -3,9 +3,9 @@
 \subsection{Zusammenfassung}
 \begin{itemize}
   \item \textbf{Mercator erfüllt das Ziel einer analytischen Datenanwendung für Insider-Trade-Analyse.} % Repo-Evidenz prüfen
-  \item Die Anwendung verbindet öffentliche API-Datenquellen, Validierung, lokale Filterung, Datenenhältung und interaktive Explorationstools in einer kohärenten Pipeline. % Repo-Evidenz prüfen
-  \item Die Raw/Clean-Trennung ist ein zentraler Architekturbeitrag, der Audit-Anforderungen, Debugging und Reprodzierbarkeit unterstützt. % Eigene methodische Ableitung
-  \item Die Kombination aus MongoDB (flexibel) und MySQL (strukuriert) ist fachlich begründbar und performant. % Eigene methodische Ableitung
+  \item Die Anwendung verbindet oeffentliche API-Datenquellen, Validierung, lokale Filterung, Datenhaltung und interaktive Exploration in einer konsistenten Pipeline. % Repo-Evidenz prüfen
+  \item Die Raw/Clean-Trennung ist ein zentraler Architekturbeitrag, der Audit-Anforderungen, Debugging und Reproduzierbarkeit unterstuetzt. % Eigene methodische Ableitung
+  \item Die Kombination aus MongoDB (flexibel) und MySQL (strukturiert) ist fachlich begruendbar und fuer den Projektkontext geeignet. % Eigene methodische Ableitung
   \item Lokale Gate-Filter reduzieren API-Aufrufe deutlich, ohne Funktionalität zu opfern. % Interne Projektspezifikation
   \item Streamlit ermöglicht schnelle und intuitive explorative Analyse ohne Browser-Framework-Overhead. % Repo-Evidenz prüfen
 \end{itemize}
@@ -14,19 +14,19 @@
 \begin{itemize}
   \item \textbf{Modul-Anforderungen (Datenbanken 2):}
     \begin{itemize}
-      \item Öffentliche Datenquelle (FMP API) ✓
-      \item Pandas-Verarbeitung ✓
-      \item MySQL-Speicherung ✓
-      \item MongoDB-Speicherung ✓
-      \item Interaktive Streamlit-UI ✓
-      \item Visualisierungen (Charts, KPIs, Tabellen) ✓
+      \item Oeffentliche Datenquelle (FMP API) erfuellt.
+      \item Pandas-Verarbeitung erfuellt.
+      \item MySQL-Speicherung erfuellt.
+      \item MongoDB-Speicherung erfuellt.
+      \item Interaktive Streamlit-UI erfuellt.
+      \item Visualisierungen (Charts, KPIs, Tabellen) erfuellt.
     \end{itemize}
   \item \textbf{Akademische Qualität:}
     \begin{itemize}
-      \item Methodologie-Dokumentation ✓
-      \item Nachvollziehbare Architektur ✓
-      \item Transparente Gate- und Scoring-Logik ✓
-      \item Kritische Reflexion der Grenzen ✓
+      \item Methodik-Dokumentation vorhanden.
+      \item Nachvollziehbare Architektur dokumentiert.
+      \item Gate- und Scoring-Logik transparent beschrieben.
+      \item Kritische Reflexion der Grenzen enthalten.
     \end{itemize}
 \end{itemize}
 
@@ -53,10 +53,10 @@
       \item Zeitreihen- und Trend-Analysen erweitern.
       \item Backtesting-Framework für Score-Validierung.
       \item Netzwerk-Analysen (Insider $\leftrightarrow$ Company $\leftrightarrow$ Sektor).
-      \item Redis-Cache fur API-Payloads und technische Metriken.
+      \item Redis-Cache fuer API-Payloads und technische Metriken.
       \item Parallele API-Aufrufe (asyncio).
     \end{itemize}
-  \item \textbf{Mittellangfristig (12+ Monate):}
+  \item \textbf{Langfristig (12+ Monate):}
     \begin{itemize}
       \item Machine Learning zur Score-Kalibrierung (bei ausreichend historischen Daten).
       \item Mehrsprachige UI (Internationalisierung).
@@ -68,12 +68,12 @@
 
 \subsection{Ausblick und Nachhaltigkeit}
 \begin{itemize}
-  \item \textbf{Code-Qualität:} Das Projekt folgt best practices (Logging, Typisierung, Fehlerbehandlung) und ist wartbar. % Repo-Evidenz prüfen
-  \item \textbf{Dokumentation:} Methodologie, API-Spezifikation, README sind ausführlich vorhanden. % Repo-Evidenz prüfen
-  \item \textbf{akademische Weiternutzung:} Nachfolge-Projekte können auf dieser Basis aufbauen und vertiefen (z. B. Statistik, NLP, Advanced Analytics). % Eigene methodische Ableitung
+  \item \textbf{Code-Qualitaet:} Das Projekt folgt etablierten Praktiken (Logging, Typisierung, Fehlerbehandlung) und ist wartbar. % Repo-Evidenz prüfen
+  \item \textbf{Dokumentation:} Methodik, API-Spezifikation und README sind ausfuehrlich vorhanden. % Repo-Evidenz prüfen
+  \item \textbf{Akademische Weiternutzung:} Nachfolgeprojekte koennen auf dieser Basis aufbauen und vertiefen (z. B. Statistik, NLP, Advanced Analytics). % Eigene methodische Ableitung
   \item \textbf{Offene Fragen für Future Work:}
     \begin{itemize}
-      \item Können Insider-Käufe unter bestimmten marktlichen Bedingungen als Signal für zukünftige Überperformance genutzt werden? (Empirische Validierung erforderlich.) % Externe Quelle nötig
+      \item Koennen Insider-Kaeufe unter bestimmten marktlichen Bedingungen als Signal fuer zukuenftige Ueberperformance genutzt werden? (Empirische Validierung erforderlich.) % Externe Quelle nötig
       \item Wie können Szenarien-Analysen (z. B. Sektoren, Marktphasen) in das Scoring integriert werden? % Externe Quelle nötig
       \item Welche alternativen API-Quellen (z. B. Alternative Data, Sentiment) könnten die Signalqualität verbessern? % Externe Quelle nötig
     \end{itemize}

@@ -17,7 +17,7 @@
     \end{itemize}
   \item \textbf{API2 Fallbacks (nur bei Identitätsproblemen):}
     \begin{itemize}
-      \item \texttt{GET /stable/search-cik} -- Suche nach CIK bei Symbol\textunderscore{}-Auflösungsproblemen.
+      \item \texttt{GET /stable/search-cik} -- Suche nach CIK bei Symbol-zu-CIK-Aufloesungsproblemen.
       \item \texttt{GET /stable/profile-cik?cik=\{CIK\}} -- Profil direkt per CIK abrufen.
       \item Diese Fallbacks gehören \textbf{nicht} zum Standard-Importpfad. % Interne Projektspezifikation
     \end{itemize}
@@ -61,7 +61,7 @@
 \begin{itemize}
   \item \textbf{Raw Store (MongoDB):}
     \begin{itemize}
-      \item Speichert rohe, flexile JSON-Payloads von API-Antworten.
+      \item Speichert rohe, flexible JSON-Payloads von API-Antworten.
       \item Collections: \texttt{insider\_trades\_raw}, \texttt{companies}.
       \item Jedem Raw-Dokument wird ein eindeutiger \texttt{dedupe\_key} zugewiesen (Symbol + Filing Date + Reporting CIK + Qty + Price + Direct/Indirect Hash). % Repo-Evidenz prüfen
       \item Keine Validierung oder Anreicherung im Raw Store.

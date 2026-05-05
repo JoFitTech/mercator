@@ -2,14 +2,14 @@
 
 \subsection{Erfüllung der Modulanforderungen (Datenbanken 2)}
 \begin{itemize}
-  \item \textbf{Öffentliche API als Datenquelle:} FMP API ✓ % Repo-Evidenz prüfen
-  \item \textbf{Pandas-Verarbeitung:} Normalisierung, Gates, Akkumulation ✓ % Repo-Evidenz prüfen
-  \item \textbf{MySQL als Datenbank:} Clean Store mit strukturierten Tabellen ✓ % Repo-Evidenz prüfen
-  \item \textbf{MongoDB als Datenbank:} Raw Store für flexible Daten ✓ % Repo-Evidenz prüfen
-  \item \textbf{Interaktive Streamlit-UI:} Dashboard, Explorer, Methodik ✓ % Repo-Evidenz prüfen
-  \item \textbf{Mindestens eine Visualisierung:} Buy/Sell-Charts, Trends, KPIs ✓ % Repo-Evidenz prüfen
-  \item \textbf{Beide Datenbanken gelesen:} MySQL für Analyse, MongoDB für Raw-Counts in Admin ✓ % Repo-Evidenz prüfen
-  \item \textbf{Akademische Nachvollziehbarkeit:} Methodologie-Seite, Dokumentation ✓
+  \item \textbf{Oeffentliche API als Datenquelle:} FMP API wird genutzt und dokumentiert. % Repo-Evidenz prüfen
+  \item \textbf{Pandas-Verarbeitung:} Normalisierung, Gates und Akkumulation sind umgesetzt. % Repo-Evidenz prüfen
+  \item \textbf{MySQL als Datenbank:} Clean Store mit strukturierten Tabellen ist umgesetzt. % Repo-Evidenz prüfen
+  \item \textbf{MongoDB als Datenbank:} Raw Store fuer flexible Daten ist umgesetzt. % Repo-Evidenz prüfen
+  \item \textbf{Interaktive Streamlit-UI:} Dashboard, Explorer und Methodik-Seite sind vorhanden. % Repo-Evidenz prüfen
+  \item \textbf{Mindestens eine Visualisierung:} Buy/Sell-Charts, Trends und KPIs sind vorhanden. % Repo-Evidenz prüfen
+  \item \textbf{Beide Datenbanken gelesen:} MySQL fuer Analyse, MongoDB fuer Raw-Counts im Admin-Bereich. % Repo-Evidenz prüfen
+  \item \textbf{Akademische Nachvollziehbarkeit:} Methodik-Seite und Dokumentation sind vorhanden. % Repo-Evidenz prüfen
 \end{itemize}
 
 \subsection{Technische Grenzen}
@@ -37,7 +37,7 @@
   \item \textbf{Skalierbarkeit:} Single-Instance Streamlit, keine horizontale Skalierung ohne Docker/Cloud. % Eigene methodische Ableitung
     \begin{itemize}
       \item Für akademische MVP ausreichend.
-      \item Für produktive Nutzung: mehrere Worker, Message Queue, caching erforderlich.
+      \item Fuer produktive Nutzung: mehrere Worker, Message Queue und Caching erforderlich.
     \end{itemize}
 \end{itemize}
 
@@ -46,7 +46,7 @@
   \item \textbf{Signaltrennung nicht validiert:} % Eigene methodische Ableitung
     \begin{itemize}
       \item Score wurde nicht gegen historische Kursentwicklung validiert.
-      \item Keine statistische Signifikanz-Tests.
+      \item Keine statistischen Signifikanztests.
       \item Akademische Baseline-Studien zu Insider-Trades nicht systematisch berücksichtigt. % Externe Quelle nötig
     \end{itemize}
   \item \textbf{Insider-Motive unklar:} % Externe Quelle nötig
@@ -85,7 +85,7 @@
   \item \textbf{500-Tage-Lookback (API3):} % Interne Projektspezifikation
     \begin{itemize}
       \item Typisch für technische Analyse (1-2 Jahre Daten).
-      \item Größere Fenster liefern bessere Trend-Estimates, erfordern aber mehr API-Aufrufe.
+      \item Groessere Fenster liefern stabilere Trendschaetzungen, erfordern aber mehr API-Aufrufe.
     \end{itemize}
   \item \textbf{Minimum Trade Value (100.000 USD):} % Interne Projektspezifikation
     \begin{itemize}
@@ -104,7 +104,7 @@
   \item \textbf{Robustere Retry- und Fehlerbehandlung:}
     \begin{itemize}
       \item Circuit-Breaker für API-Fehler.
-      \item Detaillierte Error-Logging und Monitoring.
+      \item Detailliertes Error-Logging und Monitoring.
     \end{itemize}
   \item \textbf{Erweiterte Tests:}
     \begin{itemize}
@@ -130,6 +130,6 @@
     \end{itemize}
   \item \textbf{Mobile Responsiveness:}
     \begin{itemize}
-      \item Aktuelle Streamlit-Version hat gutes Mobile-Support; weitere Optimierungen möglich.
+      \item Die aktuelle Streamlit-Version bietet grundlegende mobile Unterstuetzung; weitere Optimierungen sind moeglich. % TODO: pruefen
     \end{itemize}
 \end{itemize}
