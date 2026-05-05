@@ -1,51 +1,16 @@
 \section{Einleitung und Zielsetzung}
 
 \subsection{Ausgangslage}
-\begin{itemize}
-  \item Öffentliche Insider-Trade-Daten sind über APIs wie Financial Modeling Prep (FMP) zugänglich.
-  \item Rohdaten aus externen APIs sind typischerweise nicht direkt analysierbar -- sie erfordern Normalisierung, Validierung und Filterung.
-  \item Analytische Datenanwendungen unterscheiden sich von transaktionalen Systemen durch ihren Fokus auf Aggregation, Berichterstattung und interaktive Exploration statt auf operative CRUD-Prozesse.
-  \item Professionelle Datenverarbeitung erfordert eine klare Trennung zwischen Roh- und bereinigten Zieldaten (Raw/Clean).
-  \item Moderne analytische Pipelines kombinieren spezialisierte Datenbanksysteme (Polyglot Persistence) für unterschiedliche Datenformate und Zugriffsmuster. % Externe Quelle nötig
-\end{itemize}
+Oeffentliche Insider-Trade-Daten sind heute ueber API-Schnittstellen verfuergbar und koennen damit als datengetriebene Grundlage einer analytischen Anwendung genutzt werden \parencite{fmp_docs}. Fuer eine fachlich belastbare Auswertung reicht der direkte Zugriff auf API-Antworten jedoch nicht aus, da Rohdaten typischerweise heterogene Formate, fehlende Felder und uneinheitliche Bezeichnungen enthalten. Deshalb sind Normalisierung, Validierung und Filterung notwendige Vorstufen, bevor eine konsistente Analyse erfolgen kann. Gleichzeitig unterscheidet sich ein analytisches System grundsaetzlich von einem transaktionalen System: Im Vordergrund stehen Auswertung, Aggregation und explorative Nutzung statt operativer Einzeltransaktionen \parencite{ibm_olap_oltp,kipf_2020_analytical_database_systems}. Vor diesem Hintergrund ist Mercator als analytische Datenanwendung einzuordnen.
 
 \subsection{Problemstellung}
-\begin{itemize}
-  \item Insider-Trades als öffentliche Datenquelle sind fachlich relevant, aber rohe API-Payloads sind fehlerhaft und unvollständig.
-  \item Validierung, Filterung und Anreicherung sind erforderlich, um aussagekräftige Analyse-Datensätze zu erzeugen.
-  \item Gate-Regeln müssen lokal definiert und angewendet werden, bevor kostpflichtige erweiterte API-Abfragen ausgelöst werden.
-  \item Mehrere Speichersysteme müssen orchestriert werden, um Audit-Anforderungen und analytische Zugriffsmuster zu erfüllen.
-  \item Die Verarbeitungs-Pipeline sollte nachvollziehbar und wartbar sein, um methodische Kritik und spätere Verbesserungen zu ermöglichen.
-\end{itemize}
+Die fachliche Relevanz von Insider-Transaktionen ist in der Literatur grundsaetzlich belegt, gleichzeitig ist die Datenbasis in der praktischen Verarbeitung nicht unmittelbar analysierbar \parencite{cohen_malloy_pomorski_2012}. API-Rohdaten muessen daher zunaechst in ein konsistentes Datenmodell ueberfuehrt, bereinigt und durch zusaetzliche Merkmale angereichert werden. Hinzu kommt, dass weiterfuehrende API-Abfragen wirtschaftlich und technisch begrenzt sein koennen; entsprechend sollen sie nur dann ausgeloest werden, wenn ein Datensatz zuvor lokale Mindestkriterien erfuellt. Fuer den regulatorischen Kontext ist zudem relevant, dass die zugrunde liegenden Meldungen auf Form-4-Daten beruhen \parencite{sec_form4_transaction_codes}. Die zentrale Herausforderung liegt damit in einer nachvollziehbaren Pipeline, die Datenqualitaet sichert, unnoetige Abfragen reduziert und zugleich unterschiedliche Speicheranforderungen in einer konsistenten Gesamtarchitektur verbindet.
 
 \subsection{Ziel der Arbeit}
-\begin{itemize}
-  \item Entwicklung einer prototypischen analytischen Datenanwendung, die öffentliche Insider-Trade-Daten nachvollziehbar verarbeitet, speichert, bewertet und interaktiv visualisiert.
-  \item Demonstration der technischen Integration von Python, Pandas, MySQL und MongoDB als spezialisierte Datenschichten.
-  \item Aufbau einer interaktiven Streamlit-UI für explorative Datenanalyse und Ergebnisdarstellung.
-  \item Umsetzung eines regelbasierten Scoring-Modells zur Priorisierung relevanter Insider-Signale.
-  \item Dokumentation der Architektur und Verarbeitung für akademische Nachvollziehbarkeit.
-\end{itemize}
+Ziel dieser Arbeit ist die Entwicklung einer prototypischen analytischen Datenanwendung, die oeffentliche Insider-Trade-Daten nachvollziehbar verarbeitet, speichert, bewertet und interaktiv visualisiert. Dazu werden die Daten in einer zweistufigen Speicherarchitektur abgelegt, in der MongoDB fuer Rohdaten und MySQL fuer bereinigte Analyseobjekte eingesetzt wird. Auf dieser Grundlage soll eine Streamlit-basierte Benutzeroberflaeche die explorative Auswertung unterstuetzen. Ergaenzend wird ein regelbasiertes Scoring-Modell umgesetzt, das die fachliche Priorisierung von Datensaetzen transparent macht. Die technische und methodische Ausgestaltung wird so dokumentiert, dass Entscheidungen und Verarbeitungsschritte nachvollziehbar bleiben.
 
 \subsection{Forschungs- und Projektfrage}
-\begin{itemize}
-  \item \textbf{Zentrale Frage:} Wie kann eine analytische Datenanwendung aufgebaut werden, die öffentliche Insider-Trade-Daten nachvollziehbar verarbeitet, speichert, bewertet und interaktiv visualisiert?
-  \item Teilfragen:
-    \begin{itemize}
-      \item Welche technischen Schritte sind erforderlich, um API-Rohdaten in analysierbare Datensätze umzuwandeln?
-      \item Wie kann eine Raw/Clean-Trennung praktisch umgesetzt werden?
-      \item Welche Architektur ist geeignet, um lokale Validierung, Gate-Filter und API-schonende Anreicherung zu verbinden?
-      \item Wie kann ein regelbasiertes Scoring-Modell transparent und nachvollziehbar implementiert werden?
-      \item Welche Anforderungen stellt Modul Datenbanken 2 an eine praktische Anwendung? % Repo-Evidenz prüfen
-    \end{itemize}
-\end{itemize}
+Die Arbeit orientiert sich an der folgenden zentralen Frage: \textbf{Wie kann eine analytische Datenanwendung aufgebaut werden, die öffentliche Insider-Trade-Daten nachvollziehbar verarbeitet, speichert, bewertet und interaktiv visualisiert?} Zur Beantwortung dieser Frage werden die notwendigen Verarbeitungsschritte von der Rohdatenaufnahme ueber die Qualitaetssicherung bis zur Visualisierung und Bewertung systematisch beschrieben. Gleichzeitig wird geprueft, wie eine Raw/Clean-Trennung, lokale Gate-Regeln und ein transparentes Scoring innerhalb einer praktikablen Projektarchitektur zusammengefuehrt werden koennen.
 
 \subsection{Abgrenzung}
-\begin{itemize}
-  \item \textbf{Keine Anlageberatung:} Mercator ist kein Trading-System und trifft keine Kauf- oder Verkaufsempfehlungen.
-  \item \textbf{Keine Prognosen:} Das Score-Modell ist eine Heuristik, nicht ein Finanzprognose-System.
-  \item \textbf{Keine Echtzeit-Anforderungen:} Die Anwendung ist für asynchrone analytische Exploration ausgelegt, nicht für Echtzeit-Entscheidungen.
-  \item \textbf{Akademischer Fokus:} Mercator ist ein akademisches MVP im Kontext des Moduls Datenbanken 2, nicht ein produktives Handelssystem.
-  \item \textbf{Technischer Fokus:} Der Bericht konzentriert sich auf Datenmodellierung, Datenverarbeitung und Anwendung, nicht auf Finanztheorie oder Marktanalyse.
-  \item \textbf{Begrenzte API-Nutzung:} Nur FMP-APIs werden als Datenquelle verwendet (kein Scraping, keine zusätzlichen Datenbeschaffungsmodule).
-\end{itemize}
+Die Anwendung ist ausdruecklich nicht als Anlageberatung zu verstehen und erzeugt keine Kauf- oder Verkaufsempfehlungen. Ebenso bietet das Scoring keine Prognosegarantie; es handelt sich um eine nachvollziehbare Heuristik zur strukturierten Priorisierung von Datensaetzen. Der vorliegende Prototyp ist kein produktives Handelssystem und adressiert keine Echtzeit-Entscheidungen, sondern eine asynchrone analytische Nutzung im akademischen Kontext. Inhaltlich liegt der Schwerpunkt auf Datenmodellierung, Datenverarbeitung und Anwendungsgestaltung. Finanztheoretische Bewertung, Marktvoraussagen und die Einbindung weiterer externer Datenquellen ausserhalb der verwendeten API-Schnittstellen sind nicht Gegenstand dieses Kapitels.
