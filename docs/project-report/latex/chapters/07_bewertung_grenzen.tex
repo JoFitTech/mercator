@@ -1,0 +1,46 @@
+\section{Bewertung der Umsetzung und Grenzen}
+\label{sec:bewertung}
+
+Nach der Implementierung der Datenpipeline und der Benutzeroberfläche wird in diesem Kapitel die Umsetzung anhand von Kennzahlen bewertet. Aufgrund der Verwendung öffentlicher Daten können die Ergebnisse stark schwanken; die hier angegebenen Werte sind daher Platzhalter. Im Anschluss werden Grenzen und mögliche Erweiterungen diskutiert.
+
+\subsection{Datenbestände und Kennzahlen}
+
+Zum Auswertungszeitpunkt \texttt{\textbf{[AUSWERTUNGSDATUM]}} enthielt der MongoDB‑Raw‑Store \texttt{\textbf{[ANZAHL\_RAW\_TRADES]}} rohe Insider‑Trade‑Dokumente. Der MySQL‑Clean‑Store enthielt \texttt{\textbf{[ANZAHL\_MYSQL\_TRADES]}} bereinigte Insider‑Trade‑Datensätze. Von diesen Datensätzen bestanden \texttt{\textbf{[ANZAHL\_GATE\_PASS]}} die Gates, während \texttt{\textbf{[ANZAHL\_GATE\_FAIL]}} Datensätze aufgrund der Validierungs‑ oder Gate‑Regeln aussortiert wurden.
+
+Die Score‑Verteilung zeigt \texttt{\textbf{[ANZAHL\_A]}} Datensätze der Klasse A, \texttt{\textbf{[ANZAHL\_B]}} der Klasse B, \texttt{\textbf{[ANZAHL\_C]}} der Klasse C, \texttt{\textbf{[ANZAHL\_D]}} der Klasse D und \texttt{\textbf{[ANZAHL\_E]}} der Klasse E. Eine Tabelle mit den Top‑10‑Trades nach Score und den wichtigsten Kennzahlen ist in Tabelle~\ref{tab:top10} skizziert.
+
+\begin{table}[H]
+\centering
+\caption{Platzhalter für die Top‑10‑Trades nach Score}
+\label{tab:top10}
+\begin{tabular}{@{}llllll@{}}
+\toprule
+Symbol & Reporting Name & Transaktionsdatum & Handelswert & Score & Klasse \\
+\midrule
+\multicolumn{6}{c}{\textit{Hier werden die Daten aus dem Auswertungsskript eingefügt.}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Grenzen der Implementierung}
+
+Die vorliegende Lösung erfüllt die Anforderungen des Moduls, weist jedoch einige Einschränkungen auf:
+
+\begin{itemize}[leftmargin=1.2cm]
+  \item \textbf{Datenqualität}: Die FMP‑API liefert Daten, die nicht immer vollständig oder konsistent sind. Fehlende oder fehlerhafte Felder können zu ungültigen Datensätzen führen. Eine stichhaltige Analyse der Datenqualität und ein Vergleich mit anderen Quellen wären notwendig, um die Verlässlichkeit zu erhöhen.
+  \item \textbf{Scoring‑Modell}: Das Scoring ist heuristisch und nicht empirisch validiert. Die Gewichtung der Faktoren basiert auf Annahmen und könnte zu falschen Schlussfolgerungen führen. Eine fundierte statistische Modellierung oder Machine‑Learning‑Ansätze wären erforderlich, um aussagekräftige Scores zu berechnen.
+  \item \textbf{Zeitliche Abdeckung}: Die Pipeline aggregiert Meldungen über einen begrenzten Zeitraum (z.\,B. drei Tage). Langfristige Trends und historische Muster bleiben unberücksichtigt. Eine Erweiterung der Pipeline um einen vollständigen historischen Import würde eine bessere Langzeitbetrachtung ermöglichen.
+  \item \textbf{Anwendungsfälle}: Die Anwendung ist als technische Demonstration konzipiert. Sie ersetzt keine professionelle Finanzanalyse und sollte nicht zur Ableitung von Handelsentscheidungen verwendet werden.
+  \item \textbf{Fehlende Automatisierung}: Der Import der Daten muss manuell ausgelöst werden. Für den produktiven Einsatz wäre eine automatisierte, zeitgesteuerte Aktualisierung wünschenswert.
+\end{itemize}
+
+\subsection{Potenziale und Erweiterungen}
+
+Für eine Weiterentwicklung von Mercator bieten sich folgende Ansätze an:
+
+\begin{itemize}[leftmargin=1.2cm]
+  \item \textbf{Erweiterte Datenquellen}: Integration zusätzlicher APIs (z.\,B. Insider‑Daten aus Europa) oder von Nachrichtenfeeds zur Kontextualisierung der Trades.
+  \item \textbf{Erweiterte Analyse}: Einsatz statistischer Modelle oder maschinellen Lernens, um aus den Daten signifikante Muster abzuleiten. Validierung des Scorings anhand historischer Kursentwicklungen.
+  \item \textbf{Benachrichtigungen}: Implementierung eines Alarm‑Systems, das bei besonders hohen Scores oder ungewöhnlichen Aktivitäten Benachrichtigungen auslöst.
+  \item \textbf{Multi‑User‑Support}: Erweiterung um Nutzerkonten, sodass verschiedene Nutzer eigene Filter und Auswertungen speichern können.
+\end{itemize}

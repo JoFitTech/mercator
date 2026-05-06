@@ -36,6 +36,7 @@ Thumbs.db
 *.temp
 *.pid
 app.tar.gz
+mercator_project.zip
 
 # E2E Playwright Test-Artefakte
 tests/e2e/screenshots/

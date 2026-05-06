@@ -1,0 +1,59 @@
+\section{Architektur und Datenmodell}
+\label{sec:architektur}
+
+Dieses Kapitel beschreibt die Systemarchitektur von Mercator sowie das zugrunde liegende Datenmodell. Ziel der Architektur ist es, den Datenfluss von der Aufnahme über die Bereinigung bis hin zur Speicherung und Analyse klar zu trennen und die Anforderungen an Nachvollziehbarkeit und Erweiterbarkeit zu erfüllen.
+
+\subsection{Überblick über die Datenpipeline}
+
+Die Datenpipeline besteht aus mehreren Schritten, die jeweils unterschiedliche Zwecke erfüllen:
+
+\begin{enumerate}[label=P\arabic*.,wide=0pt,leftmargin=1.2cm]
+  \item \textbf{API1: Insider‑Trades abrufen}. Über die FMP‑Schnittstelle \emph{form\_4} werden aktuelle Insider‑Transaktionen geladen. Die Daten enthalten unter anderem das Symbol, den \emph{reportingName}, das Transaktionsdatum, den Handelspreis, den Wert und den Transaktionstyp.
+  \item \textbf{Lokale Validierung und Gates}. Die importierten Datensätze werden auf fehlende Felder und Plausibilität geprüft. Gates filtern zum Beispiel kleine Transaktionswerte, sehr alte Meldungen oder Ausreißer. Jeder Datensatz erhält anschließend den Status \emph{PASS}, \emph{PRE\_GATE\_FAIL} oder \emph{INVALID}.
+  \item \textbf{Aggregation über drei Tage}. Da sich einige Insider‑Meldungen über mehrere Tage erstrecken, werden die Daten über einen definierten Zeitraum akkumuliert. Dadurch wird die Anzahl der API‑Aufrufe reduziert und der Datenbestand stabilisiert.
+  \item \textbf{API2: Unternehmensprofile}. Für jedes Symbol wird ein Unternehmensprofil abgerufen. Falls das Symbol nicht gefunden wird, wird über den Central Index Key (CIK) ein alternativer Weg genutzt. Die Profile enthalten Name, Branche, Marktkapitalisierung und weitere Merkmale.
+  \item \textbf{API3: Historische Kurse}. Um Trend‑ und Momentum‑Kennzahlen zu berechnen, werden historische Preis‑ und Volumendaten geladen. Diese Zeitreihen ermöglichen die Einordnung der Insider‑Trades in einen Marktkontext.
+  \item \textbf{Scoring}. Nach der Datenanreicherung wird für jeden gültigen Datensatz ein Score berechnet. Die Formel kombiniert den Handelswert, das Verhältnis zum durchschnittlichen Handelsvolumen, das Alter der Meldung, die Marktkapitalisierung des Unternehmens, Momentum‑ und Trendindizes sowie die Richtung der Transaktion. Das Ergebnis wird in die Klassen A (sehr relevant) bis E (niedrig) eingeteilt.
+  \item \textbf{Speicherung}. Die rohen API‑Antworten werden in MongoDB als Dokumente gespeichert (Raw Store). Die bereinigten und angereicherten Datensätze werden in MySQL als normalisierte Tabellen abgelegt (Clean Store). Dies ermöglicht sowohl flexible Analysen auf den Rohdaten als auch schnelle Abfragen auf den strukturierten Daten.
+  \item \textbf{Benutzeroberfläche}. Eine Streamlit‑App greift auf die gespeicherten Daten zu, stellt interaktive Filter und Diagramme bereit und visualisiert das Ergebnis.
+\end{enumerate}
+
+\subsection{Architekturdiagramm}
+
+Abbildung~\ref{fig:pipeline} zeigt den schematischen Aufbau der Datenpipeline von Mercator. Die Pfeile verdeutlichen den Datenfluss zwischen den Komponenten. Die Platzhalter für das Diagramm sind in der Abbildung vorgesehen und werden durch die eigentliche Grafik ersetzt, sobald diese vorliegt.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/pipeline_placeholder.png}
+    \caption{Architektur und Datenfluss der Mercator‑Anwendung.}
+    \label{fig:pipeline}
+\end{figure}
+
+\subsection{Datenmodell: Raw‑Store in MongoDB}
+
+MongoDB speichert die JSON‑Antworten der APIs unverändert. Jede Collection entspricht einem Datenbereich: \texttt{raw\_insider\_trades} für die form\_4‑Antworten, \texttt{raw\_company\_profiles} für Unternehmensprofile und \texttt{raw\_historical\_prices} für Zeitreihen. Die Dokumentstruktur ist flexibel, sodass nachträglich neue Felder hinzufügt werden können. Zur Orientierung werden folgende Felder erwartet:
+
+\begin{itemize}
+  \item \textbf{symbol}: Tickersymbol des Unternehmens.
+  \item \textbf{reportingName}: Name der Person, die den Trade gemeldet hat.
+  \item \textbf{transactionDate}: Datum der Transaktion.
+  \item \textbf{filingDate}: Meldedatum des Formulars.
+  \item \textbf{transactionType}: Art der Transaktion (z.\,B. Kauf oder Verkauf).
+  \item \textbf{value}: Geldwert der Transaktion.
+  \item \textbf{quantity}: Anzahl der gehandelten Aktien.
+  \item weitere Felder: abhängig von der API‐Version und den Profil‑ oder Kursdaten.
+\end{itemize}
+
+\subsection{Datenmodell: Clean‑Store in MySQL}
+
+Die strukturierte Speicherung erfolgt in einer relationalen Datenbank. Das Modell orientiert sich an Normalformen, um Redundanzen zu vermeiden. Zentrale Tabellen sind:
+
+\begin{description}[style=nextline]
+  \item[companies] speichert Basisinformationen zum Unternehmen (Symbol, Name, Branche, Marktkapitalisierung, Sektor).
+  \item[insider\_trades] enthält jede einzelne Transaktion, verknüpft mit \texttt{companies} über das Symbol. Attribute sind unter anderem Transaktionsdatum, Meldedatum, Handelswert, Anzahl Aktien, Transaktionstyp, Score und Score‑Klasse.
+  \item[gate\_status] führt die Validierungs‑ und Gate‑Ergebnisse auf. Jedes Trade‑Datensatz hat einen Verweis auf einen Gate‑Status (PASS, PRE\_GATE\_FAIL, INVALID). Optional können Fehlergründe dokumentiert werden.
+  \item[filters] enthält Parameter und Einstellungen der Gates sowie Schwellenwerte, die zur Laufzeit geändert werden können.
+  \item[market\_signal\_cache] speichert berechnete Markt‑ und Momentum‑Indikatoren, um wiederholte Berechnungen zu vermeiden.
+\end{description}
+
+Diese Tabellen ermöglichen den effizienten Zugriff auf bereinigte Daten für Analysen und Visualisierungen. Indizes auf den Fremdschlüsseln und Datumsfeldern sorgen für schnelle Abfragen.

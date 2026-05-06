@@ -1,0 +1,33 @@
+\section{Anwendung und Benutzeroberfläche}
+\label{sec:anwendung}
+
+Die interaktive Oberfläche von Mercator wurde mit Streamlit umgesetzt. Dieser Abschnitt beschreibt die Hauptseiten der Anwendung und erläutert, wie die Benutzer mit den Daten interagieren können. Screenshots werden als Platzhalter eingebunden und sind im Anhang genauer spezifiziert.
+
+\subsection{Dashboard}
+
+Die Startseite dient als Dashboard und bietet einen Überblick über den Datenbestand. Oben befindet sich eine Filterleiste mit Auswahlfeldern für Symbol, Insider‑Name, Score‑Klasse, Transaktionsart und Datumsbereich. Darunter werden Kennzahlenkarten angezeigt, die unter anderem folgende Informationen liefern:
+
+\begin{itemize}
+  \item Anzahl der importierten Roh‑Trades
+  \item Anzahl der gültigen Trades (\emph{PASS})
+  \item Durchschnittlicher Score der gültigen Trades
+  \item Summe der Handelswerte der gültigen Trades
+\end{itemize}
+
+Ein Diagramm visualisiert die Verteilung der Score‑Klassen. Eine Tabelle listet die aktuell gefilterten Trades mit den wichtigsten Kennzahlen auf. Abbildung~\ref{fig:mercator-dashboard} im Anhang zeigt die Dashboard‑Ansicht.
+
+\subsection{Trade‑Explorer}
+
+Die Seite \emph{Trades} dient der detaillierten Exploration der Insider‑Transaktionen. Hier können Nutzer die Daten nach verschiedenen Kriterien filtern und sortieren. Die Tabelle enthält Spalten wie Symbol, \emph{reportingName}, Richtung (Kauf/Verkauf), Handelswert, Score und Gate‑Status. Die Spalten sind sortierbar, und es können zusätzliche Filter wie die Branche des Unternehmens oder der Marktwert aktiviert werden. Abbildung~\ref{fig:mercator-trades} zeigt einen Beispielausschnitt.
+
+\subsection{Detailansicht}
+
+Beim Klick auf einen Eintrag in der Trades‑Tabelle öffnet sich die Detailansicht für den ausgewählten Insider‑Trade. Diese Seite zeigt eine umfassende Aufschlüsselung der Transaktion, darunter Unternehmensinformationen, Score‑Berechnungen und eine Visualisierung der Kursentwicklung vor und nach der Transaktion. Ebenso werden die Gründe für den Gate‑Status aufgeführt. Abbildung~\ref{fig:mercator-trade-detail} illustriert den Aufbau dieser Seite.
+
+\subsection{Methodik}
+
+Die vierte Seite erklärt die Logik der Datenpipeline, der Validierungs‑ und Gate‑Regeln sowie der Score‑Berechnung. Diese Dokumentation richtet sich an technisch versierte Nutzer und erfüllt zugleich die Anforderung, die Verarbeitung transparent zu machen. Abbildung~\ref{fig:mercator-methodology} zeigt eine beispielhafte Darstellung der Methodik‑Seite.
+
+\subsection{Navigation und Benutzerfreundlichkeit}
+
+Die Anwendung ist als Single‑Page‑Webapp konzipiert. Die Navigation erfolgt über eine Seitenleiste, die die vier Seiten auflistet. Alle Filter werden direkt in der App angewendet; es sind keine externen Aufrufe erforderlich. Die Speicherung und der Abruf der Daten erfolgen lokal, sodass die Anwendung unabhängig von der Verfügbarkeit der externen API funktioniert, sobald die Daten importiert wurden.

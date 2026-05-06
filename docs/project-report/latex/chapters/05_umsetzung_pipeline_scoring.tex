@@ -1,0 +1,71 @@
+\section{Umsetzung der Pipeline und des Scorings}
+\label{sec:umsetzung}
+
+In diesem Kapitel wird die konkrete Implementierung der Datenverarbeitung beschrieben. Die Logik ist in Python implementiert und folgt der in Kapitel~\ref{sec:architektur} vorgestellten Pipeline. Besondere Aufmerksamkeit gilt der Validierung der Daten und der Berechnung des Scores.
+
+\subsection{Import und Vorverarbeitung}
+
+Der Import der Insider‑Trades erfolgt über einen REST‑Aufruf an die FMP‑API. Die Anfrage liefert ein JSON‑Array mit den Meldungen der letzten Tage. Das Skript liest die Antwort ein und überführt sie in einen \texttt{pandas.DataFrame}. Bereits in diesem Schritt werden offensichtliche Fehler wie fehlende Symbole oder negative Werte entfernt. Ein Beispiel für einen Import ist in Listing~\ref{lst:import} dargestellt.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.9\textwidth}
+\begin{verbatim}
+import pandas as pd
+import requests
+
+resp = requests.get("https://financialmodelingprep.com/api/v4/insider-trading", params={"apikey": "..."})
+data = resp.json()
+df = pd.DataFrame(data)
+df = df.dropna(subset=["symbol", "transactionDate", "value"])
+
+\end{verbatim}
+\end{minipage}
+\caption{Beispielhafter Import von Insider‑Trades}
+\label{lst:import}
+\end{figure}
+
+Nach der Vorverarbeitung wird das Datum in ein einheitliches Format überführt und der numerische Wert der Transaktion in Euro oder US‑Dollar konvertiert. Anschließend wird das DataFrame an die Validierungs‑Komponente übergeben.
+
+\subsection{Validierung und Gates}
+
+Die Validierung überprüft, ob Pflichtfelder vorhanden und plausibel sind. Gate‑Regeln werden verwendet, um Trades auszuschließen, die auf Kleinstbeträgen, exotischen Transaktionstypen oder alten Meldungen basieren. Die folgende Liste zeigt einige exemplarische Kriterien:
+
+\begin{itemize}[leftmargin=1.2cm]
+  \item \textbf{Minimaler Handelswert}: Trades unterhalb einer Schwelle von beispielsweise 50\,000~\$ werden als weniger relevant eingestuft und können ausgeschlossen werden.
+  \item \textbf{Alter der Meldung}: Meldungen, die älter als 30 Tage sind, werden nicht weiter analysiert, da sie für kurzfristige Signale keine Bedeutung mehr haben.
+  \item \textbf{Transaktionstyp}: Bestimmte Codes wie \texttt{GIFT} oder \texttt{OPTION EXERCISE} werden ausgeschlossen, da sie nicht direkt den Kauf oder Verkauf von Aktien widerspiegeln.
+  \item \textbf{Sonderfälle}: Trades mit fehlenden Mengenangaben oder unvollständigen Profilen werden als \emph{INVALID} markiert.
+\end{itemize}
+
+Datensätze, die alle Kriterien erfüllen, erhalten den Status \emph{PASS}. Datensätze, die an einem Gate scheitern, bekommen \emph{PRE\_GATE\_FAIL}. Datensätze mit schwerwiegenden Fehlern werden als \emph{INVALID} verworfen. Diese Stati werden in der Datenbank dokumentiert.
+
+\subsection{Datenanreicherung}
+
+Für alle gültigen Trades werden zusätzlich Unternehmensprofile und historische Kursdaten geladen. Das Profil liefert unter anderem den Unternehmensnamen, den Sektor, die Branche und die Marktkapitalisierung. Die historischen Kurse werden genutzt, um Trend‑ und Momentum‑Indikatoren zu berechnen. Dazu wird eine gleitende Durchschnittsbildung angewandt und die relative Stärke über verschiedene Zeitfenster ermittelt.
+
+\subsection{Berechnung des Scores}
+
+Der Score ist ein gewichteter Index, der mehrere Faktoren kombiniert. In der Forschung werden unterschiedliche Ansätze zur Bewertung von Insider‑Transaktionen diskutiert\cite{insider_research}. Eine mögliche heuristische Formel lautet:
+
+\begin{equation}
+\mathrm{Score} = w_1 \cdot \log_{10}(\mathrm{value}) + w_2 \cdot \mathrm{ageFactor} + w_3 \cdot \mathrm{typeFactor} + w_4 \cdot \mathrm{marketCapFactor} + w_5 \cdot \mathrm{trend} + w_6 \cdot \mathrm{momentum} + w_7 \cdot \mathrm{liquidity},
+\end{equation}
+
+wobei die Gewichte \(w_i\) empirisch festgelegt werden. Die einzelnen Komponenten sind:
+
+\begin{description}[style=nextline]
+  \item[value] Handelswert des Trades. Logarithmiert, um extreme Werte abzuschwächen.
+  \item[ageFactor] Umgekehrt proportional zur Differenz zwischen Meldedatum und Transaktionsdatum.
+  \item[typeFactor] Gewichtung je nach Transaktionstyp: direkte Käufe haben einen positiven Effekt, Verkäufe einen negativen Effekt.
+  \item[marketCapFactor] Berücksichtigt die Marktkapitalisierung des Unternehmens. Trades in kleineren Unternehmen haben tendenziell einen größeren Einfluss.
+  \item[trend] Indikator, ob der Aktienkurs in den letzten Wochen gestiegen oder gefallen ist.
+  \item[momentum] Kennzahl basierend auf der Preisentwicklung innerhalb eines kürzeren Zeitfensters.
+  \item[liquidity] Verhältnis des Handelswerts zum durchschnittlichen täglichen Handelsvolumen.
+\end{description}
+
+Nach Berechnung wird der Score in Klassen eingeteilt. Beispielhaft könnten folgende Grenzen gelten: \(\mathrm{Score} \ge 8\) entspricht Klasse A, \(6 \le \mathrm{Score} < 8\) Klasse B, \(4 \le \mathrm{Score} < 6\) Klasse C, \(2 \le \mathrm{Score} < 4\) Klasse D und darunter Klasse E. Die Einteilung dient der Orientierung und ist nicht empirisch validiert.
+
+\subsection{Persistenz}
+
+Die implementierte Logik ist so gestaltet, dass nach erfolgreicher Validierung und Bewertung alle relevanten Daten sowohl im Raw‑Store als auch im Clean‑Store abgelegt werden. Dabei werden dieselben Objekt‑IDs verwendet, sodass eine Nachverfolgung zwischen Dokument und relationalem Datensatz möglich ist. Transaktionen, die verworfen wurden, werden mit dem entsprechenden Status gespeichert, um die Gründe für ihre Ablehnung nachvollziehen zu können.

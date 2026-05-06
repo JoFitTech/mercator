@@ -1,0 +1,37 @@
+\section{Anforderungen}
+\label{sec:anforderungen}
+
+Dieses Kapitel fasst die Anforderungen an das Projekt zusammen. Die Vorgaben des Moduls \emph{Datenbanken 2} definieren sowohl den Umfang der praktischen Arbeit als auch den Inhalt des schriftlichen Berichts. Darüber hinaus werden funktionale und nicht‑funktionale Anforderungen formuliert, die sich aus dem Ziel der Anwendung ergeben.
+
+\subsection{Modulvorgaben}
+
+Laut Modulunterlagen muss die Projektarbeit eine Anwendung entwickeln, die Daten aus einer öffentlichen Programmierschnittstelle importiert, mit \texttt{pandas} verarbeitet, in einer relationalen und einer dokumentenorientierten Datenbank speichert und über eine interaktive Oberfläche bereitstellt. Die App hat mindestens eine Visualisierung zu enthalten und soll den Umgang mit Analysetechniken demonstrieren. Der schriftliche Bericht umfasst einen Datensatz, Zielsetzung, Aufbau und Funktionsweise, genutzte Technologien sowie zentrale Ergebnisse oder Erkenntnisse【turn6file3】. Für Projektberichte im Modul gilt ein Umfang von fünf bis zehn Seiten【turn6file2】. Die allgemeinen Richtlinien der DHBW zu wissenschaftlichen Arbeiten regeln Format, Zitierstil und Struktur des Berichts\cite{dhbw_guidelines}.
+
+\subsection{Funktionale Anforderungen}
+
+Die folgenden Funktionen müssen umgesetzt werden:
+
+\begin{enumerate}[label=F\arabic*.,wide=0pt, leftmargin=1.2cm]
+  \item \textbf{Datenimport}: Abfrage der aktuellen Insider‑Trades über API1 von FMP. Aggregation der Meldungen über mehrere Tage.
+  \item \textbf{Validierung und Gates}: Lokale Validierung der Importdaten (Vollständigkeit, Datentypen) und Anwendung von Gate‑Regeln zur Filterung irrelevanter Trades.
+  \item \textbf{Datenanreicherung}: Abruf zusätzlicher Daten zu Unternehmen (API2) und historischen Kursdaten (API3). Fallback über die Central Index Key (CIK), falls das Unternehmenssymbol nicht gefunden wird.
+  \item \textbf{Speicherung}: Persistierung der rohen API‑Antworten in MongoDB. Persistierung der bereinigten, strukturierten Daten in MySQL. Protokollierung des Status (PASS, PRE\_GATE\_FAIL, INVALID) für jeden Datensatz.
+  \item \textbf{Bewertung}: Berechnung eines Scores für jeden gültigen Trade basierend auf Handelssumme, Alter der Meldung, Art der Transaktion, Marktkapitalisierung, Trend, Momentum und Liquidität. Kategorisierung in Score‑Klassen A bis E.
+  \item \textbf{Benutzeroberfläche}: Entwicklung einer Streamlit‑Webapp mit mindestens vier Seiten (Dashboard, Trade‑Explorer, Detailansicht, Methodik). Bereitstellung von Filtern, Tabellen, Diagrammen, Kennzahlenkarten und einer Erläuterung der Bewertungslogik.
+\end{enumerate}
+
+\subsection{Nicht‑funktionale Anforderungen}
+
+Neben den funktionalen Anforderungen sind folgende Qualitätsanforderungen relevant:
+
+\begin{itemize}[leftmargin=1.2cm]
+  \item \textbf{Nachvollziehbarkeit}: Die Herkunft der Daten und die angewendeten Transformationen müssen transparent dokumentiert werden. Eine klare Traceability ermöglicht die Überprüfung der Ergebnisse.
+  \item \textbf{Stabilität}: Die Anwendung darf keinen Einfluss auf die gespeicherten Daten haben, wenn nur Analysen ausgeführt werden. Schreiboperationen finden ausschließlich beim Import statt.
+  \item \textbf{Erweiterbarkeit}: Die Architektur soll so gestaltet sein, dass weitere Datenquellen oder Bewertungsmetriken unkompliziert integriert werden können.
+  \item \textbf{Usability}: Die Benutzeroberfläche soll eine intuitive Navigation bieten, Filter und Sortierungen erlauben und die Ergebnisse ansprechend visualisieren.
+  \item \textbf{Performance}: Abfragen und Visualisierungen sollen in vertretbarer Zeit reagieren, auch bei größeren Datenmengen. Durch den Einsatz einer lokalen Datenbank wird die Abhängigkeit von externen API‑Latenzen minimiert.
+\end{itemize}
+
+\subsection{Berichtsforderungen}
+
+Der schriftliche Bericht hat einen klaren Aufbau: Deckblatt, Ehrenwörtliche Erklärung, Inhaltsverzeichnis, Textteil, Anhang, Literaturverzeichnis. Formale Vorgaben betreffen Seitenränder (links 4~cm, rechts 3~cm, oben 3~cm, unten 2~cm), Schriftarten (Arial 11 oder Times~New~Roman 12), Zeilenabstand (1,5‑fach) sowie die Strukturierung mit Überschriften【turn5file2】. Zitate werden im Harvard‑Stil im Text angebracht; Internetquellen sind mit Datum zu versehen【turn6file8】.

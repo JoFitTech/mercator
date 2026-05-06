@@ -1,0 +1,125 @@
+% Main LaTeX file for the Mercator project report.
+% Encoding and general document setup.
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{csquotes}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{tocloft}
+\usepackage{enumitem}
+
+% Page geometry.
+\geometry{
+  left=4cm,
+  right=3cm,
+  top=3cm,
+  bottom=2cm,
+  includeheadfoot
+}
+
+% Bibliography configuration: Harvard style (author-year).
+% Bibliography configuration using biblatex with Harvard/author-year style.
+\usepackage[
+  backend=biber,
+  style=authoryear,
+  natbib=true,
+  maxcitenames=2,
+  maxbibnames=99
+]{biblatex}
+
+% Include the bibliography file.
+\addbibresource{references.bib}
+
+% Header and footer settings.
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Projektarbeit – Mercator}
+\fancyhead[R]{\leftmark}
+\fancyfoot[C]{\thepage}
+
+% Title page macro.
+\newcommand{\makemercatorcover}{
+  \begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    {\LARGE\textbf{Projektarbeit}}\\[1.5cm]
+    {\Large\textbf{\placeholdertitle}}\\[3cm]
+    \begin{flushleft}
+    \textbf{Studiengang:} \placeholderstudiengang\\[0.5cm]
+    \textbf{Kurs:} \placeholderkurs\\[0.5cm]
+    \textbf{Projektarbeit des:} \placeholderstudienjahr\\[0.5cm]
+    \textbf{Titel:} \placeholdertitle\\[0.5cm]
+    \textbf{Name, Vorname:} \placeholdername\\[0.5cm]
+    \textbf{Geburtsdatum/-ort:} \placeholderbirth\\[0.5cm]
+    \textbf{Ausbildungsbetrieb:} \placeholdercompany\\[0.5cm]
+    \textbf{Wissenschaftliche Betreuung:} \placeholderadvisor\\[0.5cm]
+    \textbf{Abgabedatum:} \placeholderdate
+    \end{flushleft}
+    \vfill
+    \textbf{Duale Hochschule Baden-Württemberg}\\[0.3cm]
+    \textbf{Stuttgart}
+    \vspace*{1cm}
+  \end{titlepage}
+}
+
+% Placeholder definitions (to be replaced with actual data).
+\newcommand{\placeholdertitle}{Entwicklung einer analytischen Datenanwendung zur Bewertung und Visualisierung von Insider‑Transaktionen mit Python, MySQL, MongoDB und Streamlit}
+\newcommand{\placeholderstudiengang}{[Studiengang]}
+\newcommand{\placeholderkurs}{[Kurs]}
+\newcommand{\placeholderstudienjahr}{[Studienjahr]}
+\newcommand{\placeholdername}{[Nachname, Vorname]}
+\newcommand{\placeholderbirth}{[Geburtsdatum, Geburtsort]}
+\newcommand{\placeholdercompany}{[Ausbildungsbetrieb]}
+\newcommand{\placeholderadvisor}{[Wissenschaftliche Betreuung]}
+\newcommand{\placeholderdate}{[Abgabedatum]}
+
+\begin{document}
+
+% Cover page.
+\makemercatorcover
+
+% Ehrenwörtliche Erklärung (honourable declaration).
+\section*{Ehrenwörtliche Erklärung}
+Hiermit erkläre ich, dass ich die vorliegende Arbeit selbständig verfasst habe. Sämtliche verwendeten Quellen und Hilfsmittel sind vollständig angegeben. Jegliche wörtliche oder sinngemäße Übernahme von fremdem Gedankengut ist als solche gekennzeichnet. Diese Arbeit wurde weder in gleicher noch in ähnlicher Form bereits in einem anderen Prüfungsverfahren eingereicht.
+\vspace{2cm}
+
+\noindent Stuttgart, den \placeholderdate \hfill \placeholdername
+
+\clearpage
+
+% Table of contents
+\tableofcontents
+\clearpage
+
+% Include chapters.
+\input{chapters/01_einleitung.tex}
+\input{chapters/02_grundlagen.tex}
+\input{chapters/03_anforderungen.tex}
+\input{chapters/04_architektur_datenmodell.tex}
+\input{chapters/05_umsetzung_pipeline_scoring.tex}
+\input{chapters/06_anwendung_ui.tex}
+\input{chapters/07_bewertung_grenzen.tex}
+\input{chapters/08_fazit.tex}
+
+% Appendices
+\appendix
+\section*{Anhang}
+\addcontentsline{toc}{section}{Anhang}
+
+\input{appendix/ki_erklaerung.tex}
+\input{appendix/screenshots.tex}
+
+% Bibliography
+\clearpage
+\printbibliography
+
+\end{document}

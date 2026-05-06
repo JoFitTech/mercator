@@ -1,0 +1,24 @@
+\section{Grundlagen}
+\label{sec:grundlagen}
+
+Dieses Kapitel führt in die wesentlichen Begriffe und Konzepte ein, die für die Umsetzung der Mercator‑Anwendung relevant sind. Es erläutert die Quellen der Daten, die Unterschiede zwischen operativen und analytischen Datenbanken, die eingesetzten Technologien und gibt einen Überblick über die rechtlichen Grundlagen von Insider‑Transaktionen.
+
+\subsection{Insider‑Transaktionen und Datenquellen}
+
+Unter Insider‑Transaktionen werden Käufe oder Verkäufe von Aktien durch Personen verstanden, die innerhalb eines Unternehmens Informationen besitzen, die der Allgemeinheit noch nicht zugänglich sind. Diese Vorgänge sind in vielen Ländern meldepflichtig, um Marktmanipulation zu verhindern. In den USA müssen Unternehmensinsider ihre Trades über das SEC‑Formular~4 öffentlich machen. Die von FMP bereitgestellte API ermöglicht den Zugriff auf die gemeldeten Trades, Unternehmensprofile und historische Marktdaten.
+
+Die Kombination aus Insider‑Trades und Marktinformationen bietet die Grundlage für quantitativen Analysen. Bei der Nutzung der Daten ist zu beachten, dass es sich um vergangenheitsbezogene Meldungen handelt und dass rechtliche Hinweise der SEC die Nutzung einschränken können. Die Verarbeitung der Daten dient in dieser Arbeit ausschließlich der technischen Demonstration. Als Datenquelle wird die API von Financial Modeling Prep genutzt\cite{fmp_api}, die sowohl Insider‑Meldungen als auch Unternehmens‑ und Marktdaten bereitstellt.
+
+\subsection{OLTP, OLAP und Polyglot Persistence}
+
+In der Datenbanktheorie wird zwischen transaktionalen Systemen (Online Transaction Processing, OLTP) und analytischen Systemen (Online Analytical Processing, OLAP) unterschieden. OLTP‑Systeme unterstützen viele gleichzeitige Transaktionen mit kurzen Lese‑ und Schreibvorgängen, wie sie in E‑Commerce‑Anwendungen üblich sind. OLAP‑Systeme hingegen sind auf komplexe Abfragen und Analysen großer Datenmengen optimiert.
+
+Mercator verwendet eine Polyglot‑Persistence‑Architektur: Rohdaten werden in einem dokumentenorientierten MongoDB‑Store abgelegt, während bereinigte und strukturierte Daten in einer relationalen MySQL‑Datenbank gespeichert werden. Dieses Konzept kombiniert die Flexibilität einer Dokumentdatenbank mit der Konsistenz und den Abfragevorteilen einer relationalen Datenbank. Ein solcher Ansatz ermöglicht es, sowohl unstrukturierte API‑Antworten als auch normalisierte Tabellen effizient zu verwalten.
+
+\subsection{Technologien: Python, Pandas, MySQL, MongoDB und Streamlit}
+
+Zur Umsetzung kommt Python zum Einsatz, das sich aufgrund umfangreicher Bibliotheken für Datenverarbeitung und Webentwicklung eignet. Mit dem Paket \texttt{pandas} werden Datenrahmen aus API‑Antworten erstellt, bereinigt und transformiert. Die Daten werden anschließend entweder in MongoDB als JSON‑Strukturen oder in MySQL als Tabellen gespeichert. Streamlit ermöglicht die einfache Entwicklung einer webbasierten Benutzeroberfläche, die interaktive Filter, Kennzahlkarten und Diagramme bietet. Die Anwendung ist als lokale Webapp konzipiert, sodass keine komplexen Frontend‑Frameworks erforderlich sind.
+
+\subsection{Scoring und Validierungslogik}
+
+Neben der reinen Speicherung der Daten wird eine Bewertungslogik implementiert, die jedem Insider‑Trade einen Score zuweist. Dabei fließen unter anderem der Handelswert, die Verzögerung zwischen Transaktionsdatum und Meldedatum, die Art der Transaktion, die Marktkapitalisierung des Unternehmens, der Trend der Aktie sowie Momentum‑ und Liquiditätsindikatoren ein. Vor der Bewertung werden Trades validiert und lokal mit Regeln gefiltert. Fehlerhafte Einträge oder unvollständige Datensätze werden aussortiert. Die Zuordnung der Score‑Klassen (A bis E) dient der Kategorisierung der Relevanz, ist jedoch weder wissenschaftlich noch finanziell validiert und soll nur die technische Umsetzung demonstrieren.
