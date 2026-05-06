@@ -3,6 +3,7 @@
 \documentclass[a4paper,12pt]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
 \usepackage{lmodern}
 \usepackage{geometry}
 \usepackage{graphicx}
@@ -42,9 +43,10 @@
 % Header and footer settings.
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{Projektarbeit – Mercator}
-\fancyhead[R]{\leftmark}
+\fancyhead[L]{Projektarbeit -- Mercator}
+\fancyhead[R]{}
 \fancyfoot[C]{\thepage}
+\setlength{\headheight}{15pt}
 
 % Title page macro.
 \newcommand{\makemercatorcover}{
@@ -123,3 +125,4 @@ Hiermit erkläre ich, dass ich die vorliegende Arbeit selbständig verfasst habe
 \printbibliography
 
 \end{document}
+
