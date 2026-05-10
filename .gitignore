@@ -48,3 +48,4 @@ test-results/
 .mercator/
 *.pid
 PUBLIC_TUNNEL_URL.txt
+.aider*
