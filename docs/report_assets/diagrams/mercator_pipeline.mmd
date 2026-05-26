@@ -1,0 +1,40 @@
+flowchart TB
+    START[Start Importlauf] --> API1[API1 Latest Insider Trades]
+    API1 --> NORM[Normalisierung und Cleaning]
+    NORM --> RAW[Rohdatenspeicherung in MongoDB<br/>insider_trades_raw]
+    NORM --> VAL[Validation]
+    VAL --> PRE[Pre-Gate und Gate-Evaluierung]
+
+    PRE --> GQ{Fuer API2 qualifiziert?}
+
+    GQ -- Nein --> NOAPI2[Status setzen und markieren]
+    NOAPI2 --> SCORE_NO[Finales Scoring lokal]
+    SCORE_NO --> UPSERT_NO[Speicherung in MySQL]
+
+    GQ -- Ja --> API2[Profilanreicherung ueber API2]
+    API2 -. optional .-> FB[Identifier-Fallbacks<br/>search-cik und profile-cik]
+    API2 --> PROF{Profil erfolgreich?}
+
+    PROF -- Nein --> PROF_FAIL[profile_status FAILED]
+    PROF_FAIL --> SCORE_FAIL[Finales Scoring lokal]
+    SCORE_FAIL --> UPSERT_FAIL[Speicherung in MySQL]
+
+    PROF -- Ja --> GPASS{Gate-Status PASS?}
+    GPASS -- Nein --> SCORE_OK[Finales Scoring lokal]
+    SCORE_OK --> UPSERT_OK[Speicherung in MySQL]
+
+    GPASS -- Ja --> API3[Marktdatenanreicherung ueber API3<br/>historical-price-eod/full]
+    API3 --> SCORE_API3[Finales Scoring lokal]
+    SCORE_API3 --> UPSERT_API3[Speicherung in MySQL]
+
+    UPSERT_NO --> UI[Anzeige in Streamlit]
+    UPSERT_FAIL --> UI
+    UPSERT_OK --> UI
+    UPSERT_API3 --> UI
+
+    UI --> DASH[Dashboard]
+    UI --> EXP[Trade-Explorer]
+    UI --> DET[Detailansichten]
+
+    RAW --> ADMIN[Admin und Methodik<br/>Raw-Status sichtbar]
+

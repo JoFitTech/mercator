@@ -1,0 +1,79 @@
+erDiagram
+    COMPANIES {
+        string company_key PK
+        string current_symbol
+        string company_name
+        string profile_status
+        string sector
+        bigint market_cap
+        datetime created_at
+        datetime updated_at
+    }
+
+    INSIDER_TRADES {
+        bigint id PK
+        string company_key FK
+        string symbol_at_trade
+        string reporting_name
+        date transaction_date
+        decimal trade_value
+        string validation_status
+        string gate_status
+        decimal score
+        string score_class
+        string dedupe_key
+        datetime fetched_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    COMPANY_TRADE_STATS {
+        string company_key PK
+        bigint trade_count
+        bigint buy_count
+        bigint sell_count
+        date last_trade_date
+        datetime updated_at
+    }
+
+    MARKET_SIGNAL_CACHE {
+        string symbol PK
+        date lookback_from
+        date lookback_to
+        decimal avg_20d_volume
+        decimal avg_20d_dollar_volume
+        decimal sma_50
+        decimal sma_200
+        decimal momentum_3m
+        decimal momentum_6m
+        string technical_state
+        string liquidity_state
+        datetime source_refreshed_at
+    }
+
+    INSIDER_TRADES_RAW {
+        string dedupe_key
+        string symbol
+        string reporting_name
+        date transaction_date
+        decimal trade_value_estimated
+        string gate_status
+        string profile_status
+        json raw_payload
+        datetime fetched_at
+    }
+
+    MONGO_COMPANIES {
+        string company_key
+        string current_symbol
+        string profile_status
+        datetime profile_updated_at
+    }
+
+    COMPANIES ||--o{ INSIDER_TRADES : company_key_fk
+    COMPANIES ||--|| COMPANY_TRADE_STATS : company_key_fk
+
+    INSIDER_TRADES }o--|| MARKET_SIGNAL_CACHE : logische_beziehung_symbol
+    INSIDER_TRADES_RAW }o--o{ INSIDER_TRADES : logische_sync_dedupe_key
+    MONGO_COMPANIES }o--|| COMPANIES : logische_sync_company_key
+
