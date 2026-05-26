@@ -145,13 +145,28 @@ def _validate_mongo_target_config(
         )
 
     uri_database = _parse_mongo_uri_database(uri, uri_env_name)
-    if uri_database and uri_database != database:
-        raise SettingsError(
-            f"MongoDB database mismatch: URI '{uri_env_name}' points to database '{uri_database}', "
-            f"but '{database_env_name}' is '{database}'. "
-            "Use either no database path in URI or the same database in both places. "
-            f"{_mongo_uni_configuration_hint()}"
+    if not require_database and not database:
+        # Inaktive Targets dürfen DB aus dem URI übernehmen, damit Legacy-Fallbacks nicht den App-Start blockieren.
+        database = uri_database or ""
+
+    if uri_database and database and uri_database != database:
+        if require_database:
+            raise SettingsError(
+                f"MongoDB database mismatch: URI '{uri_env_name}' points to database '{uri_database}', "
+                f"but '{database_env_name}' is '{database}'. "
+                "Use either no database path in URI or the same database in both places. "
+                f"{_mongo_uni_configuration_hint()}"
+            )
+        LOGGER.warning(
+            "MongoDB database mismatch for optional target '%s': URI '%s' uses '%s', env '%s' uses '%s'. "
+            "Using URI database to keep startup resilient.",
+            target_name,
+            uri_env_name,
+            uri_database,
+            database_env_name,
+            database,
         )
+        database = uri_database
 
     try:
         # Validiert die URI-Struktur inkl. URL-Encoding in Userinfo.
@@ -619,6 +634,12 @@ class MongoSettings:
             ),
             require_database=True,
         )
+        uni_database_default = (
+            ""
+            if active_target == "uni"
+            else _read_string_env("MONGO_DATABASE", default="")
+        )
+
         uni_uri, uni_database = _validate_mongo_target_config(
             target_name="uni",
             uri_env_name="UNI_MONGO_URI",
@@ -627,7 +648,7 @@ class MongoSettings:
                 default=_read_string_env("MONGO_URI", default="mongodb://localhost:27017/"),
             ),
             database_env_name="UNI_MONGO_DATABASE",
-            raw_database=_read_string_env("UNI_MONGO_DATABASE", default=""),
+            raw_database=_read_string_env("UNI_MONGO_DATABASE", default=uni_database_default),
             require_database=active_target == "uni",
         )
 

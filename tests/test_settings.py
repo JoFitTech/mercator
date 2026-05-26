@@ -293,4 +293,37 @@ def test_mongo_settings_loads_both_targets(monkeypatch) -> None:
     assert mongo_settings.uni_mongo.database == "uni"
 
 
+def test_mongo_config_accepts_uni_uri_without_database_path_and_authsource_admin(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "uni")
+    monkeypatch.setenv(
+        "UNI_MONGO_URI",
+        "mongodb://user:pw@mongo.uni.example:27017/?authSource=admin",
+    )
+    monkeypatch.setenv("UNI_MONGO_DATABASE", "WI24A2_3_DB_User9_DB1")
+
+    config = MongoConfig.from_env()
+
+    assert config.active_target == "uni"
+    assert config.database == "WI24A2_3_DB_User9_DB1"
+
+
+def test_mongo_settings_accepts_legacy_uni_fallback_with_uri_database_when_uni_inactive(monkeypatch) -> None:
+    monkeypatch.setenv("MONGO_ACTIVE_TARGET", "local")
+    monkeypatch.setenv("LOCAL_MONGO_URI", "mongodb://localhost:27017/")
+    monkeypatch.setenv("LOCAL_MONGO_DATABASE", "mercator")
+    monkeypatch.setenv(
+        "MONGO_URI",
+        "mongodb://user:pw@mongo.uni.example:27017/admin?authSource=admin",
+    )
+    monkeypatch.setenv("MONGO_DATABASE", "mercator")
+    monkeypatch.delenv("UNI_MONGO_URI", raising=False)
+    monkeypatch.delenv("UNI_MONGO_DATABASE", raising=False)
+
+    mongo_settings = MongoSettings.from_env()
+
+    assert mongo_settings.mongo_active_target == "local"
+    assert mongo_settings.uni_mongo.uri == "mongodb://user:pw@mongo.uni.example:27017/admin?authSource=admin"
+    assert mongo_settings.uni_mongo.database == "admin"
+
+
 # Offene Testpunkte stehen zentral in ``docs/todos_offene_fragen.md``.

@@ -192,6 +192,19 @@ Kompatibilität:
 - Für Mongo gilt: `authSource=admin` im URI ist nur die Auth-DB; die Zieldatenbank bleibt `*_MONGO_DATABASE`.
 - Mongo-Fallback ist transparent und greift nur bei `MONGO_ACTIVE_TARGET=uni` optional auf `local` zurück.
 
+### Troubleshooting: `MongoDB database mismatch`
+- Ursache: `UNI_MONGO_URI` enthält einen DB-Pfad (z. B. `/admin`), aber `UNI_MONGO_DATABASE` zeigt auf eine andere DB.
+- Korrekte Uni-Konfiguration (empfohlen):
+
+```dotenv
+MONGO_ACTIVE_TARGET=uni
+UNI_MONGO_URI=mongodb://<user>:<urlencoded_password>@<host>:27017/?authSource=admin
+UNI_MONGO_DATABASE=<ziel_db_name>
+```
+
+- Wichtig: `authSource=admin` ist nur die Authentifizierungsdatenbank.
+- Wenn ein URI-Pfad gesetzt ist (z. B. `/admin`), muss `UNI_MONGO_DATABASE` exakt denselben Namen tragen.
+
 Optionale Import-/Gate-Parameter:
 - `GATE_MIN_TRADE_VALUE` (Default `100000` – Mindestwert $100.000)
 - `GATE_REQUIRE_PURCHASE_EVENT` (`true`/`false`)

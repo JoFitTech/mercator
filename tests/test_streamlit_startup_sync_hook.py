@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit_app
+from src.config.settings import SettingsError
 
 
 class _DbStatus:
@@ -69,3 +70,31 @@ def test_main_orders_startup_sync_before_auto_import(monkeypatch) -> None:
 
     assert calls.index("startup_sync") < calls.index("auto_import")
     assert calls.index("startup_toast") < calls.index("auto_import")
+
+
+def test_main_renders_settings_error_when_bootstrap_fails(monkeypatch) -> None:
+    captured_error_messages: list[str] = []
+    captured_codes: list[str] = []
+
+    class _ExpanderStub:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "bootstrap_app",
+        lambda: (_ for _ in ()).throw(SettingsError("MongoDB database mismatch")),
+    )
+    monkeypatch.setattr(streamlit_app, "render_error_state", lambda msg: captured_error_messages.append(msg))
+    monkeypatch.setattr(streamlit_app.st, "expander", lambda *args, **kwargs: _ExpanderStub())
+    monkeypatch.setattr(streamlit_app.st, "code", lambda text, language="text": captured_codes.append(text))
+
+    streamlit_app.main()
+
+    assert captured_error_messages
+    assert "Konfigurationsfehler" in captured_error_messages[0]
+    assert captured_codes == ["MongoDB database mismatch"]
+

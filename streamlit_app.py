@@ -15,6 +15,7 @@ from src.app.navigation import (
 from src.app.auto_import import handle_auto_import, render_import_status_toast
 from src.app.startup_sync import handle_startup_sync, render_startup_sync_toast_or_banner
 from src.services.public_share_service import CloudflareQuickTunnelProvider, TunnelManager, sync_public_share_sidebar_state
+from src.config.settings import SettingsError
 from src.ui.components.page_scaffold import render_error_state
 
 from src.ui.pages.dashboard_page import render_dashboard_page
@@ -40,12 +41,27 @@ def _safe_render_page(area_name: str, render_callable: Callable[[], None]) -> No
             st.code(str(exc), language="text")
 
 
+def _render_settings_bootstrap_error(exc: SettingsError) -> None:
+    """Zeigt eine sichere Diagnose für Konfigurationsfehler ohne Geheimnisse offenzulegen."""
+
+    render_error_state(
+        "Konfigurationsfehler beim App-Start. Bitte Umgebungsvariablen/Secrets prüfen "
+        "(insb. MONGO_ACTIVE_TARGET, UNI_MONGO_URI, UNI_MONGO_DATABASE)."
+    )
+    with st.expander("Technische Details", expanded=False):
+        st.code(str(exc), language="text")
+
+
 def main():
     """Haupt-Einstiegspunkt der Anwendung."""
     
     # 1. Bootstrap (Config, Layout, Theme, Services)
     # Requirement 1: Radikal entschlackt, nur noch Bootstrap & Initialisierung.
-    settings, db_status, mysql_res, factory = bootstrap_app()
+    try:
+        settings, db_status, mysql_res, factory = bootstrap_app()
+    except SettingsError as exc:
+        _render_settings_bootstrap_error(exc)
+        return
     startup_sync_outcome = handle_startup_sync(
         settings=settings,
         db_status=db_status,
