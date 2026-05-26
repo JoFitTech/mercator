@@ -1,3 +1,4 @@
+%% MySQL Clean-Store Tabellen
 erDiagram
     COMPANIES {
         string company_key PK
@@ -6,7 +7,6 @@ erDiagram
         string profile_status
         string sector
         bigint market_cap
-        datetime created_at
         datetime updated_at
     }
 
@@ -22,9 +22,6 @@ erDiagram
         decimal score
         string score_class
         string dedupe_key
-        datetime fetched_at
-        datetime created_at
-        datetime updated_at
     }
 
     COMPANY_TRADE_STATS {
@@ -33,7 +30,6 @@ erDiagram
         bigint buy_count
         bigint sell_count
         date last_trade_date
-        datetime updated_at
     }
 
     MARKET_SIGNAL_CACHE {
@@ -41,17 +37,16 @@ erDiagram
         date lookback_from
         date lookback_to
         decimal avg_20d_volume
-        decimal avg_20d_dollar_volume
         decimal sma_50
         decimal sma_200
         decimal momentum_3m
         decimal momentum_6m
         string technical_state
         string liquidity_state
-        datetime source_refreshed_at
     }
 
-    INSIDER_TRADES_RAW {
+%% MongoDB Collections (kein relationales Schema, logische Beziehungen)
+    INSIDER_TRADES_RAW["INSIDER_TRADES_RAW (MongoDB)"] {
         string dedupe_key
         string symbol
         string reporting_name
@@ -60,10 +55,9 @@ erDiagram
         string gate_status
         string profile_status
         json raw_payload
-        datetime fetched_at
     }
 
-    MONGO_COMPANIES {
+    MONGO_COMPANIES["MONGO_COMPANIES (MongoDB)"] {
         string company_key
         string current_symbol
         string profile_status
@@ -73,7 +67,6 @@ erDiagram
     COMPANIES ||--o{ INSIDER_TRADES : company_key_fk
     COMPANIES ||--|| COMPANY_TRADE_STATS : company_key_fk
 
-    INSIDER_TRADES }o--|| MARKET_SIGNAL_CACHE : logische_beziehung_symbol
-    INSIDER_TRADES_RAW }o--o{ INSIDER_TRADES : logische_sync_dedupe_key
-    MONGO_COMPANIES }o--|| COMPANIES : logische_sync_company_key
-
+    INSIDER_TRADES }o--|| MARKET_SIGNAL_CACHE : "logische Beziehung (symbol)"
+    INSIDER_TRADES_RAW }o--o{ INSIDER_TRADES : "logische Beziehung (dedupe_key)"
+    MONGO_COMPANIES }o--|| COMPANIES : "logische Beziehung (company_key)"

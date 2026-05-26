@@ -1,59 +1,34 @@
 flowchart LR
     subgraph Q[Oeffentliche Datenquelle]
-        API1[FMP API1<br/>Latest Insider Trades]
-        API2[FMP API2 optional<br/>Company Profile]
-        API2FB[API2 Fallbacks optional<br/>search-cik / profile-cik]
-        API3[FMP API3 optional<br/>Historical Price EOD]
+        API1[FMP API<br/>Latest Insider Trades]
+        API2[FMP API optional<br/>Company Profile und Marktdaten]
     end
 
-    subgraph V[Python/Pandas Verarbeitung]
-        IMP[ImportService]
-        NORM[Normalisierung und Cleaning]
-        VAL[Validation]
+    subgraph V[Python/Pandas Pipeline]
+        IMP[Import]
+        VAL[Validierung]
         GATE[Gate-Logik]
+        ENR[Enrichment]
         SCORE[Scoring A-E]
-        ACC[3-Tage-Akkumulation<br/>Analysepfad in der UI]
     end
 
-    subgraph S[Persistenzschicht]
-        MONGO[MongoDB Raw-Store<br/>insider_trades_raw, companies]
-        REPO[Repository-Schicht<br/>src/db/repositories]
-        MYSQL[MySQL Clean-Store<br/>insider_trades, companies,<br/>market_signal_cache, company_trade_stats]
+    subgraph P[Persistenzschicht]
+        MONGO[MongoDB<br/>Raw-Store]
+        MYSQL[MySQL<br/>Clean-Store]
     end
 
-    subgraph U[Streamlit Oberflaeche]
-        APP[streamlit_app.py]
+    subgraph U[Streamlit UI]
         DASH[Dashboard]
-        TRADES[Trades]
-        COMPS[Unternehmen]
-        TDETAIL[Trade-Detail]
-        CDETAIL[Unternehmens-Detail]
-        METH[Methodik]
-        ADMIN[Admin]
+        EXP[Trade-Explorer]
+        DET[Detailansichten]
     end
 
-    API1 --> IMP --> NORM --> VAL --> GATE
-    NORM --> MONGO
-    GATE --> SCORE --> REPO --> MYSQL
-
-    GATE -. bei qualifizierten Faellen .-> API2
-    API2 -. bei Identifier-Problemen .-> API2FB
-    API2 --> SCORE
-
-    GATE -. nur Gate-PASS plus Profil .-> API3
-    API3 --> SCORE
-
-    MYSQL --> APP
-    MONGO --> APP
-
-    APP --> DASH
-    APP --> TRADES
-    APP --> COMPS
-    APP --> TDETAIL
-    APP --> CDETAIL
-    APP --> METH
-    APP --> ADMIN
-
-    TRADES --> ACC
-    TDETAIL --> ACC
-
+    API1 --> IMP --> VAL --> GATE --> ENR
+    IMP --> MONGO
+    GATE -. qualifizierte Faelle .-> API2
+    API2 --> ENR
+    ENR --> SCORE --> MYSQL
+    MYSQL --> DASH
+    MYSQL --> EXP
+    MYSQL --> DET
+    MONGO -.-> DASH
