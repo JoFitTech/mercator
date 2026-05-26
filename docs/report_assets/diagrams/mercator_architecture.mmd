@@ -1,34 +1,38 @@
 flowchart LR
     subgraph Q[Oeffentliche Datenquelle]
         API1[FMP API<br/>Latest Insider Trades]
-        API2[FMP API optional<br/>Company Profile und Marktdaten]
+        APIX[FMP API<br/>selektive Profil- und Marktdatenanreicherung]
     end
 
     subgraph V[Python/Pandas Pipeline]
-        IMP[Import]
+        IMP[Import und Normalisierung]
         VAL[Validierung]
         GATE[Gate-Logik]
         ENR[Enrichment]
-        SCORE[Scoring A-E]
+        SCORE[Scoring und Klassifikation]
     end
 
-    subgraph P[Persistenzschicht]
+    subgraph P[Persistenz]
         MONGO[MongoDB<br/>Raw-Store]
         MYSQL[MySQL<br/>Clean-Store]
     end
 
-    subgraph U[Streamlit UI]
+    subgraph U[Streamlit-Oberflaeche]
         DASH[Dashboard]
         EXP[Trade-Explorer]
         DET[Detailansichten]
     end
 
-    API1 --> IMP --> VAL --> GATE --> ENR
+    API1 --> IMP
     IMP --> MONGO
-    GATE -. qualifizierte Faelle .-> API2
-    API2 --> ENR
-    ENR --> SCORE --> MYSQL
+    IMP --> VAL --> GATE
+    GATE -. qualifizierte Faelle .-> APIX
+    APIX --> ENR
+    GATE --> SCORE
+    ENR --> SCORE
+    SCORE --> MYSQL
+
+    MONGO -. Rohdaten und Profile .-> DASH
     MYSQL --> DASH
     MYSQL --> EXP
     MYSQL --> DET
-    MONGO -.-> DASH
