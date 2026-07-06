@@ -14,10 +14,10 @@
 
 - [X] T001 Document the scoped legacy-to-stock rename inventory in `specs/001-stock-analysis-dashboard/research.md`
 - [X] T002 Add baseline startup and navigation regression tests for the current app in `tests/test_stocklens_baseline.py`
-- [ ] T003 [P] Add stock-analysis package exports without changing legacy imports in `src/models/__init__.py`
-- [ ] T004 [P] Add stock-analysis repository module placeholders in `src/db/repositories/__init__.py`
-- [ ] T005 [P] Add stock-analysis service module placeholders in `src/services/__init__.py`
-- [ ] T006 Run baseline validation command from quickstart in `tests/test_service_factory.py`, `tests/test_database_status_service.py`, and `tests/test_status_badges.py`
+- [X] T003 [P] Add stock-analysis package exports without changing legacy imports in `src/models/__init__.py`
+- [X] T004 [P] Add stock-analysis repository module placeholders in `src/db/repositories/__init__.py`
+- [X] T005 [P] Add stock-analysis service module placeholders in `src/services/__init__.py`
+- [X] T006 Run baseline validation command from quickstart in `tests/test_service_factory.py`, `tests/test_database_status_service.py`, and `tests/test_status_badges.py`
 
 ---
 

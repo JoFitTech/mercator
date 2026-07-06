@@ -12,6 +12,15 @@ if TYPE_CHECKING:
 	from src.services.database_status_service import DatabaseStatusService
 	from src.services.import_service import ImportService
 
+STOCK_ANALYSIS_SERVICE_MODULES = (
+	"stock_import_service",
+	"feature_engineering_service",
+	"prediction_model_service",
+	"backtest_service",
+	"preference_scoring_service",
+	"stock_analysis_service",
+)
+
 _EXPORT_MODULES = {
 	"AnalysisService": "src.services.analysis_service",
 	"DashboardService": "src.services.dashboard_service",
@@ -19,7 +28,7 @@ _EXPORT_MODULES = {
 	"ImportService": "src.services.import_service",
 }
 
-__all__ = list(_EXPORT_MODULES)
+__all__ = [*list(_EXPORT_MODULES), "STOCK_ANALYSIS_SERVICE_MODULES"]
 
 
 def __getattr__(name: str) -> Any:
@@ -30,5 +39,8 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-	return sorted(list(globals().keys()) + list(_EXPORT_MODULES.keys()))
-
+	return sorted(
+		list(globals().keys())
+		+ list(_EXPORT_MODULES.keys())
+		+ ["STOCK_ANALYSIS_SERVICE_MODULES"]
+	)
