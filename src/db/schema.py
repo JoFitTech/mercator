@@ -284,6 +284,245 @@ MYSQL_SCHEMA_STATEMENTS: list[str] = [
         PRIMARY KEY (day_key, provider)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
+    """
+    CREATE TABLE IF NOT EXISTS watchlist_items (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        symbol VARCHAR(20) NOT NULL,
+        company_key VARCHAR(64) NULL,
+        display_name VARCHAR(255) NULL,
+        notes TEXT NULL,
+        priority INT NOT NULL DEFAULT 0,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        resolution_status VARCHAR(32) NOT NULL DEFAULT 'UNRESOLVED',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_watchlist_items_symbol (symbol),
+        INDEX idx_watchlist_items_company_key (company_key),
+        INDEX idx_watchlist_items_active_priority (active, priority),
+        CONSTRAINT fk_watchlist_items_company_key
+            FOREIGN KEY (company_key) REFERENCES companies(company_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS stock_price_history (
+        symbol VARCHAR(20) NOT NULL,
+        price_date DATE NOT NULL,
+        open_price DECIMAL(18,4) NULL,
+        high_price DECIMAL(18,4) NULL,
+        low_price DECIMAL(18,4) NULL,
+        close_price DECIMAL(18,4) NULL,
+        adjusted_close DECIMAL(18,4) NULL,
+        volume BIGINT NULL,
+        provider VARCHAR(32) NOT NULL,
+        source_refreshed_at DATETIME NULL,
+        quality_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (symbol, price_date, provider),
+        UNIQUE KEY uq_stock_price_history_symbol_date_provider (symbol, price_date, provider),
+        INDEX idx_stock_price_history_symbol_date (symbol, price_date),
+        INDEX idx_stock_price_history_quality_status (quality_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fundamental_metrics (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        symbol VARCHAR(20) NOT NULL,
+        metric_name VARCHAR(128) NOT NULL,
+        period_type VARCHAR(32) NOT NULL,
+        period_end DATE NOT NULL,
+        value DECIMAL(24,8) NULL,
+        unit VARCHAR(32) NULL,
+        provider VARCHAR(32) NOT NULL,
+        source_refreshed_at DATETIME NULL,
+        quality_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_fundamental_metrics_symbol_metric_period_provider (
+            symbol, metric_name, period_type, period_end, provider
+        ),
+        INDEX idx_fundamental_metrics_symbol_period (symbol, period_end),
+        INDEX idx_fundamental_metrics_quality_status (quality_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS technical_features (
+        symbol VARCHAR(20) NOT NULL,
+        feature_date DATE NOT NULL,
+        momentum_1m DECIMAL(12,6) NULL,
+        momentum_3m DECIMAL(12,6) NULL,
+        momentum_6m DECIMAL(12,6) NULL,
+        sma_20 DECIMAL(18,4) NULL,
+        sma_50 DECIMAL(18,4) NULL,
+        sma_200 DECIMAL(18,4) NULL,
+        volatility_20d DECIMAL(12,6) NULL,
+        max_drawdown_1y DECIMAL(12,6) NULL,
+        volume_trend_20d DECIMAL(12,6) NULL,
+        feature_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+        unavailable_reason TEXT NULL,
+        input_refreshed_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (symbol, feature_date),
+        UNIQUE KEY uq_technical_features_symbol_date (symbol, feature_date),
+        INDEX idx_technical_features_status (feature_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fundamental_features (
+        symbol VARCHAR(20) NOT NULL,
+        feature_period DATE NOT NULL,
+        revenue_growth DECIMAL(12,6) NULL,
+        earnings_growth DECIMAL(12,6) NULL,
+        gross_margin DECIMAL(12,6) NULL,
+        operating_margin DECIMAL(12,6) NULL,
+        net_margin DECIMAL(12,6) NULL,
+        valuation_ratio DECIMAL(18,6) NULL,
+        debt_to_equity DECIMAL(18,6) NULL,
+        market_cap BIGINT NULL,
+        feature_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
+        unavailable_reason TEXT NULL,
+        input_refreshed_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (symbol, feature_period),
+        UNIQUE KEY uq_fundamental_features_symbol_period (symbol, feature_period),
+        INDEX idx_fundamental_features_status (feature_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS model_runs (
+        model_run_id VARCHAR(64) NOT NULL,
+        model_name VARCHAR(128) NOT NULL,
+        model_type VARCHAR(64) NOT NULL,
+        model_version VARCHAR(64) NOT NULL,
+        target_type VARCHAR(64) NOT NULL,
+        horizon_days INT NOT NULL,
+        training_started_at DATETIME NULL,
+        training_completed_at DATETIME NULL,
+        training_window_start DATE NULL,
+        training_window_end DATE NULL,
+        feature_set_version VARCHAR(64) NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+        quality_summary_json JSON NULL,
+        error_message TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (model_run_id),
+        INDEX idx_model_runs_name_version (model_name, model_version),
+        INDEX idx_model_runs_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS prediction_results (
+        prediction_id BIGINT NOT NULL AUTO_INCREMENT,
+        model_run_id VARCHAR(64) NOT NULL,
+        symbol VARCHAR(20) NOT NULL,
+        prediction_as_of DATE NOT NULL,
+        horizon_days INT NOT NULL,
+        target_type VARCHAR(64) NOT NULL,
+        direction VARCHAR(32) NULL,
+        return_class VARCHAR(32) NULL,
+        expected_return DECIMAL(12,6) NULL,
+        confidence DECIMAL(12,6) NULL,
+        uncertainty DECIMAL(12,6) NULL,
+        model_quality_score DECIMAL(12,6) NULL,
+        input_refreshed_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (prediction_id),
+        UNIQUE KEY uq_prediction_results_run_symbol_as_of (
+            model_run_id, symbol, prediction_as_of, horizon_days, target_type
+        ),
+        INDEX idx_prediction_results_symbol_as_of (symbol, prediction_as_of),
+        CONSTRAINT fk_prediction_results_model_run_id
+            FOREIGN KEY (model_run_id) REFERENCES model_runs(model_run_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS backtest_results (
+        backtest_id BIGINT NOT NULL AUTO_INCREMENT,
+        model_run_id VARCHAR(64) NOT NULL,
+        horizon_days INT NOT NULL,
+        evaluation_start DATE NULL,
+        evaluation_end DATE NULL,
+        sample_size INT NULL,
+        accuracy DECIMAL(12,6) NULL,
+        precision_score DECIMAL(12,6) NULL,
+        recall_score DECIMAL(12,6) NULL,
+        mean_absolute_error DECIMAL(18,8) NULL,
+        calibration_summary_json JSON NULL,
+        caveats_text TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (backtest_id),
+        INDEX idx_backtest_results_model_run_id (model_run_id),
+        CONSTRAINT fk_backtest_results_model_run_id
+            FOREIGN KEY (model_run_id) REFERENCES model_runs(model_run_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS preference_scores (
+        preference_score_id BIGINT NOT NULL AUTO_INCREMENT,
+        symbol VARCHAR(20) NOT NULL,
+        score_as_of DATE NOT NULL,
+        preference_score DECIMAL(12,6) NULL,
+        rank_position INT NULL,
+        fundamental_component DECIMAL(12,6) NULL,
+        technical_component DECIMAL(12,6) NULL,
+        risk_component DECIMAL(12,6) NULL,
+        prediction_component DECIMAL(12,6) NULL,
+        confidence_component DECIMAL(12,6) NULL,
+        confidence DECIMAL(12,6) NULL,
+        uncertainty DECIMAL(12,6) NULL,
+        explanation_positive TEXT NULL,
+        explanation_negative TEXT NULL,
+        data_quality_summary TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (preference_score_id),
+        UNIQUE KEY uq_preference_scores_symbol_as_of (symbol, score_as_of),
+        INDEX idx_preference_scores_rank (score_as_of, rank_position)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS import_runs (
+        import_run_id VARCHAR(64) NOT NULL,
+        provider VARCHAR(32) NOT NULL,
+        import_type VARCHAR(64) NOT NULL,
+        started_at DATETIME NOT NULL,
+        completed_at DATETIME NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+        symbols_requested INT NOT NULL DEFAULT 0,
+        symbols_succeeded INT NOT NULL DEFAULT 0,
+        symbols_failed INT NOT NULL DEFAULT 0,
+        raw_responses_written INT NOT NULL DEFAULT 0,
+        clean_records_written INT NOT NULL DEFAULT 0,
+        error_message TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (import_run_id),
+        INDEX idx_import_runs_provider_type (provider, import_type),
+        INDEX idx_import_runs_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS data_quality_issues (
+        issue_id BIGINT NOT NULL AUTO_INCREMENT,
+        symbol VARCHAR(20) NOT NULL,
+        data_category VARCHAR(64) NOT NULL,
+        severity VARCHAR(32) NOT NULL,
+        status VARCHAR(32) NOT NULL,
+        message TEXT NOT NULL,
+        detected_at DATETIME NOT NULL,
+        source_refreshed_at DATETIME NULL,
+        resolved_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (issue_id),
+        INDEX idx_data_quality_issues_symbol_category (symbol, data_category),
+        INDEX idx_data_quality_issues_status_severity (status, severity)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """,
 ]
 
 # Offene Architekturpunkte sind zentral in ``docs/todos_offene_fragen.md`` dokumentiert.

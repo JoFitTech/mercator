@@ -27,8 +27,8 @@
 
 **CRITICAL**: No user story work should begin until this phase is complete.
 
-- [ ] T007 Add stock-analysis MySQL DDL for `watchlist_items`, `stock_price_history`, `fundamental_metrics`, `technical_features`, `fundamental_features`, `model_runs`, `prediction_results`, `backtest_results`, `preference_scores`, `import_runs`, and `data_quality_issues` in `src/db/schema.py`
-- [ ] T008 Add schema migration coverage for additive stock-analysis tables and preserved legacy tables in `tests/test_schema.py`
+- [X] T007 Add stock-analysis MySQL DDL for `watchlist_items`, `stock_price_history`, `fundamental_metrics`, `technical_features`, `fundamental_features`, `model_runs`, `prediction_results`, `backtest_results`, `preference_scores`, `import_runs`, and `data_quality_issues` in `src/db/schema.py`
+- [X] T008 Add schema migration coverage for additive stock-analysis tables and preserved legacy tables in `tests/test_schema.py`
 - [ ] T009 [P] Create raw provider response and import run models in `src/models/stock.py`
 - [ ] T010 [P] Create watchlist and data-quality models in `src/models/watchlist.py`
 - [ ] T011 [P] Create feature models in `src/models/features.py`
