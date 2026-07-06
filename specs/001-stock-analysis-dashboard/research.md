@@ -13,6 +13,25 @@
 - `src/services/import_service.py`, `analysis_service.py`, `dashboard_service.py`, `buy_engine.py`, `accumulation_service.py`, and `src/preprocessing/gate_evaluator.py` are insider-trade-shaped and should not be blindly renamed.
 - `tests/` already covers repository behavior, import behavior, settings, status badges, degraded mode, and UI regressions.
 
+## Setup Phase Inventory Update
+
+Detailed brownfield migration inventory, module classification, rename map, rename risks, and current baseline status are recorded in `docs/brownfield_migration_plan.md`.
+
+### Legacy/New Module Classification Summary
+
+- **Preserve initially**: `streamlit_app.py`, `src/app/navigation.py`, `src/config/settings.py`, `src/services/factory.py`, app bootstrap, database target resolvers, and existing Streamlit navigation.
+- **Legacy insider-trade runtime**: `src/models/insider_trade.py`, `src/db/repositories/trade_repository.py`, `src/db/mysql_repository.py`, `src/services/import_service.py`, `src/services/analysis_service.py`, `src/services/dashboard_service.py`, `src/preprocessing/gate_evaluator.py`, `src/services/buy_engine.py`, `src/services/accumulation_service.py`, `src/ui/pages/trades_page.py`, and `src/ui/pages/trade_detail_page.py`.
+- **Reusable with additive adaptation**: `src/data_sources/fmp_client.py`, `src/db/mongo_repository.py`, `src/db/schema.py`, company and market-signal repositories, `src/services/historical_market_data_service.py`, and shared UI components.
+- **Reference-only compatibility**: Trade Republic universe source, domain, repository, service, and admin UI remain reference metadata only and must not imply broker connectivity.
+- **Planned new modules**: watchlist, stock price, fundamental metric, feature, prediction, preference score, stock import, feature engineering, backtest, watchlist page, stock detail page, and model evaluation page modules are deferred to later phases.
+
+### Setup Phase Baseline Status
+
+- Added `tests/test_stocklens_baseline.py` as a source-level guard that the current Streamlit entry point and navigation still wire legacy `Trades` and `Trade-Detail` routes.
+- Attempted the quickstart baseline command with `python`, but the shell has no `python` shim.
+- Attempted the same baseline with `python3`; Python 3.12.3 is available, but pytest is not installed in that interpreter, so collection cannot start.
+- No runtime module renames, schema changes, legacy removals, or prediction implementations were performed in this phase.
+
 ## Decisions
 
 ### Decision 1: Add Stock Modules Beside Legacy Modules First
