@@ -29,11 +29,11 @@
 
 - [X] T007 Add stock-analysis MySQL DDL for `watchlist_items`, `stock_price_history`, `fundamental_metrics`, `technical_features`, `fundamental_features`, `model_runs`, `prediction_results`, `backtest_results`, `preference_scores`, `import_runs`, and `data_quality_issues` in `src/db/schema.py`
 - [X] T008 Add schema migration coverage for additive stock-analysis tables and preserved legacy tables in `tests/test_schema.py`
-- [ ] T009 [P] Create raw provider response and import run models in `src/models/stock.py`
-- [ ] T010 [P] Create watchlist and data-quality models in `src/models/watchlist.py`
-- [ ] T011 [P] Create feature models in `src/models/features.py`
-- [ ] T012 [P] Create prediction and backtest models in `src/models/prediction.py`
-- [ ] T013 [P] Create preference score models in `src/models/preference.py`
+- [X] T009 [P] Create raw provider response and import run models in `src/models/stock.py`
+- [X] T010 [P] Create watchlist and data-quality models in `src/models/watchlist.py`
+- [X] T011 [P] Create feature models in `src/models/features.py`
+- [X] T012 [P] Create prediction and backtest models in `src/models/prediction.py`
+- [X] T013 [P] Create preference score models in `src/models/preference.py`
 - [ ] T014 Implement `RawProviderResponseMongoRepository` while preserving existing insider raw methods in `src/db/mongo_repository.py`
 - [ ] T015 [P] Implement `ImportRunRepository` in `src/db/repositories/import_run_repository.py`
 - [ ] T016 [P] Implement `DataQualityRepository` in `src/db/repositories/data_quality_repository.py`
