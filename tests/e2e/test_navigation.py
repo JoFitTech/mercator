@@ -2,12 +2,13 @@
 Navigationstests für die aktuelle Mercator-UI.
 
 Geprüfte Seiten:
-- Dashboard (Startseite)
-- Trades
-- Unternehmen
+- Übersicht (Startseite)
+- Watchlist
+- Modellbewertung
 - Methodik
 - Einstellungen
 - Admin
+- Legacy Trades und Unternehmen
 
 Marker: @pytest.mark.navigation
 """
@@ -42,6 +43,18 @@ def test_dashboard_page_loads(mercator_page: Page) -> None:
     """Die Startseite lädt ohne Python-Exception."""
     _page_shows_warning_not_crash(mercator_page)
     expect(mercator_page.locator("h1").first).to_be_visible()
+
+
+@pytest.mark.navigation
+def test_stock_analysis_primary_pages_are_accessible(mercator_page: Page) -> None:
+    for target, heading in [
+        ("Übersicht", "Aktienanalyse-Übersicht"),
+        ("Watchlist", "Watchlist"),
+        ("Modellbewertung", "Modellbewertung"),
+    ]:
+        navigate_to_page(mercator_page, target)
+        _page_shows_warning_not_crash(mercator_page)
+        _expect_page_title_visible(mercator_page, heading)
 
 
 @pytest.mark.navigation
@@ -91,11 +104,12 @@ def test_navigation_returns_to_dashboard(mercator_page: Page) -> None:
 
 @pytest.mark.navigation
 def test_header_and_sidebar_navigation_controls_visible(mercator_page: Page) -> None:
-    for primary_page in ["Dashboard", "Trades", "Unternehmen"]:
+    for primary_page in ["Übersicht", "Watchlist", "Modellbewertung"]:
         expect(mercator_page.get_by_role("button", name=primary_page, exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
 
     sidebar = mercator_page.locator('[data-testid="stSidebar"]')
     expect(sidebar.get_by_text("Verwaltung & Hilfe", exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
+    expect(sidebar.get_by_text("Legacy", exact=False).first).to_be_visible(timeout=ACTION_TIMEOUT)
 
 
 @pytest.mark.navigation

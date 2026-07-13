@@ -19,6 +19,10 @@ from src.config.settings import (
     SEARCH_CIK_ENDPOINT,
     EXCHANGE_VARIANTS_ENDPOINT,
     HISTORICAL_PRICE_EOD_FULL_ENDPOINT,
+    INCOME_STATEMENT_ENDPOINT,
+    BALANCE_SHEET_STATEMENT_ENDPOINT,
+    KEY_METRICS_ENDPOINT,
+    RATIOS_ENDPOINT,
     SEARCH_INSIDER_TRADES_ENDPOINT,
     FmpConfig,
     validate_fmp_api_key,
@@ -170,6 +174,31 @@ class FmpClient:
         params = {"symbol": symbol, "from": date_from, "to": date_to, "apikey": self.config.api_key}
         payload = self._request(HISTORICAL_PRICE_EOD_FULL_ENDPOINT, params=params)
         return payload if isinstance(payload, list) else []
+
+    def fetch_income_statement(self, symbol: str, period: str = "annual", limit: int = 5) -> list[dict[str, Any]]:
+        """Laedt FMP Income-Statement-Daten fuer Finanzmetriken."""
+        params = {"symbol": symbol, "period": period, "limit": limit, "apikey": self.config.api_key}
+        payload = self._request(INCOME_STATEMENT_ENDPOINT, params=params)
+        return payload if isinstance(payload, list) else []
+
+    def fetch_balance_sheet_statement(self, symbol: str, period: str = "annual", limit: int = 5) -> list[dict[str, Any]]:
+        """Laedt FMP Balance-Sheet-Daten fuer Verschuldungsmetriken."""
+        params = {"symbol": symbol, "period": period, "limit": limit, "apikey": self.config.api_key}
+        payload = self._request(BALANCE_SHEET_STATEMENT_ENDPOINT, params=params)
+        return payload if isinstance(payload, list) else []
+
+    def fetch_key_metrics(self, symbol: str, period: str = "annual", limit: int = 5) -> list[dict[str, Any]]:
+        """Laedt FMP Key Metrics fuer Bewertungs- und Kapitalisierungsmetriken."""
+        params = {"symbol": symbol, "period": period, "limit": limit, "apikey": self.config.api_key}
+        payload = self._request(KEY_METRICS_ENDPOINT, params=params)
+        return payload if isinstance(payload, list) else []
+
+    def fetch_ratios(self, symbol: str, period: str = "annual", limit: int = 5) -> list[dict[str, Any]]:
+        """Laedt FMP Ratios fuer Bewertungs- und Margenmetriken."""
+        params = {"symbol": symbol, "period": period, "limit": limit, "apikey": self.config.api_key}
+        payload = self._request(RATIOS_ENDPOINT, params=params)
+        return payload if isinstance(payload, list) else []
+
     def fetch_insider_trade_statistics(self, symbol: str) -> dict[str, Any]:
         """Optionale MANUAL/BACKFILL-Methode; nicht im operativen Import-Kernpfad."""
         params = {"symbol": symbol, "apikey": self.config.api_key}

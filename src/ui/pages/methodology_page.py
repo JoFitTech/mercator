@@ -5,113 +5,65 @@ from __future__ import annotations
 import streamlit as st
 
 
+MANUAL_TRADING_BOUNDARY_TEXT = (
+    "Mercator hat keine Broker-Anbindung, platziert keine Order und führt kein Live-Trading aus. "
+    "Alle endgültigen Anlage- und Handelsentscheidungen werden manuell außerhalb von Mercator getroffen."
+)
+
+
 def render_methodology_page() -> None:
-    """Rendert eine präsentationsfähige Methodik- und Architekturübersicht."""
-    st.title("Methodik & Architektur")
-    st.caption("Technische Dokumentation der Pipeline, Datenmodelle und Verarbeitungsregeln.")
+    """Explain the stock-analysis pipeline and its explicit system boundary."""
 
-    st.markdown("### 1) Ziel")
-    st.write(
-        "Mercator analysiert öffentliche Insider-Trade-Daten aus der FMP API. "
-        "Ziel ist nicht die Anzeige jedes Trades, sondern die nachvollziehbare Priorisierung relevanter Insider-Signale."
-    )
+    st.title("Methodik & Architektur der Aktienanalyse")
+    st.caption("Nachvollziehbare Pipeline von Rohdaten bis zur transparenten Preference-Rangfolge.")
 
-    st.markdown("### 2) Datenquelle")
+    st.markdown("### 1) Watchlist und Datenimport")
     st.markdown(
         """
-        - **API1:** `latest insider trades`
-        - **API2:** `company profile`
-        - **API3:** `historical price and volume`
-        - Keine Fake-Daten im finalen Demo-Flow
-        - API-Calls erfolgen im Importpfad, nicht bei normaler Tabellenfilterung
+        - Die manuelle Watchlist bestimmt die analysierten Symbole.
+        - Profil-, Kurs-, Finanz- und Bewertungsantworten werden zuerst unverändert in MongoDB gespeichert.
+        - Normalisierte Analysedaten, Features, Prognosen und Scores liegen anschließend in MySQL.
+        - Fehlende, partielle, veraltete oder fehlgeschlagene Daten bleiben als sichtbarer Text erhalten.
         """
     )
 
-    st.markdown("### 3) Pipeline")
-    st.graphviz_chart(
+    st.markdown("### 2) Features")
+    st.markdown(
         """
-        digraph G {
-            rankdir=LR;
-            API1 [label="API1\nlatest insider trades"];
-            RAW [label="MongoDB\nRaw Storage"];
-            VAL [label="Validation"];
-            GATE [label="Pre-Gates"];
-            ACC [label="3-Tage\nAkkumulation"];
-            API2 [label="API2\nProfile"];
-            API3 [label="API3\nHistorical EOD (500d)"];
-            SCORE [label="Finales\nScoring"];
-            CLEAN [label="MySQL\nClean Storage"];
-            UI [label="Streamlit UI"];
-
-            API1 -> RAW -> VAL -> GATE -> ACC -> API2 -> API3 -> SCORE -> CLEAN -> UI;
-        }
+        - Technische Features umfassen Momentum, gleitende Durchschnitte, Volatilität, Drawdown und Volumentrend.
+        - Fundamentale Features umfassen Wachstum, Margen, Bewertung, Verschuldung und Marktkapitalisierung.
+        - Nicht berechenbare Features zeigen den konkreten Grund und die Frische ihrer Eingangsdaten.
         """
     )
 
-    st.markdown("### 4) Raw / Clean Trennung")
-    c1, c2 = st.columns(2)
-    with c1:
+    st.markdown("### 3) Prognosemodelle und Backtests")
+    st.markdown(
+        """
+        - Baseline- und Advanced-Modelle verwenden explizite Horizonte, Zieltypen und Modellversionen.
+        - Jede Prognose zeigt Konfidenz, Unsicherheit, historische Modellqualität und Datenfrische.
+        - Backtests nennen Evaluationszeitraum, Stichprobengröße, Accuracy, Precision, Recall, MAE und Caveats.
+        - Historische Qualität ist keine Garantie für zukünftige Ergebnisse.
+        """
+    )
+
+    st.markdown("### 4) Preference Scoring")
+    st.markdown(
+        """
+        - Der Preference Score kombiniert Fundamental-, Technik-, Risiko-, Prognose- und Konfidenzkomponenten.
+        - Rang, Komponenten, positive Faktoren, depriorisierende Faktoren und Datenqualitätswarnungen sind sichtbar.
+        - Der Score ist transparente Entscheidungshilfe und keine versteckte Empfehlung.
+        """
+    )
+
+    st.markdown("### 5) Systemgrenze")
+    st.warning(MANUAL_TRADING_BOUNDARY_TEXT)
+    st.markdown(
+        "Provider-Limits, Rate Limits, Datenlücken und Modellunsicherheit können Ergebnisse einschränken. "
+        "Diese Einschränkungen werden auf den betroffenen Seiten als Text ausgewiesen."
+    )
+
+    with st.expander("Legacy: Insider-Trade-Analyse", expanded=False):
         st.markdown(
-            """
-            **MongoDB = Raw Store**
-            - Speichert rohe API-Payloads (`insider_trades_raw`, `companies`)
-            - Audit- und Reimport-Basis
-            - Nachweis für die zweite Datenbank im Uni-Setup
-            """
+            "Die frühere Insider-Trade-Pipeline bleibt während der Brownfield-Migration verfügbar. "
+            "Sie ist kein Brokerzugang und wird nicht für automatische Transaktionen verwendet."
         )
-    with c2:
-        st.markdown(
-            """
-            **MySQL = Clean Store**
-            - Speichert bereinigte, normalisierte und analysierbare Tabellen
-            - Grundlage für Dashboard, Trades und Unternehmen
-            - Keine Rohrekonstruktion als fachlicher Ersatz für Mongo Raw
-            """
-        )
-
-    st.markdown("### 5) Validation")
-    st.markdown(
-        """
-        - `price <= 0` -> invalid (`PRICE_INVALID`)
-        - `qty <= 0` -> Drop/Reject
-        - fehlendes Symbol -> Drop/Reject
-        - fehlende Filing-/Transaction-Daten -> invalid
-        """
-    )
-
-    st.markdown("### 6) Gates & Transaction Codes")
-    st.markdown(
-        """
-        - `formType == 4`
-        - `trade_value >= 100000`
-        - Instrument nur Aktie/ETF im finalen Modell
-        - Filing-Freshness: >45 Tage Reject, >21 Tage maximal Watchlist
-        - Transaction-Code-Klassen:
-          - `P` = CORE_BUY
-          - `S` = CORE_SELL
-          - `I/L` = SECONDARY_SIGNAL
-          - `J/V` = MANUAL_REVIEW
-          - `A/M/F/G` (und weitere Excludes) = EXCLUDE_FROM_CORE
-        """
-    )
-
-    st.markdown("### 7) Scoring")
-    st.markdown(
-        """
-        - Finaler Score erst nach API3-Enrichment
-        - Eingaben u. a.: Trade-Value, Filing-Age, Code-Klasse, Direction,
-          Akkumulation, Market-Cap/Sector/Industry, Trend/Liquidität/Momentum
-        - Ergebnis als Klassen A, B, C, D, E
-        """
-    )
-
-    st.markdown("### 8) Einschränkungen")
-    st.markdown(
-        """
-        - Kein Investment-Rat
-        - FMP API-Limits (Budget/Rate-Limits)
-        - Datenqualität ist quellenabhängig
-        - Raw Store muss nach Import befüllt sein
-        - Tunnel/Public Share nur lokal für explizite Test-/Review-Zwecke
-        """
-    )

@@ -8,7 +8,8 @@ from typing import Any
 from pymongo import UpdateOne
 from pymongo.errors import DuplicateKeyError
 
-from src.db.mongo_repository import CompanyMongoRepository
+from src.db.mongo_repository import CompanyMongoRepository, RawProviderResponseMongoRepository
+from src.models.stock import RawProviderResponse
 
 
 class _DeleteResult:
@@ -66,17 +67,45 @@ class _FakeCollection:
         self.indexes[name] = {"key": list(keys), "unique": unique}
         return name
 
-    def find(self, _filter: dict[str, Any], projection: dict[str, int]) -> list[dict[str, Any]]:
+    @staticmethod
+    def _matches_filter(doc: dict[str, Any], query: dict[str, Any]) -> bool:
+        for key, expected in query.items():
+            if isinstance(expected, dict) and "$in" in expected:
+                if doc.get(key) not in expected["$in"]:
+                    return False
+                continue
+            if isinstance(expected, dict) and "$gte" in expected:
+                value = doc.get(key)
+                if value is None or value < expected["$gte"]:
+                    return False
+                continue
+            if doc.get(key) != expected:
+                return False
+        return True
+
+    def find(self, query: dict[str, Any], projection: dict[str, int] | None = None) -> "_FakeCursor":
         result: list[dict[str, Any]] = []
         for doc in self.docs:
-            projected: dict[str, Any] = {}
-            for field, include in projection.items():
-                if include and field in doc:
-                    projected[field] = doc[field]
-            if "_id" not in projected and "_id" in doc:
-                projected["_id"] = doc["_id"]
+            if not self._matches_filter(doc, query):
+                continue
+            if projection is None:
+                result.append(dict(doc))
+                continue
+            if projection and all(include == 0 for include in projection.values()):
+                projected = {
+                    field: value
+                    for field, value in doc.items()
+                    if projection.get(field, 1) != 0
+                }
+            else:
+                projected = {}
+                for field, include in projection.items():
+                    if include and field in doc:
+                        projected[field] = doc[field]
+                if "_id" not in projected and "_id" in doc:
+                    projected["_id"] = doc["_id"]
             result.append(projected)
-        return result
+        return _FakeCursor(result)
 
     def find_one(self, query: dict[str, Any], projection: dict[str, int] | None = None) -> dict[str, Any] | None:
         for doc in self.docs:
@@ -128,6 +157,15 @@ class _FakeCollection:
     def count_documents(self, _query: dict[str, Any]) -> int:
         return len(self.docs)
 
+    def aggregate(self, _pipeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        for doc in self.docs:
+            category = doc.get("category")
+            if category is None:
+                continue
+            counts[str(category)] = counts.get(str(category), 0) + 1
+        return [{"_id": category, "count": count} for category, count in counts.items()]
+
     def bulk_write(self, operations: list[UpdateOne], ordered: bool = False) -> None:
         for op in operations:
             query = getattr(op, "_filter")
@@ -137,11 +175,87 @@ class _FakeCollection:
 
 
 class _FakeMongoClientWrapper:
-    def __init__(self, collection: _FakeCollection) -> None:
+    def __init__(self, collection: _FakeCollection, raw_collection: _FakeCollection | None = None) -> None:
         self._db = {"companies": collection}
+        if raw_collection is not None:
+            self._db["raw_provider_responses"] = raw_collection
 
     def get_database(self) -> dict[str, _FakeCollection]:
         return self._db
+
+
+class _FakeCursor:
+    def __init__(self, docs: list[dict[str, Any]]) -> None:
+        self.docs = docs
+
+    def sort(self, field_name: str, direction: int) -> "_FakeCursor":
+        reverse = direction < 0
+        self.docs.sort(key=lambda doc: doc.get(field_name) or datetime.min.replace(tzinfo=timezone.utc), reverse=reverse)
+        return self
+
+    def limit(self, value: int) -> "_FakeCursor":
+        self.docs = self.docs[:value]
+        return self
+
+    def __iter__(self):
+        return iter(self.docs)
+
+
+def test_raw_provider_response_repository_upserts_and_sanitizes_request_params() -> None:
+    raw_collection = _FakeCollection([])
+    repo = RawProviderResponseMongoRepository(_FakeMongoClientWrapper(_FakeCollection([]), raw_collection))
+    fetched_at = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    response_id = repo.upsert_response(
+        RawProviderResponse(
+            provider="fmp",
+            category="company_profile",
+            request_hash="hash-1",
+            status="FAILED",
+            fetched_at=fetched_at,
+            symbol="AAPL",
+            request_params={"symbol": "AAPL", "apikey": "secret", "nested": {"token": "hidden"}},
+            payload={"raw": "payload"},
+            error_message="rate limited",
+        )
+    )
+
+    assert response_id == "hash-1"
+    assert raw_collection.docs[0]["status"] == "FAILED"
+    assert raw_collection.docs[0]["request_params"] == {"symbol": "AAPL", "nested": {}}
+    assert raw_collection.docs[0]["payload"] == {"raw": "payload"}
+
+
+def test_raw_provider_response_repository_lists_latest_by_symbol_and_category() -> None:
+    older = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    newer = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
+    raw_collection = _FakeCollection(
+        [
+            {"request_hash": "old", "symbol": "AAPL", "category": "company_profile", "fetched_at": older},
+            {"request_hash": "new", "symbol": "AAPL", "category": "company_profile", "fetched_at": newer},
+            {"request_hash": "price", "symbol": "AAPL", "category": "historical_price", "fetched_at": newer},
+            {"request_hash": "other", "symbol": "MSFT", "category": "company_profile", "fetched_at": newer},
+        ]
+    )
+    repo = RawProviderResponseMongoRepository(_FakeMongoClientWrapper(_FakeCollection([]), raw_collection))
+
+    docs = repo.list_responses("AAPL", category="company_profile", limit=1)
+
+    assert [doc["request_hash"] for doc in docs] == ["new"]
+    assert "_id" not in docs[0]
+
+
+def test_raw_provider_response_repository_counts_by_category() -> None:
+    raw_collection = _FakeCollection(
+        [
+            {"request_hash": "1", "category": "company_profile"},
+            {"request_hash": "2", "category": "company_profile"},
+            {"request_hash": "3", "category": "historical_price"},
+        ]
+    )
+    repo = RawProviderResponseMongoRepository(_FakeMongoClientWrapper(_FakeCollection([]), raw_collection))
+
+    assert repo.count_by_category() == {"company_profile": 2, "historical_price": 1}
 
 
 def test_company_repository_requires_non_empty_company_key() -> None:
@@ -283,3 +397,26 @@ def test_upsert_profile_does_not_downgrade_fetched_status_with_stub() -> None:
     assert updated["company_name"] == "ABC Corp"
 
 
+def test_raw_provider_response_repository_keeps_partial_failed_and_rate_limited_payloads() -> None:
+    raw_collection = _FakeCollection([])
+    repo = RawProviderResponseMongoRepository(_FakeMongoClientWrapper(_FakeCollection([]), raw_collection))
+    fetched_at = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    for status in ["PARTIAL_SUCCESS", "FAILED", "RATE_LIMITED"]:
+        repo.upsert_response(
+            RawProviderResponse(
+                provider="fmp",
+                category="historical_price",
+                request_hash=f"hash-{status}",
+                status=status,
+                fetched_at=fetched_at,
+                symbol="AAPL",
+                request_params={"symbol": "AAPL"},
+                payload={"status": status},
+                error_message="provider returned partial/error state" if status != "PARTIAL_SUCCESS" else None,
+            )
+        )
+
+    statuses = {doc["status"] for doc in raw_collection.docs}
+    assert statuses == {"PARTIAL_SUCCESS", "FAILED", "RATE_LIMITED"}
+    assert all(doc["payload"]["status"] == doc["status"] for doc in raw_collection.docs)

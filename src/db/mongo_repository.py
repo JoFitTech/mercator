@@ -12,8 +12,97 @@ from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
 from src.db.mongo_client import MongoClientWrapper
+from src.models.stock import RawProviderResponse
 
 LOGGER = logging.getLogger(__name__)
+
+
+class RawProviderResponseMongoRepository:
+    """Stores generic raw provider responses without replacing legacy raw trades."""
+
+    COLLECTION_NAME = "raw_provider_responses"
+    SECRET_PARAM_FRAGMENTS = (
+        "api_key",
+        "apikey",
+        "authorization",
+        "password",
+        "secret",
+        "token",
+    )
+
+    def __init__(self, client: MongoClientWrapper) -> None:
+        self.collection: Collection = client.get_database()[self.COLLECTION_NAME]
+        self.collection.create_index([("request_hash", ASCENDING)], name="request_hash_unique", unique=True)
+        self.collection.create_index([("symbol", ASCENDING), ("category", ASCENDING)], name="symbol_category")
+        self.collection.create_index([("category", ASCENDING)], name="category")
+        self.collection.create_index([("fetched_at", ASCENDING)], name="fetched_at")
+
+    @classmethod
+    def _sanitize_request_params(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            sanitized: dict[str, Any] = {}
+            for key, nested_value in value.items():
+                normalized_key = str(key).lower()
+                if any(fragment in normalized_key for fragment in cls.SECRET_PARAM_FRAGMENTS):
+                    continue
+                sanitized[key] = cls._sanitize_request_params(nested_value)
+            return sanitized
+        if isinstance(value, list):
+            return [cls._sanitize_request_params(item) for item in value]
+        return value
+
+    @staticmethod
+    def _response_id(response: RawProviderResponse) -> str:
+        return response.response_id or response.request_hash
+
+    def upsert_response(self, response: RawProviderResponse) -> str:
+        """Writes a provider response and returns its stable response id."""
+
+        response_id = self._response_id(response)
+        document = {
+            "response_id": response_id,
+            "provider": response.provider,
+            "category": response.category,
+            "symbol": response.symbol,
+            "request_params": self._sanitize_request_params(response.request_params),
+            "request_hash": response.request_hash,
+            "status": response.status,
+            "payload": response.payload,
+            "error_message": response.error_message,
+            "fetched_at": response.fetched_at,
+            "source_url": response.source_url,
+        }
+        self.collection.update_one(
+            {"request_hash": response.request_hash},
+            {"$set": {key: value for key, value in document.items() if value is not None}},
+            upsert=True,
+        )
+        return response_id
+
+    def list_responses(
+        self,
+        symbol: str,
+        category: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Returns latest raw responses for a symbol and optional category."""
+
+        max_limit = max(1, min(int(limit), 5000))
+        query: dict[str, Any] = {"symbol": symbol}
+        if category is not None:
+            query["category"] = category
+        docs = self.collection.find(query, {"_id": 0}).sort("fetched_at", -1).limit(max_limit)
+        return [dict(doc) for doc in docs if isinstance(doc, dict)]
+
+    def count_by_category(self) -> dict[str, int]:
+        """Returns raw response counts grouped by provider response category."""
+
+        pipeline = [{"$group": {"_id": "$category", "count": {"$sum": 1}}}]
+        return {
+            str(row["_id"]): int(row["count"])
+            for row in self.collection.aggregate(pipeline)
+            if row.get("_id") is not None
+        }
 
 
 class InsiderTradeMongoRepository:

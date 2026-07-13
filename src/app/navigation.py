@@ -15,12 +15,24 @@ import streamlit as st
 from src.services.public_share_service import TunnelManager, TunnelStatus
 
 # Typer-Definition für Seiten
-PageName = Literal["Dashboard", "Trades", "Unternehmen", "Admin", "Einstellungen", "Trade-Detail", "Unternehmens-Detail"]
+PageName = Literal[
+    "Dashboard",
+    "Watchlist",
+    "Modellbewertung",
+    "Stock-Detail",
+    "Trades",
+    "Unternehmen",
+    "Admin",
+    "Einstellungen",
+    "Methodik",
+    "Trade-Detail",
+    "Unternehmens-Detail",
+]
 
 HEADER_NAV_OPTIONS: dict[str, str] = {
-    "Dashboard": "Dashboard",
-    "Trades": "Trades",
-    "Unternehmen": "Unternehmen",
+    "Übersicht": "Dashboard",
+    "Watchlist": "Watchlist",
+    "Modellbewertung": "Modellbewertung",
 }
 
 SIDEBAR_NAV_OPTIONS: dict[str, str] = {
@@ -29,10 +41,16 @@ SIDEBAR_NAV_OPTIONS: dict[str, str] = {
     "Admin": "Admin",
 }
 
-DETAIL_PAGES = {"Trade-Detail", "Unternehmens-Detail"}
+LEGACY_NAV_OPTIONS: dict[str, str] = {
+    "Legacy Trades": "Trades",
+    "Legacy Unternehmen": "Unternehmen",
+}
+
+DETAIL_PAGES = {"Stock-Detail", "Trade-Detail", "Unternehmens-Detail"}
 HEADER_PAGES = set(HEADER_NAV_OPTIONS.values())
 SIDEBAR_PAGES = set(SIDEBAR_NAV_OPTIONS.values())
-ALL_NAV_TARGETS: set[str] = HEADER_PAGES | set(SIDEBAR_NAV_OPTIONS.values()) | DETAIL_PAGES
+LEGACY_PAGES = set(LEGACY_NAV_OPTIONS.values())
+ALL_NAV_TARGETS: set[str] = HEADER_PAGES | SIDEBAR_PAGES | LEGACY_PAGES | DETAIL_PAGES
 
 
 def public_share_sidebar_status_text(status: TunnelStatus) -> str:
@@ -53,6 +71,8 @@ def _resolve_parent_target(nav_target: str) -> str:
         return "Trades"
     if nav_target == "Unternehmens-Detail":
         return "Unternehmen"
+    if nav_target == "Stock-Detail":
+        return "Watchlist"
     return nav_target
 
 
@@ -112,6 +132,9 @@ def _determine_header_nav_update(
     clicked_header_target: str | None = None,
 ) -> str | None:
     """Ermittelt, ob die Header-Auswahl das globale Nav-Target ändern darf."""
+    if selected_header_target not in HEADER_PAGES:
+        return None
+    normalized_previous_header = previous_header_target if previous_header_target in HEADER_PAGES else "Dashboard"
     parent_target = _resolve_parent_target(current_target)
 
     if current_target in HEADER_PAGES or current_target in DETAIL_PAGES:
@@ -119,11 +142,11 @@ def _determine_header_nav_update(
             return selected_header_target
         return None
 
-    if current_target in SIDEBAR_PAGES:
+    if current_target in SIDEBAR_PAGES or current_target in LEGACY_PAGES:
         # Sidebar-Seiten bleiben stabil, bis die Header-Auswahl wirklich geändert wurde.
         if clicked_header_target in HEADER_PAGES:
             return clicked_header_target
-        if selected_header_target != previous_header_target:
+        if selected_header_target != normalized_previous_header:
             return selected_header_target
         return None
 
@@ -136,11 +159,12 @@ def _should_reset_header_widget(
     previous_header_target: str,
 ) -> bool:
     """Verhindert stale Widget-Werte, die Sidebar-Ziele fälschlich überschreiben könnten."""
-    if current_target not in SIDEBAR_PAGES:
+    if current_target not in SIDEBAR_PAGES and current_target not in LEGACY_PAGES:
         return False
     if not widget_value:
         return False
-    return widget_value in HEADER_PAGES and widget_value != previous_header_target
+    normalized_previous_header = previous_header_target if previous_header_target in HEADER_PAGES else "Dashboard"
+    return widget_value in HEADER_PAGES and widget_value != normalized_previous_header
 
 
 def render_navigation_topbar() -> PageName:
@@ -151,6 +175,8 @@ def render_navigation_topbar() -> PageName:
 
     current_target = str(st.session_state["nav_target"])
     previous_header_target = str(st.session_state.get("header_nav_target", "Dashboard"))
+    if previous_header_target not in HEADER_PAGES:
+        previous_header_target = "Dashboard"
     active_header_target = _resolve_header_active_target(current_target, previous_header_target)
     current_label = next(
         (k for k, v in HEADER_NAV_OPTIONS.items() if v == active_header_target),
@@ -182,6 +208,8 @@ def render_navigation_topbar() -> PageName:
         if st.button("Zurück zur Liste", key="top_nav_back_to_list"):
             if st.session_state["nav_target"] == "Trade-Detail":
                 st.session_state["nav_target"] = "Trades"
+            elif st.session_state["nav_target"] == "Stock-Detail":
+                st.session_state["nav_target"] = "Watchlist"
             else:
                 st.session_state["nav_target"] = "Unternehmen"
             st.rerun()
@@ -283,6 +311,12 @@ def render_sidebar_navigation() -> None:
                 button_type: Literal["primary", "secondary", "tertiary"] = (
                     "primary" if active_target == target else "secondary"
                 )
+                if st.button(label, key=f"sidebar_nav_{target}", use_container_width=True, type=button_type):
+                    _set_nav_target(target)  # type: ignore[arg-type]
+        with st.expander("Legacy-Analyse", expanded=False):
+            st.caption("Bestehende Insider-Trade-Auswertungen bleiben während der Migration verfügbar.")
+            for label, target in LEGACY_NAV_OPTIONS.items():
+                button_type = "primary" if active_target == target else "secondary"
                 if st.button(label, key=f"sidebar_nav_{target}", use_container_width=True, type=button_type):
                     _set_nav_target(target)  # type: ignore[arg-type]
         # Public-Share-Steuerung bewusst nur im Admin-Bereich.

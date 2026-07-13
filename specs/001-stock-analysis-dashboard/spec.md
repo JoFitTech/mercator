@@ -198,7 +198,7 @@ The following rename map is the starting point for implementation planning. Each
 
 ### Measurable Outcomes
 
-- **SC-001**: A user can add at least five watchlist symbols and see persisted status, freshness, and ranking information after a Streamlit reload.
+- **SC-001**: A user can add at least five watchlist symbols and see persisted metadata, resolution status, and data freshness/status text after a Streamlit reload.
 - **SC-002**: For a successfully imported symbol, raw profile, historical price, financial, and valuation provider responses are stored in MongoDB and corresponding normalized records are queryable from MySQL.
 - **SC-003**: For symbols with at least 250 trading days of price history, the system calculates momentum, moving average, volatility, drawdown, and volume trend features without manual spreadsheet work.
 - **SC-004**: For symbols with available financial data, the system calculates at least one growth metric, one margin metric, one valuation metric, one debt metric, and market capitalization.

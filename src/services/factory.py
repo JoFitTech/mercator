@@ -10,9 +10,19 @@ from src.db.mongo_client import MongoClientWrapper
 from src.db.mongo_repository import (
     CompanyMongoRepository,
     InsiderTradeMongoRepository,
+    RawProviderResponseMongoRepository,
 )
 from src.db.mysql_client import MySqlClient
 from src.db.repositories.company_repository import CompanyMySqlRepository
+from src.db.repositories.backtest_repository import BacktestRepository
+from src.db.repositories.data_quality_repository import DataQualityRepository
+from src.db.repositories.feature_repository import FundamentalFeatureRepository, TechnicalFeatureRepository
+from src.db.repositories.fundamental_metrics_repository import FundamentalMetricsRepository
+from src.db.repositories.import_run_repository import ImportRunRepository
+from src.db.repositories.prediction_repository import PredictionRepository
+from src.db.repositories.preference_score_repository import PreferenceScoreRepository
+from src.db.repositories.stock_price_repository import StockPriceRepository
+from src.db.repositories.watchlist_repository import WatchlistRepository
 from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
 from src.db.repositories.settings_repository import (
     AppFilterSettingsRepository,
@@ -22,11 +32,18 @@ from src.db.repositories.api_usage_repository import ApiUsageRepository
 from src.preprocessing import GateEvaluator, GateRules
 from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
+from src.services.stock_analysis_service import StockAnalysisService
+from src.services.backtest_service import BacktestService
 from src.services.mysql_sync_service import MySqlSyncService
 from src.services.dashboard_service import DashboardService
+from src.services.feature_engineering_service import FeatureEngineeringService
 from src.services.import_service import ImportService
 from src.services.analysis_service import AnalysisService
 from src.services.scoring_service import ScoringService
+from src.services.prediction_model_service import PredictionModelService
+from src.services.preference_scoring_service import PreferenceScoringService
+from src.services.stock_import_service import StockImportService
+from src.services.watchlist_service import WatchlistService
 from src.services.trade_republic_universe_service import (
     TradeRepublicUniverseIngestionService,
     TradeRepublicUniverseMatchingService,
@@ -52,6 +69,13 @@ class ServiceFactory:
         self._scoring_service = None
         self._gate_evaluator = None
         self._dashboard_service = None
+        self._watchlist_service = None
+        self._stock_analysis_service = None
+        self._stock_import_service = None
+        self._feature_engineering_service = None
+        self._prediction_model_service = None
+        self._backtest_service = None
+        self._preference_scoring_service = None
         self._analysis_service = None
         self._analysis_service_key = None
         self._import_service = None
@@ -141,8 +165,141 @@ class ServiceFactory:
         trade_repo = InsiderTradeMySqlRepository(self.mysql_client)
         company_repo = CompanyMySqlRepository(self.mysql_client)
 
-        self._dashboard_service = DashboardService(raw_repo, company_mongo_repo, trade_repo, company_repo)
+        self._dashboard_service = DashboardService(
+            raw_repo,
+            company_mongo_repo,
+            trade_repo,
+            company_repo,
+            preference_score_repo=PreferenceScoreRepository(self.mysql_client),
+            watchlist_repo=WatchlistRepository(self.mysql_client),
+            data_quality_repo=DataQualityRepository(self.mysql_client),
+        )
         return self._dashboard_service
+
+    def create_watchlist_service(self) -> WatchlistService | None:
+        if self._watchlist_service is not None:
+            return self._watchlist_service
+        if not self.mysql_client:
+            return None
+        repo = WatchlistRepository(self.mysql_client)
+        self._watchlist_service = WatchlistService(repo)
+        return self._watchlist_service
+
+    def create_stock_analysis_service(self) -> StockAnalysisService | None:
+        if self._stock_analysis_service is not None:
+            return self._stock_analysis_service
+        if not self.mysql_client:
+            return None
+        watchlist_repo = WatchlistRepository(self.mysql_client)
+        data_quality_repo = DataQualityRepository(self.mysql_client)
+        self._stock_analysis_service = StockAnalysisService(
+            watchlist_repo,
+            data_quality_repo,
+            company_repository=CompanyMySqlRepository(self.mysql_client),
+            price_repository=StockPriceRepository(self.mysql_client),
+            technical_feature_repository=TechnicalFeatureRepository(self.mysql_client),
+            fundamental_feature_repository=FundamentalFeatureRepository(self.mysql_client),
+            prediction_repository=PredictionRepository(self.mysql_client),
+            preference_repository=PreferenceScoreRepository(self.mysql_client),
+        )
+        return self._stock_analysis_service
+
+    def create_prediction_repository(self) -> PredictionRepository | None:
+        return PredictionRepository(self.mysql_client) if self.mysql_client else None
+
+    def create_backtest_repository(self) -> BacktestRepository | None:
+        return BacktestRepository(self.mysql_client) if self.mysql_client else None
+
+    def create_stock_import_service(self) -> StockImportService | None:
+        if self._stock_import_service is not None:
+            return self._stock_import_service
+        if not self.mysql_client:
+            ServiceFactory.last_import_issue = "StockImportService deaktiviert: MySQL-Client fehlt."
+            LOGGER.warning("ServiceFactory: %s", ServiceFactory.last_import_issue)
+            return None
+        if not self.mongo_wrapper:
+            ServiceFactory.last_import_issue = "StockImportService deaktiviert: Mongo-Client fehlt (raw provider responses nicht verfuegbar)."
+            LOGGER.warning("ServiceFactory: %s", ServiceFactory.last_import_issue)
+            return None
+        if not self._ensure_mysql_schema_for_import():
+            return None
+        try:
+            fmp_client = FmpClient(
+                self.settings.fmp,
+                api_usage_service=self.create_api_usage_service(),
+            )
+            raw_repo = RawProviderResponseMongoRepository(self.mongo_wrapper)
+        except Exception as exc:
+            ServiceFactory.last_import_issue = f"StockImportService deaktiviert: {exc}"
+            LOGGER.warning("ServiceFactory: %s", ServiceFactory.last_import_issue)
+            return None
+
+        self._stock_import_service = StockImportService(
+            fmp_client=fmp_client,
+            raw_repository=raw_repo,
+            company_repository=CompanyMySqlRepository(self.mysql_client),
+            price_repository=StockPriceRepository(self.mysql_client),
+            metrics_repository=FundamentalMetricsRepository(self.mysql_client),
+            import_run_repository=ImportRunRepository(self.mysql_client),
+            data_quality_repository=DataQualityRepository(self.mysql_client),
+        )
+        ServiceFactory.last_import_issue = None
+        return self._stock_import_service
+
+    def create_feature_engineering_service(self) -> FeatureEngineeringService | None:
+        if self._feature_engineering_service is not None:
+            return self._feature_engineering_service
+        if not self.mysql_client:
+            return None
+        self._feature_engineering_service = FeatureEngineeringService(
+            price_repository=StockPriceRepository(self.mysql_client),
+            metrics_repository=FundamentalMetricsRepository(self.mysql_client),
+            technical_feature_repository=TechnicalFeatureRepository(self.mysql_client),
+            fundamental_feature_repository=FundamentalFeatureRepository(self.mysql_client),
+            watchlist_repository=WatchlistRepository(self.mysql_client),
+            data_quality_repository=DataQualityRepository(self.mysql_client),
+        )
+        return self._feature_engineering_service
+
+    def create_prediction_model_service(self) -> PredictionModelService | None:
+        if self._prediction_model_service is not None:
+            return self._prediction_model_service
+        if not self.mysql_client:
+            return None
+        self._prediction_model_service = PredictionModelService(
+            prediction_repository=PredictionRepository(self.mysql_client),
+            technical_feature_repository=TechnicalFeatureRepository(self.mysql_client),
+            fundamental_feature_repository=FundamentalFeatureRepository(self.mysql_client),
+            watchlist_repository=WatchlistRepository(self.mysql_client),
+            data_quality_repository=DataQualityRepository(self.mysql_client),
+        )
+        return self._prediction_model_service
+
+    def create_backtest_service(self) -> BacktestService | None:
+        if self._backtest_service is not None:
+            return self._backtest_service
+        if not self.mysql_client:
+            return None
+        self._backtest_service = BacktestService(
+            prediction_repository=PredictionRepository(self.mysql_client),
+            price_repository=StockPriceRepository(self.mysql_client),
+            backtest_repository=BacktestRepository(self.mysql_client),
+        )
+        return self._backtest_service
+
+    def create_preference_scoring_service(self) -> PreferenceScoringService | None:
+        if self._preference_scoring_service is not None:
+            return self._preference_scoring_service
+        if not self.mysql_client:
+            return None
+        self._preference_scoring_service = PreferenceScoringService(
+            preference_repository=PreferenceScoreRepository(self.mysql_client),
+            technical_feature_repository=TechnicalFeatureRepository(self.mysql_client),
+            fundamental_feature_repository=FundamentalFeatureRepository(self.mysql_client),
+            prediction_repository=PredictionRepository(self.mysql_client),
+            watchlist_repository=WatchlistRepository(self.mysql_client),
+        )
+        return self._preference_scoring_service
 
     def create_analysis_service(self) -> AnalysisService | None:
         if not self.mysql_client:

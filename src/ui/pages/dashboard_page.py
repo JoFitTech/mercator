@@ -99,6 +99,49 @@ def _format_data_freshness_label(last_update: object) -> str:
     return f"Datenstand bis {normalized}"
 
 
+def _format_preference_metric(value: object) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _preference_ranking_rows(rankings: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for row in rankings:
+        rows.append(
+            {
+                "rank": str(row.get("rank_position") or "-"),
+                "symbol": str(row.get("symbol") or "-"),
+                "preference_score": _format_preference_metric(row.get("preference_score")),
+                "fundamental": _format_preference_metric(row.get("fundamental_component")),
+                "technical": _format_preference_metric(row.get("technical_component")),
+                "risk": _format_preference_metric(row.get("risk_component")),
+                "prediction": _format_preference_metric(row.get("prediction_component")),
+                "confidence": _format_preference_metric(row.get("confidence")),
+                "uncertainty": _format_preference_metric(row.get("uncertainty")),
+                "positive": str(row.get("explanation_positive") or "-"),
+                "negative": str(row.get("explanation_negative") or "-"),
+                "data_quality": str(row.get("data_quality_summary") or "-"),
+            }
+        )
+    return rows
+
+
+def _render_preference_rankings(rankings: list[dict[str, Any]]) -> None:
+    st.markdown("#### Preference Ranking")
+    st.caption("Transparentes Ranking der Watchlist. Keine Handels- oder Ausführungsentscheidung.")
+    rows = _preference_ranking_rows(rankings)
+    if not rows:
+        st.info("Noch keine Preference Scores verfügbar.")
+        return
+    st.dataframe(rows, hide_index=True, use_container_width=True)
+
+
 def _navigate_to_trades() -> None:
     """Legacy-Helfer für bestehende Tests/Navigation."""
     st.session_state["header_nav_target"] = "Trades"
@@ -323,13 +366,16 @@ def render_dashboard_page(
     runtime_settings_service: AppSettingsService | None = None,
     db_status: DatabaseStatus | None = None,
 ) -> None:
-    render_page_header("Markt-Dashboard", "Signalorientierter Überblick auf akkumulierter Basis.")
+    render_page_header(
+        "Aktienanalyse-Übersicht",
+        "Watchlist, Preference Ranking, Konfidenz und Datenqualität auf einen Blick.",
+    )
     if service is None:
         st.warning("Dashboard derzeit nicht verfügbar, da MySQL nicht erreichbar ist.")
         return
-    st.caption("Direkter Sprung in die operative Analyse:")
+    st.caption("Legacy-Zugriff während der Brownfield-Migration:")
     if st.button(
-        "Zur Trades-Arbeitsfläche",
+        "Legacy Trades öffnen",
         key="dashboard_open_trades_workspace",
         type="primary",
         use_container_width=False,
@@ -391,6 +437,42 @@ def render_dashboard_page(
         with st.expander("Technische Details", expanded=False):
             st.code(payload_error, language="text")
         return
+
+    preference_rankings = payload.get("preference_rankings", [])
+    preference_rows = _preference_ranking_rows(preference_rankings)
+    preference_values = [
+        float(row.get("preference_score"))
+        for row in preference_rankings
+        if isinstance(row.get("preference_score"), (int, float))
+    ]
+    confidence_values = [
+        float(row.get("confidence"))
+        for row in preference_rankings
+        if isinstance(row.get("confidence"), (int, float))
+    ]
+    warning_count = sum(
+        1
+        for row in preference_rankings
+        if str(row.get("data_quality_summary") or "").strip()
+        and "all required" not in str(row.get("data_quality_summary") or "").lower()
+    )
+    stock_summary = payload.get("stock_analysis_summary") or {}
+    open_quality_issues = int(stock_summary.get("open_data_quality_issues") or warning_count)
+    render_kpi_row(
+        [
+            {"label": "Aktive Watchlist", "value": str(stock_summary.get("watchlist_active") or 0)},
+            {"label": "Bewertete Aktien", "value": str(len(preference_rows))},
+            {"label": "Top Preference", "value": f"{max(preference_values):.2f}" if preference_values else "-"},
+            {
+                "label": "Ø Konfidenz",
+                "value": f"{sum(confidence_values) / len(confidence_values):.2f}" if confidence_values else "-",
+            },
+            {"label": "Offene Datenqualitätsprobleme", "value": str(open_quality_issues)},
+        ]
+    )
+    _render_preference_rankings(preference_rankings)
+    st.markdown("### Legacy: Insider-Trade-Auswertung")
+    st.caption("Dieser Abschnitt bleibt bis zum abgeschlossenen Kompatibilitäts-Cleanup verfügbar.")
 
     avg_score = payload.get("avg_score")
     avg_score_label = "-"

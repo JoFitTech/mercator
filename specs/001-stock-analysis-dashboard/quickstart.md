@@ -20,6 +20,16 @@ python -m pytest tests/test_watchlist_repository.py tests/test_data_quality_repo
 
 Expected result: new stock-analysis MySQL tables initialize additively and legacy insider-trade tables remain available.
 
+## Watchlist MVP Phase
+
+```bash
+python -m pytest tests/test_watchlist_repository.py tests/test_watchlist_service.py tests/test_stock_analysis_pages.py
+python -m pytest tests/test_ui_page_regressions.py tests/test_stocklens_baseline.py
+MERCATOR_E2E_AUTOSTART=true python -m pytest tests/e2e/test_watchlist_page.py
+```
+
+Expected result: a user can persist watchlist entries and reload the Watchlist page while symbol metadata, resolution status, and explicit profile, price, financial, prediction, and preference status text remain visible without requiring ranking data.
+
 ## Import Phase
 
 ```bash

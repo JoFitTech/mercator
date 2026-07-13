@@ -1,7 +1,11 @@
 """Datenbankmodule für MongoDB und MySQL."""
 
 from src.db.mongo_client import MongoClientWrapper
-from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
+from src.db.mongo_repository import (
+    CompanyMongoRepository,
+    InsiderTradeMongoRepository,
+    RawProviderResponseMongoRepository,
+)
 from src.db.mysql_client import MySqlClient
 from src.db.mysql_repository import (
     CompanyMySqlRepository,
@@ -17,6 +21,7 @@ __all__ = [
     "MYSQL_SCHEMA_STATEMENTS",
     "InsiderTradeMongoRepository",
     "CompanyMongoRepository",
+    "RawProviderResponseMongoRepository",
     "InsiderTradeRepository",
     "CompanyRepository",
     "InsiderTradeMySqlRepository",

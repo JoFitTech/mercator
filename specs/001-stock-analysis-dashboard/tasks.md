@@ -34,12 +34,12 @@
 - [X] T011 [P] Create feature models in `src/models/features.py`
 - [X] T012 [P] Create prediction and backtest models in `src/models/prediction.py`
 - [X] T013 [P] Create preference score models in `src/models/preference.py`
-- [ ] T014 Implement `RawProviderResponseMongoRepository` while preserving existing insider raw methods in `src/db/mongo_repository.py`
-- [ ] T015 [P] Implement `ImportRunRepository` in `src/db/repositories/import_run_repository.py`
-- [ ] T016 [P] Implement `DataQualityRepository` in `src/db/repositories/data_quality_repository.py`
-- [ ] T017 Implement data-quality status mapping and visible-message helpers in `src/preprocessing/data_quality_evaluator.py`
-- [ ] T018 Add repository and evaluator foundation tests in `tests/test_data_quality_repository.py` and `tests/test_data_quality_evaluator.py`
-- [ ] T019 Verify additive schema initialization from quickstart in `tests/test_init_mysql_schema.py` and `tests/test_schema.py`
+- [X] T014 Implement `RawProviderResponseMongoRepository` while preserving existing insider raw methods in `src/db/mongo_repository.py`
+- [X] T015 [P] Implement `ImportRunRepository` in `src/db/repositories/import_run_repository.py`
+- [X] T016 [P] Implement `DataQualityRepository` in `src/db/repositories/data_quality_repository.py`
+- [X] T017 Implement data-quality status mapping and visible-message helpers in `src/preprocessing/data_quality_evaluator.py`
+- [X] T018 Add repository and evaluator foundation tests in `tests/test_data_quality_repository.py` and `tests/test_data_quality_evaluator.py`
+- [X] T019 Verify additive schema initialization from quickstart in `tests/test_init_mysql_schema.py` and `tests/test_schema.py`
 
 **Checkpoint**: Foundation ready; story implementation can now proceed in priority order or in parallel where dependencies allow.
 
@@ -47,26 +47,26 @@
 
 ## Phase 3: User Story 1 - Maintain A Manual Stock Watchlist (Priority: P1) MVP
 
-**Goal**: A user can add, edit, remove, reload, and review manually selected stocks with persistent metadata and explicit data status text.
+**Goal**: A user can add, edit, remove, reload, and review manually selected stocks with persistent metadata plus explicit resolution and data status text. Ranking and preference scoring remain part of US5.
 
-**Independent Test**: Add at least three symbols to the watchlist, refresh Streamlit, and confirm symbols, names, notes, priority, active state, resolution status, and freshness/status text remain visible.
+**Independent Test**: Add at least three symbols to the watchlist, refresh Streamlit, and confirm symbols, names, notes, priority, active state, resolution status, and freshness/status text remain visible without requiring ranking data.
 
 ### Tests for User Story 1
 
-- [ ] T020 [P] [US1] Add repository tests for add/edit/remove/list unresolved watchlist items in `tests/test_watchlist_repository.py`
-- [ ] T021 [P] [US1] Add service tests for watchlist metadata persistence and status summaries in `tests/test_watchlist_service.py`
-- [ ] T022 [P] [US1] Add Streamlit watchlist page tests for visible status text and reload behavior in `tests/test_stock_analysis_pages.py`
-- [ ] T023 [P] [US1] Add E2E watchlist workflow smoke test for three symbols in `tests/e2e/test_watchlist_page.py`
+- [X] T020 [P] [US1] Add repository tests for add/edit/remove/list unresolved watchlist items in `tests/test_watchlist_repository.py`
+- [X] T021 [P] [US1] Add service tests for watchlist metadata persistence and status summaries in `tests/test_watchlist_service.py`
+- [X] T022 [P] [US1] Add Streamlit watchlist page tests for visible status text and reload behavior in `tests/test_stock_analysis_pages.py`
+- [X] T023 [P] [US1] Add E2E watchlist workflow smoke test for three symbols in `tests/e2e/test_watchlist_page.py`
 
 ### Implementation for User Story 1
 
-- [ ] T024 [US1] Implement `WatchlistRepository` CRUD and unresolved-symbol persistence in `src/db/repositories/watchlist_repository.py`
-- [ ] T025 [US1] Implement watchlist workflow service in `src/services/watchlist_service.py`
-- [ ] T026 [US1] Implement watchlist status summary queries in `src/services/stock_analysis_service.py`
-- [ ] T027 [US1] Add watchlist page with add/edit/remove controls and explicit profile, price, financial, prediction, and preference status text in `src/ui/pages/watchlist_page.py`
-- [ ] T028 [US1] Add watchlist navigation entry while preserving legacy Trades routing in `src/app/navigation.py`
-- [ ] T029 [US1] Add watchlist table/status rendering helpers in `src/ui/components/tables.py` and `src/ui/components/status_badges.py`
-- [ ] T030 [US1] Document MVP watchlist validation in `specs/001-stock-analysis-dashboard/quickstart.md`
+- [X] T024 [US1] Implement `WatchlistRepository` CRUD and unresolved-symbol persistence in `src/db/repositories/watchlist_repository.py`
+- [X] T025 [US1] Implement watchlist workflow service in `src/services/watchlist_service.py`
+- [X] T026 [US1] Implement watchlist status summary queries in `src/services/stock_analysis_service.py`
+- [X] T027 [US1] Add watchlist page with add/edit/remove controls and explicit profile, price, financial, prediction, and preference status text in `src/ui/pages/watchlist_page.py`
+- [X] T028 [US1] Add watchlist navigation entry while preserving legacy Trades routing in `src/app/navigation.py`
+- [X] T029 [US1] Add watchlist table/status rendering helpers in `src/ui/components/tables.py` and `src/ui/components/status_badges.py`
+- [X] T030 [US1] Document MVP watchlist validation in `specs/001-stock-analysis-dashboard/quickstart.md`
 
 **Checkpoint**: User Story 1 is independently functional and is the suggested MVP scope.
 
@@ -80,22 +80,22 @@
 
 ### Tests for User Story 2
 
-- [ ] T031 [P] [US2] Add raw provider response repository tests for success, partial, failed, and rate-limited payloads in `tests/test_mongo_repository.py`
-- [ ] T032 [P] [US2] Add FMP stock profile, historical price, financial metric, and valuation client tests in `tests/test_fmp_stock_data_client.py`
-- [ ] T033 [P] [US2] Add stock import service tests for raw-before-clean writes and partial provider data in `tests/test_stock_import_service.py`
-- [ ] T034 [P] [US2] Add price and fundamental repository tests in `tests/test_stock_data_repositories.py`
+- [X] T031 [P] [US2] Add raw provider response repository tests for success, partial, failed, and rate-limited payloads in `tests/test_mongo_repository.py`
+- [X] T032 [P] [US2] Add FMP stock profile, historical price, financial metric, and valuation client tests in `tests/test_fmp_stock_data_client.py`
+- [X] T033 [P] [US2] Add stock import service tests for raw-before-clean writes and partial provider data in `tests/test_stock_import_service.py`
+- [X] T034 [P] [US2] Add price and fundamental repository tests in `tests/test_stock_data_repositories.py`
 
 ### Implementation for User Story 2
 
-- [ ] T035 [P] [US2] Add company profile, financial metric, and valuation endpoint methods in `src/data_sources/fmp_client.py`
-- [ ] T036 [P] [US2] Implement stock price history repository in `src/db/repositories/stock_price_repository.py`
-- [ ] T037 [P] [US2] Implement fundamental metrics repository in `src/db/repositories/fundamental_metrics_repository.py`
-- [ ] T038 [US2] Extend company repository for stock profile freshness and symbol resolution in `src/db/repositories/company_repository.py`
-- [ ] T039 [US2] Implement provider normalization for profiles, daily prices, financial metrics, and valuation metrics in `src/preprocessing/normalization.py`
-- [ ] T040 [US2] Implement watchlist-driven stock import orchestration in `src/services/stock_import_service.py`
-- [ ] T041 [US2] Wire import run and data-quality issue creation into `src/services/stock_import_service.py`
-- [ ] T042 [US2] Add admin import controls and status text for stock imports in `src/ui/pages/admin_page.py`
-- [ ] T043 [US2] Run import phase validation from quickstart in `tests/test_stock_import_service.py` and `tests/test_mongo_repository.py`
+- [X] T035 [P] [US2] Add company profile, financial metric, and valuation endpoint methods in `src/data_sources/fmp_client.py`
+- [X] T036 [P] [US2] Implement stock price history repository in `src/db/repositories/stock_price_repository.py`
+- [X] T037 [P] [US2] Implement fundamental metrics repository in `src/db/repositories/fundamental_metrics_repository.py`
+- [X] T038 [US2] Extend company repository for stock profile freshness and symbol resolution in `src/db/repositories/company_repository.py`
+- [X] T039 [US2] Implement provider normalization for profiles, daily prices, financial metrics, and valuation metrics in `src/preprocessing/normalization.py`
+- [X] T040 [US2] Implement watchlist-driven stock import orchestration in `src/services/stock_import_service.py`
+- [X] T041 [US2] Wire import run and data-quality issue creation into `src/services/stock_import_service.py`
+- [X] T042 [US2] Add admin import controls and status text for stock imports in `src/ui/pages/admin_page.py`
+- [X] T043 [US2] Run import phase validation from quickstart in `tests/test_stock_import_service.py` and `tests/test_mongo_repository.py`
 
 **Checkpoint**: User Story 2 can be validated independently with mocked providers and database repositories.
 
@@ -109,19 +109,19 @@
 
 ### Tests for User Story 3
 
-- [ ] T044 [P] [US3] Add deterministic technical feature tests for momentum, moving averages, volatility, drawdown, and volume trends in `tests/test_feature_engineering_service.py`
-- [ ] T045 [P] [US3] Add deterministic fundamental feature tests for growth, margins, valuation, debt, and market capitalization in `tests/test_feature_engineering_service.py`
-- [ ] T046 [P] [US3] Add feature repository tests for freshness, unavailable reasons, and idempotent upserts in `tests/test_feature_repositories.py`
+- [X] T044 [P] [US3] Add deterministic technical feature tests for momentum, moving averages, volatility, drawdown, and volume trends in `tests/test_feature_engineering_service.py`
+- [X] T045 [P] [US3] Add deterministic fundamental feature tests for growth, margins, valuation, debt, and market capitalization in `tests/test_feature_engineering_service.py`
+- [X] T046 [P] [US3] Add feature repository tests for freshness, unavailable reasons, and idempotent upserts in `tests/test_feature_repositories.py`
 
 ### Implementation for User Story 3
 
-- [ ] T047 [P] [US3] Implement technical feature repository in `src/db/repositories/feature_repository.py`
-- [ ] T048 [P] [US3] Implement fundamental feature repository in `src/db/repositories/feature_repository.py`
-- [ ] T049 [US3] Expand existing price-derived calculations for stock features in `src/services/historical_market_data_service.py`
-- [ ] T050 [US3] Implement `FeatureEngineeringService.calculate_for_symbol` and `calculate_for_watchlist` in `src/services/feature_engineering_service.py`
-- [ ] T051 [US3] Store explicit feature unavailable reasons through `DataQualityRepository` in `src/services/feature_engineering_service.py`
-- [ ] T052 [US3] Show feature values, freshness, and unavailable reason text in `src/ui/pages/stock_detail_page.py`
-- [ ] T053 [US3] Run feature phase validation from quickstart in `tests/test_feature_engineering_service.py` and `tests/test_data_quality_evaluator.py`
+- [X] T047 [P] [US3] Implement technical feature repository in `src/db/repositories/feature_repository.py`
+- [X] T048 [P] [US3] Implement fundamental feature repository in `src/db/repositories/feature_repository.py`
+- [X] T049 [US3] Expand existing price-derived calculations for stock features in `src/services/historical_market_data_service.py`
+- [X] T050 [US3] Implement `FeatureEngineeringService.calculate_for_symbol` and `calculate_for_watchlist` in `src/services/feature_engineering_service.py`
+- [X] T051 [US3] Store explicit feature unavailable reasons through `DataQualityRepository` in `src/services/feature_engineering_service.py`
+- [X] T052 [US3] Show feature values, freshness, and unavailable reason text in `src/ui/pages/stock_detail_page.py`
+- [X] T053 [US3] Run feature phase validation from quickstart in `tests/test_feature_engineering_service.py` and `tests/test_data_quality_evaluator.py`
 
 **Checkpoint**: User Story 3 can be validated independently for symbols with sufficient and insufficient clean inputs.
 
@@ -135,20 +135,20 @@
 
 ### Tests for User Story 4
 
-- [ ] T054 [P] [US4] Add prediction repository tests for model runs, prediction results, transparency fields, and obsolete model versions in `tests/test_prediction_repositories.py`
-- [ ] T055 [P] [US4] Add baseline and advanced model tests with insufficient-data behavior in `tests/test_prediction_model_service.py`
-- [ ] T056 [P] [US4] Add backtest metric and caveat tests in `tests/test_backtest_service.py`
-- [ ] T057 [P] [US4] Add model evaluation page tests for quality metrics and freshness text in `tests/test_stock_analysis_pages.py`
+- [X] T054 [P] [US4] Add prediction repository tests for model runs, prediction results, transparency fields, and obsolete model versions in `tests/test_prediction_repositories.py`
+- [X] T055 [P] [US4] Add baseline and advanced model tests with insufficient-data behavior in `tests/test_prediction_model_service.py`
+- [X] T056 [P] [US4] Add backtest metric and caveat tests in `tests/test_backtest_service.py`
+- [X] T057 [P] [US4] Add model evaluation page tests for quality metrics and freshness text in `tests/test_stock_analysis_pages.py`
 
 ### Implementation for User Story 4
 
-- [ ] T058 [P] [US4] Implement prediction repository for `model_runs` and `prediction_results` in `src/db/repositories/prediction_repository.py`
-- [ ] T059 [P] [US4] Implement backtest repository for `backtest_results` in `src/db/repositories/backtest_repository.py`
-- [ ] T060 [US4] Implement baseline model training and prediction for one initial horizon in `src/services/prediction_model_service.py`
-- [ ] T061 [US4] Implement advanced model training and prediction using approved existing or explicitly added dependencies in `src/services/prediction_model_service.py`
-- [ ] T062 [US4] Implement backtest evaluation window, sample size, quality metrics, and caveats in `src/services/backtest_service.py`
-- [ ] T063 [US4] Show model evaluation, prediction confidence, uncertainty, model version, model quality, and freshness in `src/ui/pages/model_evaluation_page.py`
-- [ ] T064 [US4] Run model validation from quickstart in `tests/test_prediction_model_service.py`, `tests/test_backtest_service.py`, and `tests/test_preference_scoring_service.py`
+- [X] T058 [P] [US4] Implement prediction repository for `model_runs` and `prediction_results` in `src/db/repositories/prediction_repository.py`
+- [X] T059 [P] [US4] Implement backtest repository for `backtest_results` in `src/db/repositories/backtest_repository.py`
+- [X] T060 [US4] Implement baseline model training and prediction for one initial horizon in `src/services/prediction_model_service.py`
+- [X] T061 [US4] Implement advanced model training and prediction using approved existing or explicitly added dependencies in `src/services/prediction_model_service.py`
+- [X] T062 [US4] Implement backtest evaluation window, sample size, quality metrics, and caveats in `src/services/backtest_service.py`
+- [X] T063 [US4] Show model evaluation, prediction confidence, uncertainty, model version, model quality, and freshness in `src/ui/pages/model_evaluation_page.py`
+- [X] T064 [US4] Run model validation from quickstart in `tests/test_prediction_model_service.py`, `tests/test_backtest_service.py`, and `tests/test_preference_scoring_service.py`
 
 **Checkpoint**: User Story 4 can be validated independently after features exist.
 
@@ -162,18 +162,18 @@
 
 ### Tests for User Story 5
 
-- [ ] T065 [P] [US5] Add preference repository tests for score components, rankings, warnings, and explanations in `tests/test_preference_score_repository.py`
-- [ ] T066 [P] [US5] Add preference scoring tests for ranking order, missing-data penalties, conflicting signals, and no trade-execution wording in `tests/test_preference_scoring_service.py`
-- [ ] T067 [P] [US5] Add ranking UI tests for visible component and warning text in `tests/test_stock_analysis_pages.py`
+- [X] T065 [P] [US5] Add preference repository tests for score components, rankings, warnings, and explanations in `tests/test_preference_score_repository.py`
+- [X] T066 [P] [US5] Add preference scoring tests for ranking order, missing-data penalties, conflicting signals, and no trade-execution wording in `tests/test_preference_scoring_service.py`
+- [X] T067 [P] [US5] Add ranking UI tests for visible component and warning text in `tests/test_stock_analysis_pages.py`
 
 ### Implementation for User Story 5
 
-- [ ] T068 [P] [US5] Implement preference score repository in `src/db/repositories/preference_score_repository.py`
-- [ ] T069 [US5] Implement component scoring for fundamentals, technicals, risk, prediction output, and confidence in `src/services/preference_scoring_service.py`
-- [ ] T070 [US5] Implement explanation generation and data-quality warning summaries in `src/services/preference_scoring_service.py`
-- [ ] T071 [US5] Integrate ranking summaries into dashboard query service in `src/services/dashboard_service.py`
-- [ ] T072 [US5] Show ranked watchlist rows with component scores, explanations, confidence, uncertainty, and data-quality text in `src/ui/pages/dashboard_page.py`
-- [ ] T073 [US5] Replace buy/execution wording in new stock-analysis paths with preference/ranking terminology in `src/services/preference_scoring_service.py` and `src/ui/pages/dashboard_page.py`
+- [X] T068 [P] [US5] Implement preference score repository in `src/db/repositories/preference_score_repository.py`
+- [X] T069 [US5] Implement component scoring for fundamentals, technicals, risk, prediction output, and confidence in `src/services/preference_scoring_service.py`
+- [X] T070 [US5] Implement explanation generation and data-quality warning summaries in `src/services/preference_scoring_service.py`
+- [X] T071 [US5] Integrate ranking summaries into dashboard query service in `src/services/dashboard_service.py`
+- [X] T072 [US5] Show ranked watchlist rows with component scores, explanations, confidence, uncertainty, and data-quality text in `src/ui/pages/dashboard_page.py`
+- [X] T073 [US5] Replace buy/execution wording in new stock-analysis paths with preference/ranking terminology in `src/services/preference_scoring_service.py` and `src/ui/pages/dashboard_page.py`
 
 **Checkpoint**: User Story 5 can be validated independently after predictions or explicit missing-prediction warnings exist.
 
@@ -187,19 +187,19 @@
 
 ### Tests for User Story 6
 
-- [ ] T074 [P] [US6] Add navigation tests for overview, watchlist, stock detail, model evaluation, methodology, and admin routes in `tests/e2e/test_navigation.py`
-- [ ] T075 [P] [US6] Add stock detail E2E test for profile, price, features, predictions, preference, and missing/stale/failed text in `tests/e2e/test_stock_detail_page.py`
-- [ ] T076 [P] [US6] Add model evaluation E2E test for metric definitions and data freshness text in `tests/e2e/test_model_evaluation_page.py`
-- [ ] T077 [P] [US6] Add methodology/admin page tests for no broker integration and manual trading boundary text in `tests/test_stock_analysis_pages.py`
+- [X] T074 [P] [US6] Add navigation tests for overview, watchlist, stock detail, model evaluation, methodology, and admin routes in `tests/e2e/test_navigation.py`
+- [X] T075 [P] [US6] Add stock detail E2E test for profile, price, features, predictions, preference, and missing/stale/failed text in `tests/e2e/test_stock_detail_page.py`
+- [X] T076 [P] [US6] Add model evaluation E2E test for metric definitions and data freshness text in `tests/e2e/test_model_evaluation_page.py`
+- [X] T077 [P] [US6] Add methodology/admin page tests for no broker integration and manual trading boundary text in `tests/test_stock_analysis_pages.py`
 
 ### Implementation for User Story 6
 
-- [ ] T078 [US6] Complete stock detail page sections for profile, price summaries, features, predictions, preference score, explanations, and status text in `src/ui/pages/stock_detail_page.py`
-- [ ] T079 [US6] Refactor overview dashboard to stock-analysis KPIs and preference ranking summaries in `src/ui/pages/dashboard_page.py`
-- [ ] T080 [US6] Update methodology page with prediction/scoring method text and no broker/no trade execution boundary in `src/ui/pages/methodology_page.py`
-- [ ] T081 [US6] Update admin page with stock import, data-quality, model refresh, and legacy artifact status sections in `src/ui/pages/admin_page.py`
-- [ ] T082 [US6] Update navigation labels from legacy Trades-first flow to stock-analysis pages after new page tests pass in `src/app/navigation.py`
-- [ ] T083 [US6] Add shared text-first data-quality components for missing, stale, incomplete, low-quality, failed, ready, and unknown states in `src/ui/components/status_badges.py`
+- [X] T078 [US6] Complete stock detail page sections for profile, price summaries, features, predictions, preference score, explanations, and status text in `src/ui/pages/stock_detail_page.py`
+- [X] T079 [US6] Refactor overview dashboard to stock-analysis KPIs and preference ranking summaries in `src/ui/pages/dashboard_page.py`
+- [X] T080 [US6] Update methodology page with prediction/scoring method text and no broker/no trade execution boundary in `src/ui/pages/methodology_page.py`
+- [X] T081 [US6] Update admin page with stock import, data-quality, model refresh, and legacy artifact status sections in `src/ui/pages/admin_page.py`
+- [X] T082 [US6] Update navigation labels from legacy Trades-first flow to stock-analysis pages after new page tests pass in `src/app/navigation.py`
+- [X] T083 [US6] Add shared text-first data-quality components for missing, stale, incomplete, low-quality, failed, ready, and unknown states in `src/ui/components/status_badges.py`
 - [ ] T084 [US6] Run UI phase validation from quickstart in `tests/test_stock_analysis_pages.py`, `tests/test_ui_page_regressions.py`, `tests/e2e/test_navigation.py`, `tests/e2e/test_watchlist_page.py`, and `tests/e2e/test_stock_detail_page.py`
 
 **Checkpoint**: User Story 6 completes the first-version Streamlit workflow.

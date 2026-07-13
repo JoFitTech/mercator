@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from statistics import pstdev
 from typing import Any
 
 from src.db.repositories.market_signal_cache_repository import MarketSignalCacheRepository
@@ -38,8 +39,99 @@ class HistoricalMarketDataService:
     @staticmethod
     def _sorted_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         def key_fn(row: dict[str, Any]) -> str:
-            return str(row.get("date") or "")
+            return str(row.get("price_date") or row.get("date") or "")
         return sorted(rows, key=key_fn)
+
+    @staticmethod
+    def _row_date(row: dict[str, Any]) -> date | None:
+        value = row.get("price_date") or row.get("date")
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value[:10])
+            except ValueError:
+                return None
+        return None
+
+    @classmethod
+    def calculate_price_features(cls, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Berechnet technische Features aus lokal gespeicherter Tageshistorie."""
+
+        data = cls._sorted_rows(rows)
+        dated_closes: list[tuple[date, float]] = []
+        volumes: list[float] = []
+        refreshed_at: datetime | None = None
+        for row in data:
+            row_date = cls._row_date(row)
+            close = cls._to_float(row.get("adjusted_close") or row.get("close_price") or row.get("close"))
+            volume = cls._to_float(row.get("volume"))
+            if row.get("source_refreshed_at") and refreshed_at is None:
+                refreshed_at = row.get("source_refreshed_at")
+            if row_date is not None and close is not None:
+                dated_closes.append((row_date, close))
+                if volume is not None:
+                    volumes.append(volume)
+
+        if not dated_closes:
+            return {
+                "feature_date": None,
+                "feature_status": "MISSING",
+                "unavailable_reason": "No usable price history available.",
+                "input_refreshed_at": refreshed_at,
+            }
+
+        closes = [close for _, close in dated_closes]
+        feature_date = dated_closes[-1][0]
+        latest = closes[-1]
+
+        def mean(window: int) -> float | None:
+            return (sum(closes[-window:]) / float(window)) if len(closes) >= window else None
+
+        def momentum(offset: int) -> float | None:
+            if len(closes) <= offset or closes[-offset] == 0:
+                return None
+            return (latest / closes[-offset]) - 1.0
+
+        returns = [
+            (closes[index] / closes[index - 1]) - 1.0
+            for index in range(1, len(closes))
+            if closes[index - 1] != 0
+        ]
+        volatility_20d = pstdev(returns[-20:]) if len(returns) >= 20 else None
+
+        drawdown_window = closes[-252:]
+        running_max = drawdown_window[0]
+        max_drawdown = 0.0
+        for close in drawdown_window:
+            running_max = max(running_max, close)
+            if running_max:
+                max_drawdown = min(max_drawdown, (close / running_max) - 1.0)
+
+        volume_trend_20d = None
+        if len(volumes) >= 40:
+            prior = sum(volumes[-40:-20]) / 20.0
+            recent = sum(volumes[-20:]) / 20.0
+            if prior:
+                volume_trend_20d = (recent / prior) - 1.0
+
+        status = "READY" if len(closes) >= 200 else "INCOMPLETE"
+        reason = None if status == "READY" else f"Only {len(closes)} usable price rows available; 200 required."
+        return {
+            "feature_date": feature_date,
+            "momentum_1m": momentum(22),
+            "momentum_3m": momentum(63),
+            "momentum_6m": momentum(126),
+            "sma_20": mean(20),
+            "sma_50": mean(50),
+            "sma_200": mean(200),
+            "volatility_20d": volatility_20d,
+            "max_drawdown_1y": max_drawdown if len(drawdown_window) >= 2 else None,
+            "volume_trend_20d": volume_trend_20d,
+            "feature_status": status,
+            "unavailable_reason": reason,
+            "input_refreshed_at": refreshed_at,
+        }
 
     def load_signal(self, symbol: str, today: date | None = None) -> HistoricalSignal:
         reference = today or datetime.now(UTC).date()

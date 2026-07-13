@@ -301,6 +301,62 @@ class CompanyRepository:
                     return self._rows_to_dicts(cursor, [row])[0]
         return None
 
+    def resolve_symbol(self, symbol: str) -> dict[str, Any] | None:
+        """Loest ein Stock-Symbol ueber current_symbol oder den SYM:-company_key auf."""
+
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return None
+        sql = """
+            SELECT *
+            FROM companies
+            WHERE UPPER(current_symbol) = %s OR company_key = %s
+            ORDER BY
+                CASE WHEN UPPER(current_symbol) = %s THEN 0 ELSE 1 END,
+                COALESCE(profile_updated_at, updated_at, created_at) DESC
+            LIMIT 1
+        """
+        params = (normalized_symbol, f"SYM:{normalized_symbol}", normalized_symbol)
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                row = cursor.fetchone()
+                if row:
+                    return self._rows_to_dicts(cursor, [row])[0]
+        return None
+
+    def get_stock_profile_status(self, symbol: str) -> dict[str, Any] | None:
+        """Liest den sichtbaren Profil-/Freshness-Status fuer ein Stock-Symbol."""
+
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return None
+        sql = """
+            SELECT
+                company_key,
+                current_symbol,
+                company_name,
+                profile_status,
+                profile_reason,
+                profile_updated_at,
+                profile_provider,
+                sector_resolution_status
+            FROM companies
+            WHERE UPPER(current_symbol) = %s OR company_key = %s
+            ORDER BY
+                CASE WHEN UPPER(current_symbol) = %s THEN 0 ELSE 1 END,
+                COALESCE(profile_updated_at, updated_at, created_at) DESC
+            LIMIT 1
+        """
+        params = (normalized_symbol, f"SYM:{normalized_symbol}", normalized_symbol)
+        with self._client.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                row = cursor.fetchone()
+                if row:
+                    return self._rows_to_dicts(cursor, [row])[0]
+        return None
+
     def list_companies(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         sql = "SELECT * FROM companies ORDER BY updated_at DESC LIMIT %s OFFSET %s"
         with self._client.get_connection() as conn:

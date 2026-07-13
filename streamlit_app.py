@@ -19,6 +19,9 @@ from src.config.settings import SettingsError
 from src.ui.components.page_scaffold import render_error_state
 
 from src.ui.pages.dashboard_page import render_dashboard_page
+from src.ui.pages.watchlist_page import render_watchlist_page
+from src.ui.pages.stock_detail_page import render_stock_detail_page
+from src.ui.pages.model_evaluation_page import render_model_evaluation_page
 from src.ui.pages.trades_page import render_trades_page
 from src.ui.pages.companies_page import render_companies_page
 from src.ui.pages.company_detail_page import render_company_detail_page
@@ -133,6 +136,31 @@ def main():
             runtime_settings_service=app_settings_service,
             db_status=db_status,
         ))
+    elif nav_target == "Watchlist":
+        _safe_render_page(
+            "Watchlist",
+            lambda: render_watchlist_page(
+                factory.create_watchlist_service(),
+                analysis_service=factory.create_stock_analysis_service(),
+                db_status=db_status,
+            ),
+        )
+    elif nav_target == "Modellbewertung":
+        _safe_render_page(
+            "Modellbewertung",
+            lambda: render_model_evaluation_page(
+                prediction_repository=factory.create_prediction_repository(),
+                backtest_repository=factory.create_backtest_repository(),
+            ),
+        )
+    elif nav_target == "Stock-Detail":
+        _safe_render_page(
+            "Stock-Detail",
+            lambda: render_stock_detail_page(
+                symbol=str(st.session_state.get("selected_stock_symbol") or ""),
+                analysis_service=factory.create_stock_analysis_service(),
+            ),
+        )
     elif nav_target == "Trades":
         _safe_render_page("Trades", lambda: render_trades_page(analysis_service, db_status=db_status))
     elif nav_target == "Unternehmen":
@@ -156,7 +184,8 @@ def main():
             db_status=db_status,
             settings_service=app_settings_service,
             import_service=import_service,
-            api_usage_service=factory.create_api_usage_service()
+            api_usage_service=factory.create_api_usage_service(),
+            stock_import_service=factory.create_stock_import_service(),
         ))
     elif nav_target == "Trade-Detail":
         _safe_render_page("Trade-Detail", lambda: render_trade_detail_page(analysis_service, db_status=db_status))

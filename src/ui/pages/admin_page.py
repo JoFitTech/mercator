@@ -15,6 +15,7 @@ from src.services.app_settings_service import AppSettingsService
 from src.services.api_usage_service import ApiUsageService
 from src.services.database_status_service import DatabaseStatus
 from src.services.import_service import ImportService, ImportSummary
+from src.services.stock_import_service import StockImportService
 from src.services.mysql_sync_service import MySqlSyncService
 from src.services.startup_sync_service import StartupSyncService
 from src.services.public_share_service import (
@@ -29,6 +30,9 @@ from src.utils.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
 PUBLIC_SHARE_MANAGER_STATE_KEY = "public_share_manager"
+STOCK_ANALYSIS_ADMIN_BOUNDARY_TEXT = (
+    "Keine Broker-Anbindung, keine Order und kein Live-Trading: Entscheidungen bleiben manuell außerhalb von Mercator."
+)
 
 
 def _public_share_status_message(status: TunnelStatus) -> tuple[str, str]:
@@ -128,6 +132,26 @@ def _build_import_metrics(summary: ImportSummary) -> list[tuple[str, int]]:
         ("Profile aus Cache", summary.profile_cache_hits),
         ("Profilfehler", summary.profile_failures),
     ]
+
+
+def _build_stock_import_status_message(summary: Any) -> tuple[str, str]:
+    status = str(getattr(summary, "status", "UNKNOWN") or "UNKNOWN").upper()
+    raw_written = int(getattr(summary, "raw_responses_written", 0) or 0)
+    clean_written = int(getattr(summary, "clean_records_written", 0) or 0)
+    succeeded = int(getattr(summary, "symbols_succeeded", 0) or 0)
+    failed = int(getattr(summary, "symbols_failed", 0) or 0)
+    message = (
+        f"Stock-Import {status}: Symbole erfolgreich {succeeded}, fehlgeschlagen {failed}, "
+        f"Raw Responses {raw_written}, Clean Records {clean_written}."
+    )
+    if getattr(summary, "error_message", None):
+        message = f"{message} Fehler: {summary.error_message}"
+    if status == "SUCCESS":
+        return "success", message
+    if status == "FAILED":
+        return "error", message
+    return "warning", message
+
 
 def _humanize_import_error(exc: Exception) -> str:
     """Übersetzt technische Importfehler in UI-taugliche deutsche Meldungen."""
@@ -831,6 +855,7 @@ def render_admin_page(
     settings_service: AppSettingsService | None = None,
     import_service: ImportService | None = None,
     api_usage_service: ApiUsageService | None = None,
+    stock_import_service: StockImportService | None = None,
 ) -> None:
     """Rendert die Admin-Seite als präzisen Regelarbeitsplatz."""
 
@@ -854,9 +879,21 @@ def render_admin_page(
     actions = [{"label": "System-Check", "type": "secondary"}]
     results = render_page_header(
         "Admin", 
-        "Konfiguration von Gates, Scoring-Regeln und Datenquellen.",
+        "Stock-Import, Datenqualität, Modellaktualisierung und Legacy-Betrieb verwalten.",
         actions=actions
     )
+
+    with st.container(border=True):
+        st.markdown("### Stock-Analysis-Status")
+        status_columns = st.columns(4)
+        status_columns[0].metric("Stock-Import", "Bereit" if stock_import_service is not None else "Nicht verfügbar")
+        status_columns[1].metric("Datenqualität", "Textstatus aktiv")
+        status_columns[2].metric("Modell-Refresh", "Über Modellbewertung")
+        status_columns[3].metric("Legacy-Artefakte", "Weiter verfügbar")
+        st.caption(
+            "MongoDB hält Rohantworten; MySQL hält normalisierte Daten, Features, Prognosen, Backtests und Preference Scores."
+        )
+        st.info(STOCK_ANALYSIS_ADMIN_BOUNDARY_TEXT)
     
     if isinstance(results, (list, tuple)) and results and results[0]:
         st.session_state["show_system_check"] = True
@@ -995,6 +1032,55 @@ def render_admin_page(
 
         st.markdown("---")
         st.markdown("#### Manueller Import")
+        with st.container(border=True):
+            st.markdown("##### Stock-Datenimport")
+            st.caption(
+                "Importiert ein einzelnes Watchlist-/Stock-Symbol: Rohpayloads nach MongoDB, "
+                "normalisierte Profile, Preise und Metriken nach MySQL."
+            )
+            col_symbol, col_from, col_to = st.columns(3)
+            stock_symbol = col_symbol.text_input(
+                "Symbol",
+                value="",
+                placeholder="AAPL",
+                key="admin_stock_import_symbol",
+                disabled=(not write_available) or stock_import_service is None,
+            )
+            default_to = datetime.now(timezone.utc).date()
+            default_from = default_to - timedelta(days=365)
+            stock_date_from = col_from.date_input(
+                "Von",
+                value=default_from,
+                key="admin_stock_import_date_from",
+                disabled=(not write_available) or stock_import_service is None,
+            )
+            stock_date_to = col_to.date_input(
+                "Bis",
+                value=default_to,
+                key="admin_stock_import_date_to",
+                disabled=(not write_available) or stock_import_service is None,
+            )
+            if stock_import_service is None:
+                st.info("Stock-Import-Service ist nicht verfuegbar.")
+            if st.button(
+                "Stock-Datenimport starten",
+                use_container_width=True,
+                disabled=(not write_available) or stock_import_service is None or not str(stock_symbol or "").strip(),
+                key="admin_run_stock_import",
+            ):
+                with st.spinner("Importiere Stock-Daten von FMP..."):
+                    try:
+                        summary = stock_import_service.import_symbol(
+                            str(stock_symbol).strip().upper(),
+                            date_from=stock_date_from.isoformat(),
+                            date_to=stock_date_to.isoformat(),
+                        )
+                        level, message = _build_stock_import_status_message(summary)
+                        _show_admin_feedback(level, message)
+                    except Exception as exc:  # noqa: BLE001 - UI-Schutz
+                        _show_admin_feedback("error", "Stock-Datenimport fehlgeschlagen.", str(exc))
+
+        st.markdown("---")
         api2_missing_count = admin_service.count_mysql_api2_missing_candidates() if mysql_online else 0
         st.caption(
             "Bulk-Backfill fuer fehlende API2-Profile: "

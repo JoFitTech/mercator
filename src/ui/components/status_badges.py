@@ -4,6 +4,59 @@ from __future__ import annotations
 
 import streamlit as st
 
+from src.preprocessing.data_quality_evaluator import (
+    assess_data_quality,
+)
+
+
+def data_quality_status_view(
+    status: str,
+    *,
+    data_category: str | None = None,
+    reason: str | None = None,
+    source_refreshed_at=None,
+    message: str | None = None,
+) -> dict[str, str]:
+    """Build a text-first view model for every stock-analysis quality state."""
+
+    timestamp = source_refreshed_at if hasattr(source_refreshed_at, "isoformat") else None
+    assessment = assess_data_quality(
+        status,
+        data_category=data_category,
+        reason=reason,
+        source_refreshed_at=timestamp,
+    )
+    text = f"{assessment.label}: {str(message).strip() if message else assessment.message}"
+    if source_refreshed_at is not None and timestamp is None:
+        text = f"{text.rstrip('.')} Letzte Aktualisierung: {source_refreshed_at}."
+    return {
+        "status": assessment.status,
+        "label": assessment.label,
+        "text": text,
+        "status_type": assessment.severity,
+    }
+
+
+def render_data_quality_status(
+    status: str,
+    *,
+    data_category: str | None = None,
+    reason: str | None = None,
+    source_refreshed_at=None,
+    message: str | None = None,
+) -> None:
+    """Render status and explanatory text so meaning never depends on color."""
+
+    view = data_quality_status_view(
+        status,
+        data_category=data_category,
+        reason=reason,
+        source_refreshed_at=source_refreshed_at,
+        message=message,
+    )
+    status_badge(view["label"], status_type=view["status_type"], help=view["text"])
+    st.caption(view["text"])
+
 
 def status_to_label(status: str) -> str:
     normalized = str(status or "").strip().upper()

@@ -357,13 +357,15 @@ def _detect_system_chromium() -> str | None:
 
 
 _PAGE_ALIASES = {
-    "Overview": "Dashboard",
+    "Overview": "Übersicht",
+    "Dashboard": "Übersicht",
     "Explorer": "Trades",
     "Detailansicht": "Trade-Detail",
 }
 
-_HEADER_PAGES = {"Dashboard", "Trades", "Unternehmen"}
+_HEADER_PAGES = {"Übersicht", "Watchlist", "Modellbewertung"}
 _SIDEBAR_PAGES = {"Methodik", "Einstellungen", "Admin"}
+_LEGACY_PAGES = {"Trades", "Unternehmen"}
 
 
 def _resolve_page_alias(page_title: str) -> str:
@@ -402,6 +404,21 @@ def _expand_sidebar_management(page: Page) -> None:
         settings_button.wait_for(state="visible", timeout=2500)
     except Exception:
         pass
+    page.wait_for_timeout(150)
+
+
+def _expand_sidebar_legacy(page: Page) -> None:
+    sidebar = page.locator('[data-testid="stSidebar"]')
+    legacy_button = sidebar.get_by_role("button", name="Legacy Trades", exact=False).first
+    try:
+        if legacy_button.is_visible(timeout=800):
+            return
+    except Exception:
+        pass
+
+    summary = sidebar.locator('[data-testid="stExpander"] summary').filter(has_text="Legacy-Analyse").first
+    summary.wait_for(state="visible", timeout=ACTION_TIMEOUT)
+    summary.click()
     page.wait_for_timeout(150)
 
 
@@ -448,6 +465,18 @@ def navigate_to_page(page: Page, page_title: str) -> None:
             ])
         if not clicked:
             raise AssertionError(f"Sidebar-Navigation für '{resolved_title}' nicht gefunden.")
+        _wait_for_streamlit_ready(page)
+        return
+
+    if resolved_title in _LEGACY_PAGES:
+        _expand_sidebar_legacy(page)
+        sidebar = page.locator('[data-testid="stSidebar"]')
+        clicked = _click_first_visible([
+            sidebar.get_by_role("button", name=f"Legacy {resolved_title}", exact=False).first,
+            sidebar.get_by_text(f"Legacy {resolved_title}", exact=False).first,
+        ])
+        if not clicked:
+            raise AssertionError(f"Legacy-Navigation für '{resolved_title}' nicht gefunden.")
         _wait_for_streamlit_ready(page)
         return
 

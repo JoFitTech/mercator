@@ -18,6 +18,7 @@ STOCK_ANALYSIS_SERVICE_MODULES = (
 	"prediction_model_service",
 	"backtest_service",
 	"preference_scoring_service",
+	"watchlist_service",
 	"stock_analysis_service",
 )
 

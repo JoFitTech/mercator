@@ -16,6 +16,7 @@ from src.services.import_service import ImportSummary
 from src.ui.pages.admin_page import (
     _build_import_metrics,
     _build_import_success_message,
+    _build_stock_import_status_message,
     _humanize_import_error,
     _public_share_status_message,
 )
@@ -410,30 +411,30 @@ def test_sidebar_nav_target_is_not_overwritten_by_header_fallback() -> None:
 def test_sidebar_nav_target_switches_when_header_selection_changes() -> None:
     update = app_navigation._determine_header_nav_update(
         current_target="Einstellungen",
-        selected_header_target="Unternehmen",
+        selected_header_target="Modellbewertung",
         previous_header_target="Dashboard",
     )
-    assert update == "Unternehmen"
+    assert update == "Modellbewertung"
 
 
 def test_detail_nav_target_maps_to_parent_but_allows_header_switch() -> None:
     update = app_navigation._determine_header_nav_update(
         current_target="Trade-Detail",
-        selected_header_target="Unternehmen",
+        selected_header_target="Watchlist",
         previous_header_target="Trades",
     )
-    assert update == "Unternehmen"
+    assert update == "Watchlist"
 
 
 def test_sidebar_widget_sync_resets_only_stale_header_value() -> None:
     assert app_navigation._should_reset_header_widget(
         current_target="Admin",
-        widget_value="Dashboard",
-        previous_header_target="Trades",
+        widget_value="Watchlist",
+        previous_header_target="Dashboard",
     ) is True
     assert app_navigation._should_reset_header_widget(
         current_target="Admin",
-        widget_value="Trades",
+        widget_value="Dashboard",
         previous_header_target="Trades",
     ) is False
     assert app_navigation._should_reset_header_widget(
@@ -446,11 +447,11 @@ def test_sidebar_widget_sync_resets_only_stale_header_value() -> None:
 def test_sidebar_header_click_allows_direct_navigation_from_secondary_pages() -> None:
     update = app_navigation._determine_header_nav_update(
         current_target="Admin",
-        selected_header_target="Trades",
-        previous_header_target="Trades",
-        clicked_header_target="Trades",
+        selected_header_target="Watchlist",
+        previous_header_target="Dashboard",
+        clicked_header_target="Watchlist",
     )
-    assert update == "Trades"
+    assert update == "Watchlist"
 
 
 def test_settings_save_feedback_is_persisted_in_session_state(monkeypatch) -> None:
@@ -481,6 +482,28 @@ def test_admin_import_summary_helpers_include_new_profile_counters() -> None:
     assert metrics["Profile frisch geladen"] == 0
     assert metrics["Profile aus Cache"] == 40
     assert metrics["Profilfehler"] == 2
+
+
+def test_stock_import_status_message_shows_raw_clean_and_failures() -> None:
+    summary = type(
+        "Summary",
+        (),
+        {
+            "status": "FAILED",
+            "symbols_succeeded": 0,
+            "symbols_failed": 1,
+            "raw_responses_written": 2,
+            "clean_records_written": 0,
+            "error_message": "provider down",
+        },
+    )()
+
+    level, message = _build_stock_import_status_message(summary)
+
+    assert level == "error"
+    assert "Raw Responses 2" in message
+    assert "Clean Records 0" in message
+    assert "provider down" in message
 
 
 def test_dashboard_sector_chart_uses_vega_lite_bar_chart(monkeypatch) -> None:
@@ -713,5 +736,3 @@ def test_dashboard_kpi_row_has_max_five_primary_cards(monkeypatch) -> None:
 
     dashboard_page.render_dashboard_page(service=_DashboardServiceStub(), import_service=None, settings=None, runtime_settings_service=None, db_status=None)
     assert len(captured["kpis"]) <= 5
-
-

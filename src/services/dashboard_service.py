@@ -14,7 +14,10 @@ import pandas as pd
 
 from src.db.mongo_repository import CompanyMongoRepository, InsiderTradeMongoRepository
 from src.db.repositories.company_repository import CompanyMySqlRepository
+from src.db.repositories.preference_score_repository import PreferenceScoreRepository
+from src.db.repositories.data_quality_repository import DataQualityRepository
 from src.db.repositories.trade_repository import InsiderTradeMySqlRepository
+from src.db.repositories.watchlist_repository import WatchlistRepository
 from src.services.accumulation_service import AccumulationService
 
 
@@ -30,11 +33,17 @@ class DashboardService:
         company_mongo_repo: CompanyMongoRepository | None,
         trade_repo: InsiderTradeMySqlRepository,
         company_repo: CompanyMySqlRepository,
+        preference_score_repo: PreferenceScoreRepository | None = None,
+        watchlist_repo: WatchlistRepository | None = None,
+        data_quality_repo: DataQualityRepository | None = None,
     ) -> None:
         self.raw_repo = raw_repo
         self.company_mongo_repo = company_mongo_repo
         self.trade_repo = trade_repo
         self.company_repo = company_repo
+        self.preference_score_repo = preference_score_repo
+        self.watchlist_repo = watchlist_repo
+        self.data_quality_repo = data_quality_repo
         self._payload_cache_ttl_seconds = 45
         self._payload_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._state_cache_ttl_seconds = 10
@@ -75,8 +84,44 @@ class DashboardService:
             }
 
         payload["payload_error_message"] = payload_error_message
+        payload["preference_rankings"] = self._load_preference_rankings()
+        payload["stock_analysis_summary"] = self._load_stock_analysis_summary()
         self._payload_cache[cache_key] = (now, payload)
         return payload
+
+    def _load_preference_rankings(self) -> list[dict[str, Any]]:
+        if self.preference_score_repo is None:
+            return []
+        try:
+            return self.preference_score_repo.list_rankings(limit=25)
+        except Exception:
+            return []
+
+    def _load_stock_analysis_summary(self) -> dict[str, int]:
+        summary = {
+            "watchlist_total": 0,
+            "watchlist_active": 0,
+            "watchlist_unresolved": 0,
+            "open_data_quality_issues": 0,
+        }
+        if self.watchlist_repo is not None:
+            try:
+                items = self.watchlist_repo.list_items(active_only=False)
+                summary["watchlist_total"] = len(items)
+                summary["watchlist_active"] = sum(1 for item in items if bool(item.get("active", True)))
+                summary["watchlist_unresolved"] = sum(
+                    1
+                    for item in items
+                    if str(item.get("resolution_status") or "").strip().upper() != "RESOLVED"
+                )
+            except Exception:
+                pass
+        if self.data_quality_repo is not None:
+            try:
+                summary["open_data_quality_issues"] = self.data_quality_repo.count_issues(unresolved_only=True)
+            except Exception:
+                pass
+        return summary
 
     def _build_cache_key(self, filters: dict[str, Any]) -> str:
         cached_state = self._state_cache

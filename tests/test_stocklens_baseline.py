@@ -29,7 +29,7 @@ def test_current_streamlit_entrypoint_keeps_legacy_pages_wired() -> None:
 def test_current_navigation_targets_preserve_legacy_trade_routes() -> None:
     source = _read("src/app/navigation.py")
 
-    assert '"Trades": "Trades"' in source
+    assert '"Legacy Trades": "Trades"' in source
     assert '"Trade-Detail"' in source
     assert 'return "Trades"' in source
 

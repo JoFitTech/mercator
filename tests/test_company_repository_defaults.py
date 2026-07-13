@@ -88,6 +88,7 @@ def test_import_service_stub_sets_unresolved_sector_status() -> None:
 class _CursorStub:
     def __init__(self, rows: list[tuple[Any, ...]]) -> None:
         self.rows = rows
+        self.description = [("current_symbol",)]
         self.executed_sql: str | None = None
         self.executed_params: tuple[Any, ...] | None = None
 
@@ -103,6 +104,9 @@ class _CursorStub:
 
     def fetchall(self):
         return self.rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
 
 
 class _ConnectionStub:
@@ -139,3 +143,46 @@ def test_backfill_candidates_query_is_mysql_strict_mode_compatible() -> None:
     assert "GROUP BY c.current_symbol" in client.cursor_stub.executed_sql
     assert "ORDER BY MAX(COALESCE(c.last_seen_at, c.updated_at)) DESC" in client.cursor_stub.executed_sql
     assert client.cursor_stub.executed_params == (50,)
+
+
+def test_company_repository_resolves_symbol_by_current_symbol_or_company_key() -> None:
+    row = ("SYM:AAPL", "AAPL", "Apple Inc.", "FETCHED")
+    client = _ClientForBackfill(rows=[row])
+    client.cursor_stub.description = [("company_key",), ("current_symbol",), ("company_name",), ("profile_status",)]
+    repo = CompanyMySqlRepository(cast(Any, client))
+
+    result = repo.resolve_symbol(" aapl ")
+
+    assert result == {
+        "company_key": "SYM:AAPL",
+        "current_symbol": "AAPL",
+        "company_name": "Apple Inc.",
+        "profile_status": "FETCHED",
+    }
+    assert client.cursor_stub.executed_params == ("AAPL", "SYM:AAPL", "AAPL")
+    assert "UPPER(current_symbol)" in str(client.cursor_stub.executed_sql)
+
+
+def test_company_repository_reads_stock_profile_status_fields() -> None:
+    updated_at = datetime(2026, 7, 9, 12, 0, tzinfo=timezone.utc)
+    row = ("SYM:MSFT", "MSFT", "Microsoft", "FETCHED", "stock_import", updated_at, "FMP", "RESOLVED")
+    client = _ClientForBackfill(rows=[row])
+    client.cursor_stub.description = [
+        ("company_key",),
+        ("current_symbol",),
+        ("company_name",),
+        ("profile_status",),
+        ("profile_reason",),
+        ("profile_updated_at",),
+        ("profile_provider",),
+        ("sector_resolution_status",),
+    ]
+    repo = CompanyMySqlRepository(cast(Any, client))
+
+    result = repo.get_stock_profile_status("msft")
+
+    assert result is not None
+    assert result["company_key"] == "SYM:MSFT"
+    assert result["profile_status"] == "FETCHED"
+    assert result["profile_updated_at"] == updated_at
+    assert "profile_updated_at" in str(client.cursor_stub.executed_sql)

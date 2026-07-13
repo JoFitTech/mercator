@@ -140,6 +140,51 @@ def render_trade_table(df: pd.DataFrame, height: int = 600, on_select: str = "re
     )
 
 
+def render_watchlist_status_table(df: pd.DataFrame, height: int = 420) -> Any:
+    """Rendert die Watchlist-MVP-Tabelle mit textuellen Datenqualitaetsstatus."""
+
+    visible_cols = [
+        "symbol",
+        "display_name",
+        "priority",
+        "active",
+        "resolution_status",
+        "profile_status_text",
+        "price_status_text",
+        "financial_status_text",
+        "prediction_status_text",
+        "preference_status_text",
+        "data_quality_summary",
+    ]
+    work = df.copy()
+    for col in visible_cols:
+        if col not in work.columns:
+            work[col] = None
+
+    col_config = {
+        "symbol": st.column_config.TextColumn("Symbol", width="small", pinned=True),
+        "display_name": st.column_config.TextColumn("Name", width="medium"),
+        "priority": st.column_config.NumberColumn("Prioritaet", width="small"),
+        "active": st.column_config.CheckboxColumn("Aktiv", width="small"),
+        "resolution_status": st.column_config.TextColumn("Resolution", width="medium"),
+        "profile_status_text": st.column_config.TextColumn("Profil", width="large"),
+        "price_status_text": st.column_config.TextColumn("Kurse", width="large"),
+        "financial_status_text": st.column_config.TextColumn("Finanzdaten", width="large"),
+        "prediction_status_text": st.column_config.TextColumn("Prognose", width="large"),
+        "preference_status_text": st.column_config.TextColumn("Preference", width="large"),
+        "data_quality_summary": st.column_config.TextColumn("Datenqualitaet", width="large"),
+    }
+
+    return st.dataframe(
+        work[visible_cols],
+        column_order=visible_cols,
+        column_config=col_config,
+        use_container_width=True,
+        hide_index=True,
+        height=height,
+    )
+
+
 def get_single_selected_row_index(event: dict[str, Any] | None, row_count: int) -> int | None:
     """Liest robust den ausgewählten Zeilenindex aus einem Streamlit-Selection-Event."""
     if not event:
